@@ -1,8 +1,12 @@
 #include "GateServer.h"
 
+#include <utility>
+
 namespace de::server::engine
 {
-	GateServer::GateServer()
+	GateServer::GateServer(std::string serverId, config::GateConfig config)
+		: ServerBase(std::move(serverId))
+		, config_(std::move(config))
 	{
 	}
 

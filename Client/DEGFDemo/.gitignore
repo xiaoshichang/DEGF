@@ -1,0 +1,53 @@
+# Unity generated folders
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+/[Uu]ser[Ss]ettings/
+
+# Asset import pipeline
+/[Aa]ssets/AssetStoreTools*
+
+# Visual Studio / Rider / VS Code
+/.vs/
+/.idea/
+/.vscode/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity auto-generated solution and project files
+ExportedObj/
+consulo/
+
+# Builds and packaged output
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.exe
+*.dmg
+*.ipa
+*.xcodeproj
+*.xcworkspace
+
+# Crash reports
+sysinfo.txt
+
+# JetBrains Rider
+*.sln.iml

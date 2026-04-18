@@ -1,0 +1,18 @@
+# Build output
+/build/
+/out/
+
+# CMake generated files
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+/Makefile
+
+# Visual Studio generated files
+/.vs/
+/*.sln
+/*.vcxproj
+/*.vcxproj.filters
+/*.vcxproj.user
+/*.dir/

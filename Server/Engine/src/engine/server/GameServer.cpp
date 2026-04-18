@@ -3,6 +3,7 @@
 #include "core/Logger.h"
 
 #include <utility>
+#include <thread>
 
 namespace de::server::engine
 {
@@ -24,6 +25,10 @@ namespace de::server::engine
 	void GameServer::Run()
 	{
 		Logger::Info("GameServer", "Run");
+		while (true)
+		{
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
 	}
 
 	void GameServer::Uninit()

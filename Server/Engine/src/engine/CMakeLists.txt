@@ -1,14 +1,15 @@
-add_library(engine_core
-    engine_core.cpp
-)
-add_library(Engine::core ALIAS engine_core)
 
-target_compile_features(engine_core PUBLIC cxx_std_17)
-target_include_directories(engine_core
-    PUBLIC
-        "${CMAKE_CURRENT_LIST_DIR}/.."
+file(GLOB_RECURSE DE_SERVER_SOURCE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
-target_link_libraries(engine_core
+
+add_executable(DEServer
+    ${DE_SERVER_SOURCE_FILES}
+)
+
+
+target_link_libraries(DEServer
     PUBLIC
         de::thirdparty::asio
         de::thirdparty::kcp
@@ -18,7 +19,8 @@ target_link_libraries(engine_core
         de::thirdparty::zeromq
 )
 
-add_executable(Engine
-    main.cpp
+target_compile_features(DEServer PUBLIC cxx_std_17)
+target_include_directories(DEServer
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_link_libraries(Engine PRIVATE Engine::core)

@@ -1,5 +1,7 @@
 #include "GameServer.h"
 
+#include "core/Logger.h"
+
 #include <utility>
 
 namespace de::server::engine
@@ -16,13 +18,16 @@ namespace de::server::engine
 
 	void GameServer::Init()
 	{
+		Logger::Info("GameServer", "Init");
 	}
 
 	void GameServer::Run()
 	{
+		Logger::Info("GameServer", "Run");
 	}
 
 	void GameServer::Uninit()
 	{
+		Logger::Info("GameServer", "Uninit");
 	}
 }

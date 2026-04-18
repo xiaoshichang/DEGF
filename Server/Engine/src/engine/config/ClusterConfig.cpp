@@ -69,6 +69,7 @@ namespace de::server::engine::config
 			json.at("logging").at("rootDir").get<std::string>(),
 			json.at("logging").at("minLevel").get<std::string>(),
 			json.at("logging").at("flushIntervalMs").get<int>(),
+			json.at("logging").at("enableConsole").get<bool>(),
 			json.at("logging").at("rotateDaily").get<bool>(),
 			json.at("logging").at("maxFileSizeMB").get<int>(),
 			json.at("logging").at("maxRetainedFiles").get<int>()

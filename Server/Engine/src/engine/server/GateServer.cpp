@@ -1,5 +1,7 @@
 #include "GateServer.h"
 
+#include "core/Logger.h"
+
 #include <utility>
 
 namespace de::server::engine
@@ -16,13 +18,16 @@ namespace de::server::engine
 
 	void GateServer::Init()
 	{
+		Logger::Info("GateServer", "Init");
 	}
 
 	void GateServer::Run()
 	{
+		Logger::Info("GateServer", "Run");
 	}
 
 	void GateServer::Uninit()
 	{
+		Logger::Info("GateServer", "Uninit");
 	}
 }

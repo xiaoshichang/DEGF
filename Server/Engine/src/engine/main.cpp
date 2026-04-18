@@ -1,4 +1,5 @@
 #include "config/ClusterConfig.h"
+#include "core/Logger.h"
 #include "server/GameServer.h"
 #include "server/GateServer.h"
 #include "server/GMServer.h"
@@ -49,17 +50,20 @@ int main(int argc, char* argv[])
 		const std::string configPath = argv[1];
 		const std::string serverId = argv[2];
 		const auto clusterConfig = de::server::engine::config::LoadClusterConfig(configPath);
+		de::server::engine::Logger::Init(serverId, clusterConfig.logging);
 
 		auto server = CreateServer(clusterConfig, serverId);
 		if (server == nullptr)
 		{
-			std::cerr << "Unknown server-id: " << serverId << std::endl;
+			de::server::engine::Logger::Error("Main", "Unknown server-id: " + serverId);
 			return 1;
 		}
 
+		de::server::engine::Logger::Info("Main", "Starting server.");
 		server->Init();
 		server->Run();
 		server->Uninit();
+		de::server::engine::Logger::Info("Main", "Server stopped.");
 		return 0;
 	}
 	catch (const std::exception& exception)

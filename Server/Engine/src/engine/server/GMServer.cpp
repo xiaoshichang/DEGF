@@ -1,5 +1,7 @@
 #include "GMServer.h"
 
+#include "core/Logger.h"
+
 #include <utility>
 
 namespace de::server::engine
@@ -16,13 +18,16 @@ namespace de::server::engine
 
 	void GMServer::Init()
 	{
+		Logger::Info("GMServer", "Init");
 	}
 
 	void GMServer::Run()
 	{
+		Logger::Info("GMServer", "Run");
 	}
 
 	void GMServer::Uninit()
 	{
+		Logger::Info("GMServer", "Uninit");
 	}
 }

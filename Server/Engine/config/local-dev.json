@@ -7,6 +7,7 @@
     "rootDir": "logs",
     "minLevel": "Info",
     "flushIntervalMs": 1000,
+    "enableConsole": true,
     "rotateDaily": true,
     "maxFileSizeMB": 64,
     "maxRetainedFiles": 10

@@ -1,5 +1,6 @@
 # Build output
 /build/
+/logs/
 /out/
 
 # CMake generated files

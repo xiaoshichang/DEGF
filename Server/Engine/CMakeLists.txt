@@ -14,7 +14,7 @@ add_library(Engine::core ALIAS engine_core)
 target_compile_features(engine_core PUBLIC cxx_std_17)
 target_include_directories(engine_core
     PUBLIC
-        "${CMAKE_CURRENT_LIST_DIR}/include"
+        "${CMAKE_CURRENT_LIST_DIR}/src"
 )
 target_link_libraries(engine_core
     PUBLIC
@@ -33,7 +33,7 @@ target_link_libraries(Engine PRIVATE Engine::core)
 
 if (BUILD_TESTING)
     add_executable(engine_smoke_tests
-        tests/engine_smoke_tests.cpp
+        src/tests/engine_smoke_tests.cpp
     )
     target_link_libraries(engine_smoke_tests PRIVATE Engine::core)
     add_test(NAME engine_smoke_tests COMMAND engine_smoke_tests)

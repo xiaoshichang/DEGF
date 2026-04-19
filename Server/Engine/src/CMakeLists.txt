@@ -5,7 +5,7 @@ file(GLOB_RECURSE DE_SERVER_SOURCE_FILES CONFIGURE_DEPENDS
 
 add_executable(DEServer
     ${DE_SERVER_SOURCE_FILES}
- "network/inner/InnerNetwork.h" "network/inner/InnerNetwork.cpp" "network/protocal/Header.h" "network/protocal/Header.cpp")
+)
 
 target_link_libraries(DEServer
     PUBLIC
@@ -21,4 +21,8 @@ target_compile_features(DEServer PUBLIC cxx_std_17)
 target_include_directories(DEServer
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_include_directories(DEServer
+    PUBLIC
+        "${PROJECT_SOURCE_DIR}/3rd"
 )

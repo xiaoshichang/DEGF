@@ -5,7 +5,7 @@ file(GLOB_RECURSE DE_SERVER_SOURCE_FILES CONFIGURE_DEPENDS
 
 add_executable(DEServer
     ${DE_SERVER_SOURCE_FILES}
-)
+ "network/inner/InnerNetwork.h" "network/inner/InnerNetwork.cpp" "network/protocal/Header.h" "network/protocal/Header.cpp")
 
 target_link_libraries(DEServer
     PUBLIC

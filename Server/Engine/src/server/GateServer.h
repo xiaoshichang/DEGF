@@ -11,7 +11,6 @@ namespace de::server::engine
 		GateServer(std::string serverId, config::GateConfig config);
 		~GateServer() override;
 		void Init() override;
-		void Run() override;
 		void Uninit() override;
 
 	private:

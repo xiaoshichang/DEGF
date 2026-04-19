@@ -3,7 +3,6 @@
 #include "core/Logger.h"
 
 #include <utility>
-#include <thread>
 
 namespace de::server::engine
 {
@@ -20,15 +19,6 @@ namespace de::server::engine
 	void GateServer::Init()
 	{
 		Logger::Info("GateServer", "Init");
-	}
-
-	void GateServer::Run()
-	{
-		Logger::Info("GateServer", "Run");
-		while (true)
-		{
-			std::this_thread::sleep_for(std::chrono::seconds(1));
-		}
 	}
 
 	void GateServer::Uninit()

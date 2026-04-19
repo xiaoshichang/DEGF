@@ -5,8 +5,8 @@ project(Engine VERSION 0.1.0 LANGUAGES C CXX)
 include(CTest)
 
 add_subdirectory(3rd)
-add_subdirectory(src/engine)
+add_subdirectory(src)
 
 if (BUILD_TESTING)
-    add_subdirectory(src/tests)
+    add_subdirectory(tests)
 endif()

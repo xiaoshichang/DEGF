@@ -5,16 +5,15 @@
 
 namespace de::server::engine
 {
-	class GMServer : public ServerBase
+	class GameServer : public ServerBase
 	{
 	public:
-		GMServer(std::string serverId, config::GMConfig config);
-		~GMServer() override;
+		GameServer(std::string serverId, config::GameConfig config);
+		~GameServer() override;
 		void Init() override;
-		void Run() override;
 		void Uninit() override;
 
 	private:
-		config::GMConfig config_;
+		config::GameConfig config_;
 	};
 }

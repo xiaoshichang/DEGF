@@ -1,4 +1,3 @@
-
 file(GLOB_RECURSE DE_SERVER_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
@@ -6,8 +5,7 @@ file(GLOB_RECURSE DE_SERVER_SOURCE_FILES CONFIGURE_DEPENDS
 
 add_executable(DEServer
     ${DE_SERVER_SOURCE_FILES}
- "core/Logger.h" "core/Logger.cpp")
-
+)
 
 target_link_libraries(DEServer
     PUBLIC

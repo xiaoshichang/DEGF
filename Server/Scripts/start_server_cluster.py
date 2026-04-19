@@ -11,7 +11,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 SERVER_DIR = SCRIPT_DIR.parent
 ENGINE_DIR = SERVER_DIR / "Engine"
-DEFAULT_CONFIG_PATH = ENGINE_DIR / "config" / "local-dev.json"
+DEFAULT_CONFIG_PATH = SERVER_DIR / "Config" / "local-dev.json"
 DEFAULT_EXE_PATH = ENGINE_DIR / "build" / "engine" / "src" / "engine" / "Debug" / "DEServer.exe"
 DEFAULT_PROCESS_KEYWORD = "DEServer"
 

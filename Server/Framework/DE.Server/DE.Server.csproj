@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>DE.Server</AssemblyName>
+    <RootNamespace>DE.Server</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DE.Server.Foundation\DE.Server.Foundation.csproj" />
+    <ProjectReference Include="..\DE.Share\DE.Share.csproj" />
+    <ProjectReference Include="..\DE.Share.Foundation\DE.Share.Foundation.csproj" />
+  </ItemGroup>
+</Project>

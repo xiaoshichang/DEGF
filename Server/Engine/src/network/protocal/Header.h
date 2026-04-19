@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace de::server::engine::network::protocal
+namespace de::server::engine::network
 {
 	constexpr std::uint32_t MakeMagic(char a, char b, char c, char d)
 	{

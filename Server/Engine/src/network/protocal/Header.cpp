@@ -1,6 +1,6 @@
 #include "network/protocal/Header.h"
 
-namespace de::server::engine::network::protocal
+namespace de::server::engine::network
 {
 	namespace
 	{

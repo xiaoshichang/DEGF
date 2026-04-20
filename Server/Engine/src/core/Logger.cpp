@@ -1,10 +1,10 @@
 #include "core/Logger.h"
 
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -57,27 +57,47 @@ namespace de::server::engine
 			return spdlog::level::info;
 		}
 
-		std::shared_ptr<spdlog::logger> GetLogger()
+		std::shared_ptr<spdlog::logger> TryGetLogger()
 		{
-			std::scoped_lock lock(g_loggerMutex);
-			if (g_logger == nullptr)
-			{
-				throw std::runtime_error("Logger is not initialized.");
-			}
-
-			return g_logger;
+			return std::atomic_load(&g_logger);
 		}
 
 		void Log(spdlog::level::level_enum level, std::string_view tag, std::string_view message)
 		{
-			auto logger = GetLogger();
+			auto logger = TryGetLogger();
+			if (logger == nullptr)
+			{
+				const auto levelName = spdlog::level::to_string_view(level);
+				std::string fallbackMessage;
+				fallbackMessage.reserve(levelName.size() + tag.size() + message.size() + 32);
+				fallbackMessage.append("[UninitializedLogger] [");
+				fallbackMessage.append(levelName.data(), levelName.size());
+				fallbackMessage.append("] [");
+				fallbackMessage.append(tag.data(), tag.size());
+				fallbackMessage.append("] ");
+				fallbackMessage.append(message.data(), message.size());
+				fallbackMessage.push_back('\n');
+				std::fwrite(fallbackMessage.data(), sizeof(char), fallbackMessage.size(), stderr);
+				std::fflush(stderr);
+				return;
+			}
+
 			logger->log(level, "[{}] {}", tag, message);
 		}
+	}
+
+	bool Logger::IsInitialized()
+	{
+		return TryGetLogger() != nullptr;
 	}
 
 	void Logger::Init(std::string_view serverId, const config::LoggingConfig& loggingConfig)
 	{
 		std::scoped_lock lock(g_loggerMutex);
+		if (g_logger != nullptr)
+		{
+			return;
+		}
 
 		const std::filesystem::path logRoot(loggingConfig.rootDir);
 		std::filesystem::create_directories(logRoot);
@@ -111,19 +131,20 @@ namespace de::server::engine
 			));
 		}
 
-		g_logger = std::make_shared<spdlog::logger>(loggerName, sinks.begin(), sinks.end());
-		g_logger->set_level(ParseLogLevel(loggingConfig.minLevel));
-		g_logger->flush_on(spdlog::level::warn);
+		auto logger = std::make_shared<spdlog::logger>(loggerName, sinks.begin(), sinks.end());
+		logger->set_level(ParseLogLevel(loggingConfig.minLevel));
+		logger->flush_on(spdlog::level::warn);
 
 		for (const auto& sink : sinks)
 		{
 			sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%t] [%^%l%$] %v");
 		}
 
-		spdlog::set_default_logger(g_logger);
+		std::atomic_store(&g_logger, logger);
+		spdlog::set_default_logger(logger);
 		spdlog::flush_every(std::chrono::milliseconds(loggingConfig.flushIntervalMs));
 
-		g_logger->info("[Logger] initialized");
+		logger->info("[Logger] initialized");
 	}
 
 	void Logger::Debug(std::string_view tag, std::string_view message)

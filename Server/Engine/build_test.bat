@@ -32,4 +32,5 @@ if errorlevel 1 (
 )
 
 echo Tests completed successfully: "%BUILD_DIR%"
+pause
 exit /b 0

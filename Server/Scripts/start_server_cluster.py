@@ -12,8 +12,19 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SERVER_DIR = SCRIPT_DIR.parent
 ENGINE_DIR = SERVER_DIR / "Engine"
 DEFAULT_CONFIG_PATH = SERVER_DIR / "Config" / "local-dev.json"
-DEFAULT_EXE_PATH = ENGINE_DIR / "build" / "engine" / "src" / "engine" / "Debug" / "DEServer.exe"
+DEFAULT_EXE_CANDIDATES = (
+    ENGINE_DIR / "build" / "engine" / "src" / "Debug" / "DEServer.exe",
+    ENGINE_DIR / "build" / "engine" / "src" / "engine" / "Debug" / "DEServer.exe",
+)
 DEFAULT_PROCESS_KEYWORD = "DEServer"
+
+
+def resolve_default_exe_path() -> Path:
+    for candidate in DEFAULT_EXE_CANDIDATES:
+        if candidate.exists():
+            return candidate
+
+    return DEFAULT_EXE_CANDIDATES[0]
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--exe",
         type=Path,
-        default=DEFAULT_EXE_PATH,
+        default=resolve_default_exe_path(),
         help="Path to DEServer executable.",
     )
     return parser.parse_args()

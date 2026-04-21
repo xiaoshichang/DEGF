@@ -24,11 +24,19 @@ namespace de::server::engine::config
 			};
 		}
 
+		TelnetConfig ParseTelnetConfig(const nlohmann::json& json)
+		{
+			return TelnetConfig{
+				json.value("port", static_cast<std::uint16_t>(0))
+			};
+		}
+
 		GMConfig ParseGMConfig(const nlohmann::json& json)
 		{
 			return GMConfig{
 				ParseNetworkConfig(json.at("innerNetwork")),
-				ParseNetworkConfig(json.at("controlNetwork"))
+				ParseNetworkConfig(json.at("controlNetwork")),
+				json.contains("telnet") ? ParseTelnetConfig(json.at("telnet")) : TelnetConfig{}
 			};
 		}
 
@@ -37,14 +45,16 @@ namespace de::server::engine::config
 			return GateConfig{
 				ParseNetworkConfig(json.at("innerNetwork")),
 				ParseNetworkConfig(json.at("authNetwork")),
-				ParseNetworkConfig(json.at("clientNetwork"))
+				ParseNetworkConfig(json.at("clientNetwork")),
+				json.contains("telnet") ? ParseTelnetConfig(json.at("telnet")) : TelnetConfig{}
 			};
 		}
 
 		GameConfig ParseGameConfig(const nlohmann::json& json)
 		{
 			return GameConfig{
-				ParseNetworkConfig(json.at("innerNetwork"))
+				ParseNetworkConfig(json.at("innerNetwork")),
+				json.contains("telnet") ? ParseTelnetConfig(json.at("telnet")) : TelnetConfig{}
 			};
 		}
 	}

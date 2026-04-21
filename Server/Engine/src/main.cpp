@@ -20,17 +20,19 @@ namespace
 
 		if (config::IsGmServerId(serverId))
 		{
-			return std::make_unique<GMServer>(serverId, clusterConfig.gm);
+			return std::make_unique<GMServer>(serverId, clusterConfig);
 		}
 
 		if (const auto* gateConfig = config::FindGateConfig(clusterConfig, serverId))
 		{
-			return std::make_unique<GateServer>(serverId, *gateConfig);
+			(void)gateConfig;
+			return std::make_unique<GateServer>(serverId, clusterConfig);
 		}
 
 		if (const auto* gameConfig = config::FindGameConfig(clusterConfig, serverId))
 		{
-			return std::make_unique<GameServer>(serverId, *gameConfig);
+			(void)gameConfig;
+			return std::make_unique<GameServer>(serverId, clusterConfig);
 		}
 
 		return nullptr;

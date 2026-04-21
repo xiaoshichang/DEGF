@@ -6,9 +6,9 @@
 
 namespace de::server::engine
 {
-	GMServer::GMServer(std::string serverId, config::GMConfig config)
-		: ServerBase(std::move(serverId))
-		, config_(std::move(config))
+	GMServer::GMServer(std::string serverId, const config::ClusterConfig& clusterConfig)
+		: ServerBase(serverId)
+		, config_(clusterConfig.gm)
 	{
 	}
 
@@ -18,11 +18,18 @@ namespace de::server::engine
 
 	void GMServer::Init()
 	{
+		ServerBase::Init();
 		Logger::Info("GMServer", "Init");
 	}
 
 	void GMServer::Uninit()
 	{
 		Logger::Info("GMServer", "Uninit");
+		ServerBase::Uninit();
+	}
+
+	const config::TelnetConfig& GMServer::GetTelnetConfig() const
+	{
+		return config_.telnet;
 	}
 }

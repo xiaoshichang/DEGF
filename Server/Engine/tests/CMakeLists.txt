@@ -1,5 +1,8 @@
 add_executable(engine_smoke_tests
     engine_smoke_tests.cpp
+    "${PROJECT_SOURCE_DIR}/src/config/ClusterConfig.cpp"
+    "${PROJECT_SOURCE_DIR}/src/core/Logger.cpp"
+    "${PROJECT_SOURCE_DIR}/src/telnet/TelnetService.cpp"
 )
 target_compile_features(engine_smoke_tests PRIVATE cxx_std_17)
 target_link_libraries(engine_smoke_tests
@@ -11,6 +14,15 @@ target_link_libraries(engine_smoke_tests
         de::thirdparty::spdlog
         de::thirdparty::zeromq
 )
+target_include_directories(engine_smoke_tests
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/src"
+        "${PROJECT_SOURCE_DIR}/3rd"
+)
+
+if (WIN32)
+    target_link_libraries(engine_smoke_tests PRIVATE Psapi)
+endif()
 
 if (WIN32)
     add_custom_command(

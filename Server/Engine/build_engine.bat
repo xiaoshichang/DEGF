@@ -25,4 +25,5 @@ if errorlevel 1 (
 )
 
 echo Build completed: "%BUILD_DIR%"
+pause
 exit /b 0

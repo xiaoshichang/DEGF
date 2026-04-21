@@ -19,6 +19,11 @@ namespace de::server::engine::config
 		EndpointConfig listenEndpoint;
 	};
 
+	struct TelnetConfig
+	{
+		std::uint16_t port = 0;
+	};
+
 	struct EnvConfig
 	{
 		std::string id;
@@ -62,6 +67,7 @@ namespace de::server::engine::config
 	{
 		NetworkConfig innerNetwork;
 		NetworkConfig controlNetwork;
+		TelnetConfig telnet;
 	};
 
 	struct GateConfig
@@ -69,11 +75,13 @@ namespace de::server::engine::config
 		NetworkConfig innerNetwork;
 		NetworkConfig authNetwork;
 		NetworkConfig clientNetwork;
+		TelnetConfig telnet;
 	};
 
 	struct GameConfig
 	{
 		NetworkConfig innerNetwork;
+		TelnetConfig telnet;
 	};
 
 	struct ClusterConfig

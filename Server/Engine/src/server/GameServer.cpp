@@ -2,13 +2,28 @@
 
 #include "core/Logger.h"
 
+#include <stdexcept>
 #include <utility>
 
 namespace de::server::engine
 {
-	GameServer::GameServer(std::string serverId, config::GameConfig config)
-		: ServerBase(std::move(serverId))
-		, config_(std::move(config))
+	namespace
+	{
+		config::GameConfig ResolveGameConfig(const config::ClusterConfig& clusterConfig, std::string_view serverId)
+		{
+			const auto* gameConfig = config::FindGameConfig(clusterConfig, serverId);
+			if (gameConfig == nullptr)
+			{
+				throw std::invalid_argument("Game config not found for server-id: " + std::string(serverId));
+			}
+
+			return *gameConfig;
+		}
+	}
+
+	GameServer::GameServer(std::string serverId, const config::ClusterConfig& clusterConfig)
+		: ServerBase(serverId)
+		, config_(ResolveGameConfig(clusterConfig, serverId))
 	{
 	}
 
@@ -18,11 +33,18 @@ namespace de::server::engine
 
 	void GameServer::Init()
 	{
+		ServerBase::Init();
 		Logger::Info("GameServer", "Init");
 	}
 
 	void GameServer::Uninit()
 	{
 		Logger::Info("GameServer", "Uninit");
+		ServerBase::Uninit();
+	}
+
+	const config::TelnetConfig& GameServer::GetTelnetConfig() const
+	{
+		return config_.telnet;
 	}
 }

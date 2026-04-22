@@ -1,7 +1,6 @@
 #pragma once
 
-#include <asio/io_context.hpp>
-#include <asio/steady_timer.hpp>
+#include "core/BoostAsio.h"
 
 #include <chrono>
 #include <cstddef>
@@ -46,7 +45,7 @@ namespace de::server::engine
 		};
 
 		void ArmTimer(const std::shared_ptr<TimerEntry>& timerEntry, std::chrono::milliseconds delay);
-		void OnTimerFired(const std::shared_ptr<TimerEntry>& timerEntry, const std::error_code& errorCode);
+		void OnTimerFired(const std::shared_ptr<TimerEntry>& timerEntry, const boost::system::error_code& errorCode);
 
 		asio::io_context& ioContext_;
 		TimerID nextTimerId_ = 1;

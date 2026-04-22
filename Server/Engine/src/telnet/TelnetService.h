@@ -1,9 +1,7 @@
 #pragma once
 
 #include "config/ClusterConfig.h"
-
-#include <asio/io_context.hpp>
-#include <asio/ip/tcp.hpp>
+#include "core/BoostAsio.h"
 
 #include <chrono>
 #include <cstddef>

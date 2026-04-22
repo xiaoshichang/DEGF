@@ -1,60 +1,105 @@
 #include "config/ClusterConfig.h"
 
-#include <fstream>
-#include <stdexcept>
+#include <boost/json.hpp>
 
-#include <nlohmann/json.hpp>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 
 namespace de::server::engine::config
 {
 	namespace
 	{
-		EndpointConfig ParseEndpointConfig(const nlohmann::json& json)
+		namespace json = boost::json;
+
+		std::string GetString(const json::object& object, std::string_view key)
+		{
+			return json::value_to<std::string>(object.at(key));
+		}
+
+		int GetInt(const json::object& object, std::string_view key)
+		{
+			return json::value_to<int>(object.at(key));
+		}
+
+		bool GetBool(const json::object& object, std::string_view key)
+		{
+			return object.at(key).as_bool();
+		}
+
+		std::uint16_t GetUInt16(const json::object& object, std::string_view key)
+		{
+			return static_cast<std::uint16_t>(json::value_to<std::uint64_t>(object.at(key)));
+		}
+
+		std::uint16_t GetUInt16OrDefault(const json::object& object, std::string_view key, std::uint16_t defaultValue)
+		{
+			const json::value* value = object.if_contains(key);
+			if (value == nullptr)
+			{
+				return defaultValue;
+			}
+
+			return static_cast<std::uint16_t>(json::value_to<std::uint64_t>(*value));
+		}
+
+		std::vector<std::string> GetStringVector(const json::object& object, std::string_view key)
+		{
+			std::vector<std::string> values;
+			for (const auto& value : object.at(key).as_array())
+			{
+				values.emplace_back(json::value_to<std::string>(value));
+			}
+
+			return values;
+		}
+
+		EndpointConfig ParseEndpointConfig(const json::object& object)
 		{
 			return EndpointConfig{
-				json.at("host").get<std::string>(),
-				json.at("port").get<std::uint16_t>()
+				GetString(object, "host"),
+				GetUInt16(object, "port")
 			};
 		}
 
-		NetworkConfig ParseNetworkConfig(const nlohmann::json& json)
+		NetworkConfig ParseNetworkConfig(const json::object& object)
 		{
 			return NetworkConfig{
-				ParseEndpointConfig(json.at("listenEndpoint"))
+				ParseEndpointConfig(object.at("listenEndpoint").as_object())
 			};
 		}
 
-		TelnetConfig ParseTelnetConfig(const nlohmann::json& json)
+		TelnetConfig ParseTelnetConfig(const json::object& object)
 		{
 			return TelnetConfig{
-				json.value("port", static_cast<std::uint16_t>(0))
+				GetUInt16OrDefault(object, "port", static_cast<std::uint16_t>(0))
 			};
 		}
 
-		GMConfig ParseGMConfig(const nlohmann::json& json)
+		GMConfig ParseGMConfig(const json::object& object)
 		{
 			return GMConfig{
-				ParseNetworkConfig(json.at("innerNetwork")),
-				ParseNetworkConfig(json.at("controlNetwork")),
-				json.contains("telnet") ? ParseTelnetConfig(json.at("telnet")) : TelnetConfig{}
+				ParseNetworkConfig(object.at("innerNetwork").as_object()),
+				ParseNetworkConfig(object.at("controlNetwork").as_object()),
+				object.if_contains("telnet") != nullptr ? ParseTelnetConfig(object.at("telnet").as_object()) : TelnetConfig{}
 			};
 		}
 
-		GateConfig ParseGateConfig(const nlohmann::json& json)
+		GateConfig ParseGateConfig(const json::object& object)
 		{
 			return GateConfig{
-				ParseNetworkConfig(json.at("innerNetwork")),
-				ParseNetworkConfig(json.at("authNetwork")),
-				ParseNetworkConfig(json.at("clientNetwork")),
-				json.contains("telnet") ? ParseTelnetConfig(json.at("telnet")) : TelnetConfig{}
+				ParseNetworkConfig(object.at("innerNetwork").as_object()),
+				ParseNetworkConfig(object.at("authNetwork").as_object()),
+				ParseNetworkConfig(object.at("clientNetwork").as_object()),
+				object.if_contains("telnet") != nullptr ? ParseTelnetConfig(object.at("telnet").as_object()) : TelnetConfig{}
 			};
 		}
 
-		GameConfig ParseGameConfig(const nlohmann::json& json)
+		GameConfig ParseGameConfig(const json::object& object)
 		{
 			return GameConfig{
-				ParseNetworkConfig(json.at("innerNetwork")),
-				json.contains("telnet") ? ParseTelnetConfig(json.at("telnet")) : TelnetConfig{}
+				ParseNetworkConfig(object.at("innerNetwork").as_object()),
+				object.if_contains("telnet") != nullptr ? ParseTelnetConfig(object.at("telnet").as_object()) : TelnetConfig{}
 			};
 		}
 	}
@@ -67,51 +112,53 @@ namespace de::server::engine::config
 			throw std::runtime_error("Failed to open config file: " + configPath);
 		}
 
-		nlohmann::json json;
-		stream >> json;
+		std::ostringstream buffer;
+		buffer << stream.rdbuf();
+		const auto jsonValue = json::parse(buffer.str());
+		const auto& root = jsonValue.as_object();
 
 		ClusterConfig clusterConfig;
 		clusterConfig.env = EnvConfig{
-			json.at("env").at("id").get<std::string>(),
-			json.at("env").at("environment").get<std::string>()
+			GetString(root.at("env").as_object(), "id"),
+			GetString(root.at("env").as_object(), "environment")
 		};
 		clusterConfig.logging = LoggingConfig{
-			json.at("logging").at("rootDir").get<std::string>(),
-			json.at("logging").at("minLevel").get<std::string>(),
-			json.at("logging").at("flushIntervalMs").get<int>(),
-			json.at("logging").at("enableConsole").get<bool>(),
-			json.at("logging").at("rotateDaily").get<bool>(),
-			json.at("logging").at("maxFileSizeMB").get<int>(),
-			json.at("logging").at("maxRetainedFiles").get<int>()
+			GetString(root.at("logging").as_object(), "rootDir"),
+			GetString(root.at("logging").as_object(), "minLevel"),
+			GetInt(root.at("logging").as_object(), "flushIntervalMs"),
+			GetBool(root.at("logging").as_object(), "enableConsole"),
+			GetBool(root.at("logging").as_object(), "rotateDaily"),
+			GetInt(root.at("logging").as_object(), "maxFileSizeMB"),
+			GetInt(root.at("logging").as_object(), "maxRetainedFiles")
 		};
 		clusterConfig.kcp = KcpConfig{
-			json.at("kcp").at("mtu").get<int>(),
-			json.at("kcp").at("sndwnd").get<int>(),
-			json.at("kcp").at("rcvwnd").get<int>(),
-			json.at("kcp").at("nodelay").get<bool>(),
-			json.at("kcp").at("intervalMs").get<int>(),
-			json.at("kcp").at("fastResend").get<int>(),
-			json.at("kcp").at("noCongestionWindow").get<bool>(),
-			json.at("kcp").at("minRtoMs").get<int>(),
-			json.at("kcp").at("deadLinkCount").get<int>(),
-			json.at("kcp").at("streamMode").get<bool>()
+			GetInt(root.at("kcp").as_object(), "mtu"),
+			GetInt(root.at("kcp").as_object(), "sndwnd"),
+			GetInt(root.at("kcp").as_object(), "rcvwnd"),
+			GetBool(root.at("kcp").as_object(), "nodelay"),
+			GetInt(root.at("kcp").as_object(), "intervalMs"),
+			GetInt(root.at("kcp").as_object(), "fastResend"),
+			GetBool(root.at("kcp").as_object(), "noCongestionWindow"),
+			GetInt(root.at("kcp").as_object(), "minRtoMs"),
+			GetInt(root.at("kcp").as_object(), "deadLinkCount"),
+			GetBool(root.at("kcp").as_object(), "streamMode")
 		};
 		clusterConfig.managed = ManagedConfig{
-			json.at("managed").at("assemblyName").get<std::string>(),
-			json.at("managed").at("assemblyPath").get<std::string>(),
-			json.at("managed").at("runtimeConfigPath").get<std::string>(),
-			json.at("managed").at("searchAssemblyPaths").get<std::vector<std::string>>()
+			GetString(root.at("managed").as_object(), "assemblyName"),
+			GetString(root.at("managed").as_object(), "assemblyPath"),
+			GetString(root.at("managed").as_object(), "runtimeConfigPath"),
+			GetStringVector(root.at("managed").as_object(), "searchAssemblyPaths")
 		};
-		clusterConfig.gm = ParseGMConfig(json.at("gm"));
+		clusterConfig.gm = ParseGMConfig(root.at("gm").as_object());
 
-		for (const auto& [serverId, gateConfig] : json.at("gate").items())
+		for (const auto& [serverId, gateConfig] : root.at("gate").as_object())
 		{
-			clusterConfig.gate.emplace(serverId, ParseGateConfig(gateConfig));
+			clusterConfig.gate.emplace(std::string(serverId), ParseGateConfig(gateConfig.as_object()));
 		}
 
-		for (const auto& [serverId, gameConfig] : json.at("game").items())
+		for (const auto& [serverId, gameConfig] : root.at("game").as_object())
 		{
-			clusterConfig.game.emplace(serverId, ParseGameConfig(gameConfig));
+			clusterConfig.game.emplace(std::string(serverId), ParseGameConfig(gameConfig.as_object()));
 		}
 
 		return clusterConfig;

@@ -6,21 +6,48 @@
 find_package(Threads REQUIRED)
 
 ###############################
-# spdlog
+# Boost-backed interfaces
 ###############################
-set(SPDLOG_BUILD_ALL OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_EXAMPLE_HO OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_TESTS_HO OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
-set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory(spdlog)
+add_library(xs_thirdparty_boost_headers INTERFACE)
+target_link_libraries(xs_thirdparty_boost_headers
+    INTERFACE
+        Boost::headers
+        Boost::disable_autolinking
+)
+if (WIN32)
+    target_compile_definitions(xs_thirdparty_boost_headers INTERFACE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+    target_link_libraries(xs_thirdparty_boost_headers INTERFACE ws2_32 mswsock)
+endif()
+add_library(de::thirdparty::boost_headers ALIAS xs_thirdparty_boost_headers)
 
-add_library(xs_thirdparty_spdlog INTERFACE)
-target_link_libraries(xs_thirdparty_spdlog INTERFACE spdlog::spdlog)
-add_library(de::thirdparty::spdlog ALIAS xs_thirdparty_spdlog)
+add_library(xs_thirdparty_boost_log INTERFACE)
+target_link_libraries(xs_thirdparty_boost_log
+    INTERFACE
+        xs_thirdparty_boost_headers
+        Boost::log_setup
+        Boost::log
+)
+add_library(de::thirdparty::boost_log ALIAS xs_thirdparty_boost_log)
+add_library(de::thirdparty::spdlog ALIAS xs_thirdparty_boost_log)
+
+add_library(xs_thirdparty_boost_json INTERFACE)
+target_link_libraries(xs_thirdparty_boost_json
+    INTERFACE
+        xs_thirdparty_boost_headers
+        Boost::json
+)
+add_library(de::thirdparty::boost_json ALIAS xs_thirdparty_boost_json)
+add_library(de::thirdparty::nlohmann_json ALIAS xs_thirdparty_boost_json)
+
+add_library(xs_thirdparty_boost_asio INTERFACE)
+target_link_libraries(xs_thirdparty_boost_asio
+    INTERFACE
+        xs_thirdparty_boost_headers
+        Boost::system
+        Threads::Threads
+)
+add_library(de::thirdparty::boost_asio ALIAS xs_thirdparty_boost_asio)
+add_library(de::thirdparty::asio ALIAS xs_thirdparty_boost_asio)
 
 ###############################
 # zeromq
@@ -41,35 +68,6 @@ add_subdirectory(zeromq)
 add_library(xs_thirdparty_zeromq INTERFACE)
 target_link_libraries(xs_thirdparty_zeromq INTERFACE libzmq-static)
 add_library(de::thirdparty::zeromq ALIAS xs_thirdparty_zeromq)
-
-###############################
-# nlohmann_json
-###############################
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-set(JSON_Install OFF CACHE BOOL "" FORCE)
-add_subdirectory(nlohmann_json)
-
-add_library(xs_thirdparty_nlohmann_json INTERFACE)
-target_link_libraries(xs_thirdparty_nlohmann_json INTERFACE nlohmann_json::nlohmann_json)
-add_library(de::thirdparty::nlohmann_json ALIAS xs_thirdparty_nlohmann_json)
-
-###############################
-# standalone asio
-###############################
-set(XS_ASIO_ROOT "${CMAKE_CURRENT_LIST_DIR}/asio-1.36.0")
-if (NOT EXISTS "${XS_ASIO_ROOT}/include/asio.hpp")
-    message(FATAL_ERROR "Standalone Asio headers were not found under ${XS_ASIO_ROOT}.")
-endif()
-
-add_library(xs_thirdparty_asio INTERFACE)
-target_include_directories(xs_thirdparty_asio INTERFACE "${XS_ASIO_ROOT}/include")
-target_compile_definitions(xs_thirdparty_asio INTERFACE ASIO_STANDALONE=1)
-target_link_libraries(xs_thirdparty_asio INTERFACE Threads::Threads)
-if (WIN32)
-    target_compile_definitions(xs_thirdparty_asio INTERFACE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-    target_link_libraries(xs_thirdparty_asio INTERFACE ws2_32 mswsock)
-endif()
-add_library(de::thirdparty::asio ALIAS xs_thirdparty_asio)
 
 ###############################
 # kcp

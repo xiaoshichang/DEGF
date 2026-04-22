@@ -1,9 +1,6 @@
 #include "timer/TimerManager.h"
 
-#include <asio/error.hpp>
-
 #include <stdexcept>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -119,14 +116,14 @@ namespace de::server::engine
 	{
 		timerEntry->timer.expires_after(delay);
 		timerEntry->timer.async_wait(
-			[this, timerEntry](const std::error_code& errorCode)
+			[this, timerEntry](const boost::system::error_code& errorCode)
 			{
 				OnTimerFired(timerEntry, errorCode);
 			}
 		);
 	}
 
-	void TimerManager::OnTimerFired(const std::shared_ptr<TimerEntry>& timerEntry, const std::error_code& errorCode)
+	void TimerManager::OnTimerFired(const std::shared_ptr<TimerEntry>& timerEntry, const boost::system::error_code& errorCode)
 	{
 		if (errorCode == asio::error::operation_aborted)
 		{

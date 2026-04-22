@@ -8,11 +8,11 @@ add_executable(engine_smoke_tests
 target_compile_features(engine_smoke_tests PRIVATE cxx_std_17)
 target_link_libraries(engine_smoke_tests
     PRIVATE
-        de::thirdparty::asio
+        de::thirdparty::boost_asio
+        de::thirdparty::boost_json
+        de::thirdparty::boost_log
         de::thirdparty::kcp
         de::thirdparty::nethost
-        de::thirdparty::nlohmann_json
-        de::thirdparty::spdlog
         de::thirdparty::zeromq
 )
 target_include_directories(engine_smoke_tests

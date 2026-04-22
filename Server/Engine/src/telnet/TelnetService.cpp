@@ -2,9 +2,6 @@
 
 #include "core/Logger.h"
 
-#include <asio/error.hpp>
-#include <asio/write.hpp>
-
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -13,7 +10,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <system_error>
 #include <utility>
 
 #ifdef _WIN32
@@ -119,7 +115,7 @@ namespace de::server::engine
 			}
 
 			closed_ = true;
-			std::error_code errorCode;
+			boost::system::error_code errorCode;
 			socket_.shutdown(asio::ip::tcp::socket::shutdown_both, errorCode);
 			socket_.close(errorCode);
 			service_.OnSessionClosed(sessionId_);
@@ -131,7 +127,7 @@ namespace de::server::engine
 			auto self = shared_from_this();
 			socket_.async_read_some(
 				asio::buffer(readBuffer_),
-				[self](const std::error_code& errorCode, std::size_t bytesTransferred)
+				[self](const boost::system::error_code& errorCode, std::size_t bytesTransferred)
 				{
 					if (errorCode)
 					{
@@ -320,7 +316,7 @@ namespace de::server::engine
 			asio::async_write(
 				socket_,
 				asio::buffer(writeQueue_.front()),
-				[self](const std::error_code& errorCode, std::size_t)
+				[self](const boost::system::error_code& errorCode, std::size_t)
 				{
 					if (errorCode)
 					{
@@ -423,7 +419,7 @@ namespace de::server::engine
 		running_ = false;
 		listenPort_ = 0;
 
-		std::error_code errorCode;
+		boost::system::error_code errorCode;
 		acceptor_.close(errorCode);
 
 		auto sessions = std::move(sessions_);
@@ -509,7 +505,7 @@ namespace de::server::engine
 		}
 
 		acceptor_.async_accept(
-			[this](const std::error_code& errorCode, asio::ip::tcp::socket socket)
+			[this](const boost::system::error_code& errorCode, asio::ip::tcp::socket socket)
 			{
 				if (errorCode)
 				{

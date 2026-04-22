@@ -1,14 +1,11 @@
 #include "config/ClusterConfig.h"
+#include "core/BoostAsio.h"
+#include "core/Logger.h"
 #include "telnet/TelnetService.h"
 #include "timer/TimerManager.h"
 
-#include <asio/ip/address_v4.hpp>
-#include <asio/ip/tcp.hpp>
-#include <asio/steady_timer.hpp>
 #include <nethost.h>
-#include <nlohmann/json.hpp>
-#include <spdlog/logger.h>
-#include <spdlog/sinks/ostream_sink.h>
+#include <boost/json.hpp>
 #include <zmq.h>
 
 #include <chrono>
@@ -33,6 +30,8 @@ extern "C" {
 
 namespace {
 
+namespace json = boost::json;
+
 void Require(bool condition, const std::string& message) {
     if (!condition) {
         throw std::runtime_error(message);
@@ -44,15 +43,15 @@ void RunTest(const char* name, void (*test)()) {
     std::cout << "[PASS] " << name << std::endl;
 }
 
-void TestNlohmannJson() {
-    const nlohmann::json payload = {
+void TestBoostJson() {
+    const json::object payload = {
         {"engine", "DEServer"},
         {"protocol", "zeromq"},
         {"port", 7001}
     };
 
-    Require(payload.at("engine") == "DEServer", "Expected JSON engine field.");
-    Require(payload.dump().find("\"protocol\":\"zeromq\"") != std::string::npos, "Expected JSON dump output.");
+    Require(json::value_to<std::string>(payload.at("engine")) == "DEServer", "Expected JSON engine field.");
+    Require(json::serialize(payload).find("\"protocol\":\"zeromq\"") != std::string::npos, "Expected JSON dump output.");
 }
 
 void TestAsio() {
@@ -61,17 +60,31 @@ void TestAsio() {
     Require(endpoint.port() == 7001, "Expected loopback port.");
 }
 
-void TestSpdlog() {
-    std::ostringstream stream;
-    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(stream);
-    spdlog::logger logger("engine_smoke_tests", sink);
-    logger.set_pattern("[%l] %v");
-    logger.info("third-party logging ready");
-    logger.flush();
+void TestBoostLog() {
+    const auto logRoot = std::filesystem::temp_directory_path() / "degf_engine_log_smoke";
+    std::filesystem::remove_all(logRoot);
 
+    de::server::engine::config::LoggingConfig loggingConfig;
+    loggingConfig.rootDir = logRoot.string();
+    loggingConfig.minLevel = "Info";
+    loggingConfig.flushIntervalMs = 1000;
+    loggingConfig.enableConsole = false;
+    loggingConfig.rotateDaily = false;
+    loggingConfig.maxFileSizeMB = 8;
+    loggingConfig.maxRetainedFiles = 4;
+
+    de::server::engine::Logger::Init("engine_smoke_tests", loggingConfig);
+    de::server::engine::Logger::Info("SmokeTest", "third-party logging ready");
+
+    const auto logFile = logRoot / "engine_smoke_tests.log";
+    std::ifstream stream(logFile);
+    Require(stream.is_open(), "Expected boost log file to be created.");
+
+    std::ostringstream content;
+    content << stream.rdbuf();
     Require(
-        stream.str().find("third-party logging ready") != std::string::npos,
-        "Expected spdlog to write to the test stream."
+        content.str().find("third-party logging ready") != std::string::npos,
+        "Expected boost log to write to the test file."
     );
 }
 
@@ -285,7 +298,7 @@ void TestTimerManager() {
 
     asio::steady_timer stopTimer(ioContext);
     stopTimer.expires_after(80ms);
-    stopTimer.async_wait([&](const std::error_code&) {
+    stopTimer.async_wait([&](const boost::system::error_code&) {
         ioContext.stop();
     });
 
@@ -303,9 +316,9 @@ void TestTimerManager() {
 
 int main() {
     try {
-        RunTest("nlohmann_json", &TestNlohmannJson);
+        RunTest("boost_json", &TestBoostJson);
         RunTest("asio", &TestAsio);
-        RunTest("spdlog", &TestSpdlog);
+        RunTest("boost_log", &TestBoostLog);
         RunTest("zeromq", &TestZeroMq);
         RunTest("kcp", &TestKcp);
         RunTest("nethost", &TestNethost);

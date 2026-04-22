@@ -1,9 +1,7 @@
 #pragma once
 
 #include "config/ClusterConfig.h"
-
-#include <asio/executor_work_guard.hpp>
-#include <asio/io_context.hpp>
+#include "core/BoostAsio.h"
 
 #include <memory>
 #include <string>

@@ -9,11 +9,11 @@ add_executable(DEServer
 
 target_link_libraries(DEServer
     PUBLIC
-        de::thirdparty::asio
+        de::thirdparty::boost_asio
+        de::thirdparty::boost_json
+        de::thirdparty::boost_log
         de::thirdparty::kcp
         de::thirdparty::nethost
-        de::thirdparty::nlohmann_json
-        de::thirdparty::spdlog
         de::thirdparty::zeromq
 )
 

@@ -60,6 +60,7 @@ namespace de::server::engine::network
 		void DestroySessions();
 		ActiveSessionEntry* FindConnectSession(SessionId sessionId);
 		InnerNetworkSession* FindListenSession(SessionId sessionId);
+		InnerNetworkSession* ResolveListenSession(std::uint32_t messageID, const InnerNetworkSession::RoutingId& routingId, const std::vector<std::byte>& data);
 		void RegisterSession(InnerNetworkSession* session, const std::string& serverID);
 		std::string GetSessionServerID(SessionId sessionId) const;
 		void RemoveSessionMapping(SessionId sessionId);
@@ -68,6 +69,8 @@ namespace de::server::engine::network
 		void HandleListenReceive(const boost::system::error_code& error, azmq::message& message);
 		void HandleConnectReceive(SessionId sessionId, const boost::system::error_code& error, azmq::message& message);
 		void OnReceive(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data);
+		void HandleHandShakeReq(SessionId sessionId, const std::vector<std::byte>& data);
+		void HandleHandShakeRsp(SessionId sessionId, const std::vector<std::byte>& data);
 
 	private:
 		std::string ServerID_;

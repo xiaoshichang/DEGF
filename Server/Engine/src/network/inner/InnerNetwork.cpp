@@ -506,6 +506,52 @@ namespace de::server::engine::network
 		return iterator == SessionsFromListen_.end() ? nullptr : iterator->second.get();
 	}
 
+	InnerNetworkSession* InnerNetwork::ResolveListenSession(
+		std::uint32_t messageID,
+		const InnerNetworkSession::RoutingId& routingId,
+		const std::vector<std::byte>& data
+	)
+	{
+		if (messageID == static_cast<std::uint32_t>(MessageID::HandShakeReq))
+		{
+			std::string remoteServerID;
+			if (!TryDeserializeHandShakePacket(data, remoteServerID))
+			{
+				Logger::Warn("InnerNetwork", "Received invalid handshake request on ROUTER socket.");
+				return nullptr;
+			}
+
+			const auto expectedRoutingId = ServerIDToRoutingId(remoteServerID);
+			if (routingId != expectedRoutingId)
+			{
+				Logger::Warn("InnerNetwork", "Handshake routing id does not match remote server id.");
+				return nullptr;
+			}
+
+			const auto existingSessionIterator = ServerIDToSession_.find(remoteServerID);
+			if (existingSessionIterator != ServerIDToSession_.end())
+			{
+				DestroyListenSession(existingSessionIterator->second);
+			}
+
+			auto* session = CreateListenSession();
+			session->OnHandShakeReq(expectedRoutingId);
+			RegisterSession(session, remoteServerID);
+			return session;
+		}
+
+		const auto remoteServerID = BytesToString(routingId);
+		const auto sessionIterator = ServerIDToSession_.find(remoteServerID);
+		auto* session = sessionIterator == ServerIDToSession_.end() ? nullptr : FindListenSession(sessionIterator->second);
+		if (session == nullptr || session->GetSessionState() != InnerNetworkSessionState::Registered)
+		{
+			Logger::Warn("InnerNetwork", "Received message from unregistered ROUTER routing id.");
+			return nullptr;
+		}
+
+		return session;
+	}
+
 	void InnerNetwork::RegisterSession(InnerNetworkSession* session, const std::string& serverID)
 	{
 		if (session == nullptr || serverID.empty())
@@ -630,56 +676,9 @@ namespace de::server::engine::network
 			return;
 		}
 
-		if (header.messageId == static_cast<std::uint32_t>(MessageID::HandShakeReq))
+		auto* session = ResolveListenSession(header.messageId, prefixFrames.front(), payload);
+		if (session == nullptr)
 		{
-			std::string remoteServerID;
-			if (!TryDeserializeHandShakePacket(payload, remoteServerID))
-			{
-				Logger::Warn("InnerNetwork", "Received invalid handshake request on ROUTER socket.");
-				StartListenReceive();
-				return;
-			}
-
-			const auto expectedRoutingId = ServerIDToRoutingId(remoteServerID);
-			if (prefixFrames.front() != expectedRoutingId)
-			{
-				Logger::Warn("InnerNetwork", "Handshake routing id does not match remote server id.");
-				StartListenReceive();
-				return;
-			}
-
-			const auto existingSessionIterator = ServerIDToSession_.find(remoteServerID);
-			if (existingSessionIterator != ServerIDToSession_.end())
-			{
-				DestroyListenSession(existingSessionIterator->second);
-			}
-
-			auto* session = CreateListenSession();
-			session->OnHandShakeReq(expectedRoutingId);
-			RegisterSession(session, remoteServerID);
-
-			boost::system::error_code responseError;
-			if (!SendFrame(
-				*ListenSocket_,
-				static_cast<std::uint32_t>(MessageID::HandShakeRsp),
-				SerializeHandShakePacket(ServerID_),
-				&session->GetRoutingId(),
-				responseError
-			))
-			{
-				Logger::Error("InnerNetwork", ZMQErrorMessage("Failed to respond handshake to " + remoteServerID, responseError));
-			}
-
-			StartListenReceive();
-			return;
-		}
-
-		const auto remoteServerID = BytesToString(prefixFrames.front());
-		const auto sessionIterator = ServerIDToSession_.find(remoteServerID);
-		auto* session = sessionIterator == ServerIDToSession_.end() ? nullptr : FindListenSession(sessionIterator->second);
-		if (session == nullptr || session->GetSessionState() != InnerNetworkSessionState::Registered)
-		{
-			Logger::Warn("InnerNetwork", "Received message from unregistered ROUTER routing id.");
 			StartListenReceive();
 			return;
 		}
@@ -725,43 +724,76 @@ namespace de::server::engine::network
 			return;
 		}
 
-		if (header.messageId == static_cast<std::uint32_t>(MessageID::HandShakeRsp))
-		{
-			std::string remoteServerID;
-			if (!TryDeserializeHandShakePacket(payload, remoteServerID))
-			{
-				Logger::Warn("InnerNetwork", "Received invalid handshake response on DEALER socket.");
-				DestroyConnectSession(sessionId);
-				return;
-			}
-
-			entry = FindConnectSession(sessionId);
-			if (entry == nullptr)
-			{
-				return;
-			}
-
-			entry->Session->OnHandShakeRsp();
-			RegisterSession(entry->Session.get(), remoteServerID);
-			StartConnectReceive(sessionId);
-			return;
-		}
-
 		OnReceive(sessionId, header.messageId, payload);
 		StartConnectReceive(sessionId);
 	}
 
 	void InnerNetwork::OnReceive(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data)
 	{
-		std::string serverID = GetSessionServerID(sessionId);
-		if (serverID.empty())
+		switch (static_cast<MessageID>(messageID))
 		{
+		case MessageID::HandShakeReq:
+			HandleHandShakeReq(sessionId, data);
+			return;
+
+		case MessageID::HandShakeRsp:
+			HandleHandShakeRsp(sessionId, data);
+			return;
+
+		default:
+			Logger::Error("InnerNetwork", "unknown MessageID");
+			return;
+		}
+	}
+
+	void InnerNetwork::HandleHandShakeReq(SessionId sessionId, const std::vector<std::byte>& data)
+	{
+		auto* session = FindListenSession(sessionId);
+		if (session == nullptr || session->GetSessionState() != InnerNetworkSessionState::Registered)
+		{
+			Logger::Warn("InnerNetwork", "Received handshake request for invalid passive session.");
 			return;
 		}
 
-		if (Callbacks_.OnReceive != nullptr)
+		std::string remoteServerID;
+		if (!TryDeserializeHandShakePacket(data, remoteServerID))
 		{
-			Callbacks_.OnReceive(serverID, messageID, data);
+			Logger::Warn("InnerNetwork", "Received invalid handshake request payload.");
+			return;
+		}
+
+		boost::system::error_code error;
+		if (!SendFrame(
+			*ListenSocket_,
+			static_cast<std::uint32_t>(MessageID::HandShakeRsp),
+			SerializeHandShakePacket(ServerID_),
+			&session->GetRoutingId(),
+			error
+		))
+		{
+			Logger::Error("InnerNetwork", ZMQErrorMessage("Failed to respond handshake to " + remoteServerID, error));
 		}
 	}
+
+	void InnerNetwork::HandleHandShakeRsp(SessionId sessionId, const std::vector<std::byte>& data)
+	{
+		std::string remoteServerID;
+		if (!TryDeserializeHandShakePacket(data, remoteServerID))
+		{
+			Logger::Warn("InnerNetwork", "Received invalid handshake response payload.");
+			DestroyConnectSession(sessionId);
+			return;
+		}
+
+		auto* entry = FindConnectSession(sessionId);
+		if (entry == nullptr)
+		{
+			Logger::Warn("InnerNetwork", "Received handshake response for missing active session.");
+			return;
+		}
+
+		entry->Session->OnHandShakeRsp();
+		RegisterSession(entry->Session.get(), remoteServerID);
+	}
+
 }

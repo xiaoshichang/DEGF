@@ -8,6 +8,9 @@ namespace de::server::engine::network
 	{
 		HandShakeReq = 1,
 		HandShakeRsp = 2,
-		HeartBeat = 3
+		HeartBeatWithDataNtf = 3,
+		HeartBeatNtf = 4,
+
+		
 	};
 }

@@ -8,7 +8,7 @@
 
 namespace de::server::engine::network
 {
-	struct HeartBeatMessage
+	struct HeartBeatWithDataNtfMessage
 	{
 		static constexpr std::uint16_t kCurrentVersion = 1;
 		static constexpr std::size_t kWireSize = 12;
@@ -18,6 +18,6 @@ namespace de::server::engine::network
 		ProcessPerformanceSnapshot performance;
 
 		std::array<std::uint8_t, kWireSize> Serialize() const;
-		static bool TryDeserialize(const void* data, std::size_t size, HeartBeatMessage& message);
+		static bool TryDeserialize(const void* data, std::size_t size, HeartBeatWithDataNtfMessage& message);
 	};
 }

@@ -43,7 +43,7 @@ namespace de::server::engine::network
 		}
 	}
 
-	std::array<std::uint8_t, HeartBeatMessage::kWireSize> HeartBeatMessage::Serialize() const
+	std::array<std::uint8_t, HeartBeatWithDataNtfMessage::kWireSize> HeartBeatWithDataNtfMessage::Serialize() const
 	{
 		std::array<std::uint8_t, kWireSize> bytes{};
 		WriteUInt16BigEndian(bytes.data(), version);
@@ -52,7 +52,7 @@ namespace de::server::engine::network
 		return bytes;
 	}
 
-	bool HeartBeatMessage::TryDeserialize(const void* data, std::size_t size, HeartBeatMessage& message)
+	bool HeartBeatWithDataNtfMessage::TryDeserialize(const void* data, std::size_t size, HeartBeatWithDataNtfMessage& message)
 	{
 		if (data == nullptr || size != kWireSize)
 		{
@@ -60,7 +60,7 @@ namespace de::server::engine::network
 		}
 
 		const auto* bytes = static_cast<const std::uint8_t*>(data);
-		HeartBeatMessage parsed;
+		HeartBeatWithDataNtfMessage parsed;
 		parsed.version = ReadUInt16BigEndian(bytes);
 		parsed.reserved = ReadUInt16BigEndian(bytes + 2);
 		parsed.performance.workingSetBytes = ReadUInt64BigEndian(bytes + 4);

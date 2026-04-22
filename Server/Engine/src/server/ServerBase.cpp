@@ -132,7 +132,7 @@ namespace de::server::engine
 	{
 		switch (static_cast<network::MessageID>(messageId))
 		{
-		case network::MessageID::HeartBeat:
+		case network::MessageID::HeartBeatWithDataNtf:
 			Logger::Debug("ServerBase", "Received heartbeat from " + serverId + ".");
 			return;
 

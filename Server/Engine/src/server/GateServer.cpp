@@ -151,11 +151,11 @@ namespace de::server::engine
 
 		if (!innerNetwork.Send(
 			gmServerId,
-			static_cast<std::uint32_t>(network::MessageID::HeartBeat),
+			static_cast<std::uint32_t>(network::MessageID::HeartBeatWithDataNtf),
 			[&]()
 			{
-				const network::HeartBeatMessage heartBeatMessage{
-					network::HeartBeatMessage::kCurrentVersion,
+				const network::HeartBeatWithDataNtfMessage heartBeatMessage{
+					network::HeartBeatWithDataNtfMessage::kCurrentVersion,
 					0,
 					CollectProcessPerformanceSnapshot()
 				};

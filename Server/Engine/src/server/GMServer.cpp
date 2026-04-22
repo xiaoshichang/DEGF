@@ -68,10 +68,10 @@ namespace de::server::engine
 
 	void GMServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
-		if (static_cast<network::MessageID>(messageId) == network::MessageID::HeartBeat)
+		if (static_cast<network::MessageID>(messageId) == network::MessageID::HeartBeatWithDataNtf)
 		{
-			network::HeartBeatMessage heartBeatMessage;
-			if (!network::HeartBeatMessage::TryDeserialize(data.data(), data.size(), heartBeatMessage))
+			network::HeartBeatWithDataNtfMessage heartBeatMessage;
+			if (!network::HeartBeatWithDataNtfMessage::TryDeserialize(data.data(), data.size(), heartBeatMessage))
 			{
 				Logger::Warn("GMServer", "Received invalid heartbeat payload from " + serverId + ".");
 				return;

@@ -1,14 +1,17 @@
 #include "config/ClusterConfig.h"
 #include "telnet/TelnetService.h"
+#include "timer/TimerManager.h"
 
 #include <asio/ip/address_v4.hpp>
 #include <asio/ip/tcp.hpp>
+#include <asio/steady_timer.hpp>
 #include <nethost.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <zmq.h>
 
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -238,6 +241,64 @@ void TestTelnetCommandHandling() {
     Require(unknownResult.response.find("unknown command") != std::string::npos, "Expected unknown command message.");
 }
 
+void TestTimerManager() {
+    using namespace std::chrono_literals;
+
+    asio::io_context ioContext;
+    de::server::engine::TimerManager timerManager(ioContext);
+
+    int oneShotCount = 0;
+    int repeatingCount = 0;
+    int cancelledCount = 0;
+
+    de::server::engine::TimerManager::TimerID oneShotTimerId = 0;
+    oneShotTimerId = timerManager.AddTimer(
+        10ms,
+        [&](de::server::engine::TimerManager::TimerID timerId) {
+            ++oneShotCount;
+            Require(timerId == oneShotTimerId, "Expected one-shot timer id to round-trip.");
+        }
+    );
+
+    de::server::engine::TimerManager::TimerID repeatingTimerId = 0;
+    repeatingTimerId = timerManager.AddTimer(
+        5ms,
+        [&](de::server::engine::TimerManager::TimerID timerId) {
+            ++repeatingCount;
+            Require(timerId == repeatingTimerId, "Expected repeating timer id to round-trip.");
+            if (repeatingCount >= 3) {
+                Require(timerManager.CancelTimer(timerId), "Expected repeating timer cancellation to succeed.");
+            }
+        },
+        true
+    );
+
+    const auto cancelledTimerId = timerManager.AddTimer(
+        30ms,
+        [&](de::server::engine::TimerManager::TimerID) {
+            ++cancelledCount;
+        }
+    );
+    Require(timerManager.HasTimer(cancelledTimerId), "Expected cancelled timer to be registered.");
+    Require(timerManager.CancelTimer(cancelledTimerId), "Expected cancelled timer removal to succeed.");
+    Require(!timerManager.HasTimer(cancelledTimerId), "Expected cancelled timer to be gone.");
+
+    asio::steady_timer stopTimer(ioContext);
+    stopTimer.expires_after(80ms);
+    stopTimer.async_wait([&](const std::error_code&) {
+        ioContext.stop();
+    });
+
+    ioContext.run();
+
+    Require(oneShotCount == 1, "Expected one-shot timer to fire once.");
+    Require(repeatingCount == 3, "Expected repeating timer to fire three times before cancellation.");
+    Require(cancelledCount == 0, "Expected cancelled timer callback not to run.");
+    Require(!timerManager.HasTimer(oneShotTimerId), "Expected one-shot timer to be removed after firing.");
+    Require(!timerManager.HasTimer(repeatingTimerId), "Expected repeating timer to be removed after cancellation.");
+    Require(timerManager.CancelAllTimers() == 0, "Expected no timers to remain.");
+}
+
 }  // namespace
 
 int main() {
@@ -250,6 +311,7 @@ int main() {
         RunTest("nethost", &TestNethost);
         RunTest("cluster_config_telnet", &TestClusterConfigTelnet);
         RunTest("telnet_command_handling", &TestTelnetCommandHandling);
+        RunTest("timer_manager", &TestTimerManager);
 
         std::cout << "engine_smoke_tests passed" << std::endl;
         return 0;

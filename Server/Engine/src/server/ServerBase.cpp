@@ -2,7 +2,9 @@
 
 #include "core/Logger.h"
 #include "telnet/TelnetService.h"
+#include "timer/TimerManager.h"
 
+#include <stdexcept>
 #include <utility>
 
 namespace de::server::engine
@@ -26,14 +28,26 @@ namespace de::server::engine
 		return ioContext_;
 	}
 
+	TimerManager& ServerBase::GetTimerManager()
+	{
+		if (timerManager_ == nullptr)
+		{
+			throw std::runtime_error("TimerManager is not initialized.");
+		}
+
+		return *timerManager_;
+	}
+
 	void ServerBase::Init()
 	{
+		InitTimerManager();
 		InitTelnet();
 	}
 
 	void ServerBase::Uninit()
 	{
 		UninitTelnet();
+		UninitTimerManager();
 	}
 
 	void ServerBase::InitTelnet()
@@ -64,6 +78,27 @@ namespace de::server::engine
 
 		telnetService_->Stop();
 		telnetService_.reset();
+	}
+
+	void ServerBase::InitTimerManager()
+	{
+		if (timerManager_ != nullptr)
+		{
+			return;
+		}
+
+		timerManager_ = std::make_unique<TimerManager>(ioContext_);
+	}
+
+	void ServerBase::UninitTimerManager()
+	{
+		if (timerManager_ == nullptr)
+		{
+			return;
+		}
+
+		timerManager_->Shutdown();
+		timerManager_.reset();
 	}
 
 	void ServerBase::Run()

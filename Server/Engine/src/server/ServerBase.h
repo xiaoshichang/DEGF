@@ -11,6 +11,7 @@
 namespace de::server::engine
 {
 	class TelnetService;
+	class TimerManager;
 
 	class ServerBase
 	{
@@ -25,16 +26,20 @@ namespace de::server::engine
 
 	protected:
 		asio::io_context& GetIoContext();
+		TimerManager& GetTimerManager();
 		void Stop();
 		virtual const config::TelnetConfig& GetTelnetConfig() const = 0;
 
 	private:
 		void InitTelnet();
-		void StopRuntimeServices();
+		void UninitTelnet();
+		void InitTimerManager();
+		void UninitTimerManager();
 
 		std::string serverId_;
 		asio::io_context ioContext_;
 		asio::executor_work_guard<asio::io_context::executor_type> workGuard_;
 		std::unique_ptr<TelnetService> telnetService_;
+		std::unique_ptr<TimerManager> timerManager_;
 	};
 }

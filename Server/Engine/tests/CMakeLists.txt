@@ -3,6 +3,7 @@ add_executable(engine_smoke_tests
     "${PROJECT_SOURCE_DIR}/src/config/ClusterConfig.cpp"
     "${PROJECT_SOURCE_DIR}/src/core/Logger.cpp"
     "${PROJECT_SOURCE_DIR}/src/telnet/TelnetService.cpp"
+    "${PROJECT_SOURCE_DIR}/src/timer/TimerManager.cpp"
 )
 target_compile_features(engine_smoke_tests PRIVATE cxx_std_17)
 target_link_libraries(engine_smoke_tests

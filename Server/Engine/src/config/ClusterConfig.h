@@ -24,6 +24,11 @@ namespace de::server::engine::config
 		std::uint16_t port = 0;
 	};
 
+	struct HttpConfig
+	{
+		EndpointConfig listenEndpoint{};
+	};
+
 	struct EnvConfig
 	{
 		std::string id;
@@ -67,6 +72,7 @@ namespace de::server::engine::config
 	{
 		NetworkConfig innerNetwork;
 		NetworkConfig controlNetwork;
+		HttpConfig http;
 		TelnetConfig telnet;
 	};
 
@@ -96,6 +102,7 @@ namespace de::server::engine::config
 	};
 
 	ClusterConfig LoadClusterConfig(const std::string& configPath);
+	std::string_view GetCanonicalGmServerId();
 	bool IsGmServerId(std::string_view serverId);
 	const GateConfig* FindGateConfig(const ClusterConfig& clusterConfig, std::string_view serverId);
 	const GameConfig* FindGameConfig(const ClusterConfig& clusterConfig, std::string_view serverId);

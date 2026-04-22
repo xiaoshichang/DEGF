@@ -11,6 +11,7 @@ namespace de::server::engine::config
 	namespace
 	{
 		namespace json = boost::json;
+		constexpr std::string_view kCanonicalGmServerId = "GM";
 
 		std::string GetString(const json::object& object, std::string_view key)
 		{
@@ -76,11 +77,19 @@ namespace de::server::engine::config
 			};
 		}
 
+		HttpConfig ParseHttpConfig(const json::object& object)
+		{
+			return HttpConfig{
+				ParseEndpointConfig(object.at("listenEndpoint").as_object())
+			};
+		}
+
 		GMConfig ParseGMConfig(const json::object& object)
 		{
 			return GMConfig{
 				ParseNetworkConfig(object.at("innerNetwork").as_object()),
 				ParseNetworkConfig(object.at("controlNetwork").as_object()),
+				object.if_contains("http") != nullptr ? ParseHttpConfig(object.at("http").as_object()) : HttpConfig{},
 				object.if_contains("telnet") != nullptr ? ParseTelnetConfig(object.at("telnet").as_object()) : TelnetConfig{}
 			};
 		}
@@ -164,9 +173,14 @@ namespace de::server::engine::config
 		return clusterConfig;
 	}
 
+	std::string_view GetCanonicalGmServerId()
+	{
+		return kCanonicalGmServerId;
+	}
+
 	bool IsGmServerId(std::string_view serverId)
 	{
-		return serverId == "gm" || serverId == "GM";
+		return serverId == "gm" || serverId == kCanonicalGmServerId;
 	}
 
 	const GateConfig* FindGateConfig(const ClusterConfig& clusterConfig, std::string_view serverId)

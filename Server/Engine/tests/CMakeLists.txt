@@ -2,6 +2,7 @@ add_executable(engine_smoke_tests
     engine_smoke_tests.cpp
     "${PROJECT_SOURCE_DIR}/src/config/ClusterConfig.cpp"
     "${PROJECT_SOURCE_DIR}/src/core/Logger.cpp"
+    "${PROJECT_SOURCE_DIR}/src/http/HttpService.cpp"
     "${PROJECT_SOURCE_DIR}/src/telnet/TelnetService.cpp"
     "${PROJECT_SOURCE_DIR}/src/timer/TimerManager.cpp"
 )

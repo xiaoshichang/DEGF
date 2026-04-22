@@ -17,6 +17,7 @@ DEFAULT_EXE_CANDIDATES = (
     ENGINE_DIR / "build" / "engine" / "src" / "engine" / "Debug" / "DEServer.exe",
 )
 DEFAULT_PROCESS_KEYWORD = "DEServer"
+GM_SERVER_ID = "GM"
 
 
 def resolve_default_exe_path() -> Path:
@@ -46,7 +47,7 @@ def parse_args() -> argparse.Namespace:
 
 def load_server_ids(config_path: Path) -> list[str]:
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    server_ids: list[str] = ["GM"]
+    server_ids: list[str] = [GM_SERVER_ID]
     server_ids.extend(data.get("gate", {}).keys())
     server_ids.extend(data.get("game", {}).keys())
     return server_ids

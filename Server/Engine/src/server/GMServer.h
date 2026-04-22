@@ -4,10 +4,14 @@
 #include "config/ClusterConfig.h"
 #include "core/ProcessPerformance.h"
 
+#include <memory>
+#include <string>
 #include <unordered_map>
 
 namespace de::server::engine
 {
+	class HttpService;
+
 	class GMServer : public ServerBase
 	{
 	public:
@@ -21,8 +25,12 @@ namespace de::server::engine
 		const config::NetworkConfig& GetInnerNetworkConfig() const override;
 		void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data) override;
 		void OnInnerDisconnect(const std::string& serverId) override;
+		void InitHttp();
+		void UninitHttp();
+		std::string BuildPerformanceResponse() const;
 
 		config::GMConfig config_;
+		std::unique_ptr<HttpService> httpService_;
 		std::unordered_map<std::string, ProcessPerformanceSnapshot> latestNodePerformanceSnapshots_;
 	};
 }

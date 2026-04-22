@@ -13,7 +13,6 @@ namespace de::server::engine
 {
 	namespace
 	{
-		constexpr std::string_view kGmServerId = "gm";
 		constexpr auto kHeartBeatInterval = std::chrono::seconds(5);
 
 		std::string BuildInnerNetworkEndpoint(const config::EndpointConfig& endpointConfig)
@@ -76,7 +75,7 @@ namespace de::server::engine
 
 	void GateServer::OnInnerDisconnect(const std::string& serverId)
 	{
-		if (serverId == kGmServerId)
+		if (config::IsGmServerId(serverId))
 		{
 			gmSessionId_.reset();
 		}
@@ -133,9 +132,25 @@ namespace de::server::engine
 
 	void GateServer::OnHeartbeatTimer(TimerManager::TimerID timerId)
 	{
+		if (!heartbeatTimerId_.has_value() || *heartbeatTimerId_ != timerId)
+		{
+			return;
+		}
+
 		auto& innerNetwork = GetInnerNetwork();
+		const std::string gmServerId(config::GetCanonicalGmServerId());
+		if (!innerNetwork.HasRegisteredSession(gmServerId))
+		{
+			if (!gmSessionId_.has_value())
+			{
+				ConnectToGm();
+			}
+
+			return;
+		}
+
 		if (!innerNetwork.Send(
-			std::string(kGmServerId),
+			gmServerId,
 			static_cast<std::uint32_t>(network::MessageID::HeartBeat),
 			[&]()
 			{

@@ -50,7 +50,12 @@ int main(int argc, char* argv[])
 	try
 	{
 		const std::string configPath = argv[1];
-		const std::string serverId = argv[2];
+		std::string serverId = argv[2];
+		if (de::server::engine::config::IsGmServerId(serverId))
+		{
+			serverId = std::string(de::server::engine::config::GetCanonicalGmServerId());
+		}
+
 		const auto clusterConfig = de::server::engine::config::LoadClusterConfig(configPath);
 		de::server::engine::Logger::Init(serverId, clusterConfig.logging);
 

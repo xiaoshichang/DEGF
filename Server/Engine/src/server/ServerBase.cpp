@@ -14,8 +14,6 @@ namespace de::server::engine
 {
 	namespace
 	{
-		constexpr std::string_view kGmServerId = "gm";
-
 		std::string BuildInnerNetworkEndpoint(const config::EndpointConfig& endpointConfig)
 		{
 			if (endpointConfig.host.empty() || endpointConfig.port == 0)

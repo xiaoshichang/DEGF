@@ -1,6 +1,7 @@
 #include "config/ClusterConfig.h"
 #include "core/BoostAsio.h"
 #include "core/Logger.h"
+#include "http/HttpService.h"
 #include "telnet/TelnetService.h"
 #include "timer/TimerManager.h"
 
@@ -159,6 +160,12 @@ void TestClusterConfigTelnet() {
         "port": 5100
       }
     },
+    "http": {
+      "listenEndpoint": {
+        "host": "127.0.0.1",
+        "port": 5101
+      }
+    },
     "telnet": {
       "port": 5200
     }
@@ -210,7 +217,20 @@ void TestClusterConfigTelnet() {
     }
 
     const auto clusterConfig = de::server::engine::config::LoadClusterConfig(tempPath.string());
+    Require(
+        de::server::engine::config::GetCanonicalGmServerId() == "GM",
+        "Expected canonical gm server id to be GM."
+    );
+    Require(
+        de::server::engine::config::IsGmServerId("gm"),
+        "Expected lowercase gm id to remain compatible."
+    );
+    Require(
+        de::server::engine::config::IsGmServerId("GM"),
+        "Expected uppercase GM id to be recognized."
+    );
     Require(clusterConfig.gm.telnet.port == 5200, "Expected gm telnet port to parse.");
+    Require(clusterConfig.gm.http.listenEndpoint.port == 5101, "Expected gm http port to parse.");
 
     const auto* gateConfig = de::server::engine::config::FindGateConfig(clusterConfig, "Gate0");
     Require(gateConfig != nullptr, "Expected Gate0 config to be present.");
@@ -252,6 +272,30 @@ void TestTelnetCommandHandling() {
 
     const auto unknownResult = telnetService.HandleCommand("unknown-command");
     Require(unknownResult.response.find("unknown command") != std::string::npos, "Expected unknown command message.");
+}
+
+void TestHttpServiceRouting() {
+    asio::io_context ioContext;
+    de::server::engine::HttpService httpService(
+        ioContext,
+        "GM",
+        []() {
+            return std::string(R"({"nodes":{"GM":{"serverId":"GM","workingSetBytes":123}}})");
+        }
+    );
+
+    const auto performanceResult = httpService.HandleRequest("GET", "/performance");
+    Require(performanceResult.statusCode == 200, "Expected /performance to return 200.");
+    Require(performanceResult.body.find("\"workingSetBytes\":123") != std::string::npos, "Expected performance payload to be returned.");
+
+    const auto apiPerformanceResult = httpService.HandleRequest("GET", "/api/performance");
+    Require(apiPerformanceResult.statusCode == 200, "Expected /api/performance to return 200.");
+
+    const auto missingResult = httpService.HandleRequest("GET", "/missing");
+    Require(missingResult.statusCode == 404, "Expected unknown path to return 404.");
+
+    const auto methodNotAllowedResult = httpService.HandleRequest("POST", "/performance");
+    Require(methodNotAllowedResult.statusCode == 405, "Expected POST /performance to return 405.");
 }
 
 void TestTimerManager() {
@@ -324,6 +368,7 @@ int main() {
         RunTest("nethost", &TestNethost);
         RunTest("cluster_config_telnet", &TestClusterConfigTelnet);
         RunTest("telnet_command_handling", &TestTelnetCommandHandling);
+        RunTest("http_service_routing", &TestHttpServiceRouting);
         RunTest("timer_manager", &TestTimerManager);
 
         std::cout << "engine_smoke_tests passed" << std::endl;

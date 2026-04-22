@@ -46,6 +46,12 @@
         "port": 5100
       }
     },
+    "http": {
+      "listenEndpoint": {
+        "host": "127.0.0.1",
+        "port": 5101
+      }
+    },
     "telnet": {
       "port": 5200
     }

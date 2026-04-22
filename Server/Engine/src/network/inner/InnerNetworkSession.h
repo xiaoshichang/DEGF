@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace de::server::engine::network
@@ -18,7 +19,7 @@ namespace de::server::engine::network
 		using SessionId = std::uint64_t;
 		using RoutingId = std::vector<std::byte>;
 
-		InnerNetworkSession(void* ctx, RoutingId routingId);
+		explicit InnerNetworkSession(std::string endpoint);
 		InnerNetworkSession();
 		~InnerNetworkSession();
 		InnerNetworkSession(const InnerNetworkSession&) = delete;
@@ -27,17 +28,15 @@ namespace de::server::engine::network
 		InnerNetworkSession& operator=(InnerNetworkSession&&) = delete;
 		SessionId GetSessionId() const;
 		InnerNetworkSessionState GetSessionState() const;
-		void* GetZMQSocket() const;
+		const std::string& GetEndpoint() const;
 		const RoutingId& GetRoutingId() const;
 		void OnHandShakeRsp();
 		void OnHandShakeReq(RoutingId routingId);
 
 	private:
-		void CloseSocket();
-
 		SessionId SessionId_;
 		InnerNetworkSessionState SessionState_;
-		void* ZMQSocket_ = nullptr;
+		std::string Endpoint_;
 		RoutingId RoutingId_;
 	};
 }

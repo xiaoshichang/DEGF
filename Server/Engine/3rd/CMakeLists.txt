@@ -70,6 +70,23 @@ target_link_libraries(xs_thirdparty_zeromq INTERFACE libzmq-static)
 add_library(de::thirdparty::zeromq ALIAS xs_thirdparty_zeromq)
 
 ###############################
+# azmq
+###############################
+set(XS_AZMQ_ROOT "${CMAKE_CURRENT_LIST_DIR}/AZMQ/azmq-1.0.3")
+if (NOT EXISTS "${XS_AZMQ_ROOT}/azmq/socket.hpp")
+    message(FATAL_ERROR "Vendored azmq headers were not found under ${XS_AZMQ_ROOT}.")
+endif()
+
+add_library(xs_thirdparty_azmq INTERFACE)
+target_include_directories(xs_thirdparty_azmq INTERFACE "${XS_AZMQ_ROOT}")
+target_link_libraries(xs_thirdparty_azmq
+    INTERFACE
+        xs_thirdparty_boost_asio
+        xs_thirdparty_zeromq
+)
+add_library(de::thirdparty::azmq ALIAS xs_thirdparty_azmq)
+
+###############################
 # kcp
 ###############################
 set(XS_KCP_ROOT "${CMAKE_CURRENT_LIST_DIR}/kcp")

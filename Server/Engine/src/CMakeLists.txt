@@ -9,6 +9,7 @@ add_executable(DEServer
 
 target_link_libraries(DEServer
     PUBLIC
+        de::thirdparty::azmq
         de::thirdparty::boost_asio
         de::thirdparty::boost_json
         de::thirdparty::boost_log

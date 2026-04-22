@@ -2,7 +2,6 @@
 
 #include <stdexcept>
 #include <utility>
-#include <zmq.h>
 
 namespace de::server::engine::network
 {
@@ -15,32 +14,11 @@ namespace de::server::engine::network
 		}
 	}
 
-	InnerNetworkSession::InnerNetworkSession(void* ctx, RoutingId routingId)
+	InnerNetworkSession::InnerNetworkSession(std::string endpoint)
 		: SessionId_(NextInnerNetworkSessionId())
 		, SessionState_(InnerNetworkSessionState::BeforeRegistered)
-		, RoutingId_(std::move(routingId))
+		, Endpoint_(std::move(endpoint))
 	{
-		if (ctx == nullptr)
-		{
-			throw std::invalid_argument("InnerNetworkSession requires a valid zmq context.");
-		}
-
-		if (RoutingId_.empty())
-		{
-			throw std::invalid_argument("Active InnerNetworkSession requires a valid routing id.");
-		}
-
-		ZMQSocket_ = zmq_socket(ctx, ZMQ_DEALER);
-		if (ZMQSocket_ == nullptr)
-		{
-			throw std::runtime_error("Failed to create zmq socket for InnerNetworkSession.");
-		}
-
-		if (zmq_setsockopt(ZMQSocket_, ZMQ_ROUTING_ID, RoutingId_.data(), RoutingId_.size()) != 0)
-		{
-			CloseSocket();
-			throw std::runtime_error("Failed to set zmq routing id for InnerNetworkSession.");
-		}
 	}
 
 	InnerNetworkSession::InnerNetworkSession()
@@ -49,10 +27,7 @@ namespace de::server::engine::network
 	{
 	}
 
-	InnerNetworkSession::~InnerNetworkSession()
-	{
-		CloseSocket();
-	}
+	InnerNetworkSession::~InnerNetworkSession() = default;
 
 	InnerNetworkSession::SessionId InnerNetworkSession::GetSessionId() const
 	{
@@ -64,9 +39,9 @@ namespace de::server::engine::network
 		return SessionState_;
 	}
 
-	void* InnerNetworkSession::GetZMQSocket() const
+	const std::string& InnerNetworkSession::GetEndpoint() const
 	{
-		return ZMQSocket_;
+		return Endpoint_;
 	}
 
 	const InnerNetworkSession::RoutingId& InnerNetworkSession::GetRoutingId() const
@@ -113,16 +88,5 @@ namespace de::server::engine::network
 
 		RoutingId_ = std::move(routingId);
 		SessionState_ = InnerNetworkSessionState::Registered;
-	}
-
-	void InnerNetworkSession::CloseSocket()
-	{
-		if (ZMQSocket_ == nullptr)
-		{
-			return;
-		}
-
-		zmq_close(ZMQSocket_);
-		ZMQSocket_ = nullptr;
 	}
 }

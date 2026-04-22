@@ -10,18 +10,16 @@ InnerNetwork handles cluster-internal messaging.
 
 #include "core/BoostAsio.h"
 
+#include <azmq/socket.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "network/inner/InnerNetworkSession.h"
-
-namespace de::server::engine::network
-{
-	class InnerNetworkWorker;
-}
 
 namespace de::server::engine::network
 {
@@ -49,15 +47,38 @@ namespace de::server::engine::network
 		bool ActiveDisconnect(SessionId sessionId);
 
 	private:
-		friend class InnerNetworkWorker;
+		struct ActiveSessionEntry
+		{
+			std::unique_ptr<InnerNetworkSession> Session;
+			std::unique_ptr<azmq::socket> Socket;
+		};
 
-		void PostReceiveCallback(const std::string& serverID, std::uint32_t messageID, const std::vector<std::byte>& data) const;
-		void PostDisconnectCallback(const std::string& serverID) const;
+		InnerNetworkSession* CreateConnectSession(const std::string& endpoint);
+		InnerNetworkSession* CreateListenSession();
+		void DestroyConnectSession(SessionId sessionId);
+		void DestroyListenSession(SessionId sessionId);
+		void DestroySessions();
+		ActiveSessionEntry* FindConnectSession(SessionId sessionId);
+		InnerNetworkSession* FindListenSession(SessionId sessionId);
+		void RegisterSession(InnerNetworkSession* session, const std::string& serverID);
+		std::string GetSessionServerID(SessionId sessionId) const;
+		void RemoveSessionMapping(SessionId sessionId);
+		void StartListenReceive();
+		void StartConnectReceive(SessionId sessionId);
+		void HandleListenReceive(const boost::system::error_code& error, azmq::message& message);
+		void HandleConnectReceive(SessionId sessionId, const boost::system::error_code& error, azmq::message& message);
+		void OnReceive(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data);
 
 	private:
 		std::string ServerID_;
 		asio::io_context& IOContext_;
 		InnerNetworkCallbacks Callbacks_;
-		std::unique_ptr<InnerNetworkWorker> Worker_;
+		std::unique_ptr<azmq::socket> ListenSocket_;
+		bool Listening_ = false;
+		bool ShuttingDown_ = false;
+		std::unordered_map<SessionId, ActiveSessionEntry> SessionsFromConnect_;
+		std::unordered_map<SessionId, std::unique_ptr<InnerNetworkSession>> SessionsFromListen_;
+		std::unordered_map<std::string, SessionId> ServerIDToSession_;
+		std::unordered_map<SessionId, std::string> SessionToServerID_;
 	};
 }

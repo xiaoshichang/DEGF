@@ -2,6 +2,9 @@
 
 #include "ServerBase.h"
 #include "config/ClusterConfig.h"
+#include "core/ProcessPerformance.h"
+
+#include <unordered_map>
 
 namespace de::server::engine
 {
@@ -15,7 +18,11 @@ namespace de::server::engine
 
 	private:
 		const config::TelnetConfig& GetTelnetConfig() const override;
+		const config::NetworkConfig& GetInnerNetworkConfig() const override;
+		void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data) override;
+		void OnInnerDisconnect(const std::string& serverId) override;
 
 		config::GMConfig config_;
+		std::unordered_map<std::string, ProcessPerformanceSnapshot> latestNodePerformanceSnapshots_;
 	};
 }

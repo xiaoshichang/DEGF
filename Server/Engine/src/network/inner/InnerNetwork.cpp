@@ -372,6 +372,32 @@ namespace de::server::engine::network
 		return true;
 	}
 
+	bool InnerNetwork::HasRegisteredSession(const std::string& serverID) const
+	{
+		const auto iterator = ServerIDToSession_.find(serverID);
+		if (iterator == ServerIDToSession_.end())
+		{
+			return false;
+		}
+
+		const SessionId sessionId = iterator->second;
+		const auto connectIterator = SessionsFromConnect_.find(sessionId);
+		if (connectIterator != SessionsFromConnect_.end())
+		{
+			return connectIterator->second.Session != nullptr
+				&& connectIterator->second.Session->GetSessionState() == InnerNetworkSessionState::Registered;
+		}
+
+		const auto listenIterator = SessionsFromListen_.find(sessionId);
+		if (listenIterator != SessionsFromListen_.end())
+		{
+			return listenIterator->second != nullptr
+				&& listenIterator->second->GetSessionState() == InnerNetworkSessionState::Registered;
+		}
+
+		return false;
+	}
+
 	bool InnerNetwork::ActiveDisconnect(SessionId sessionId)
 	{
 		if (FindConnectSession(sessionId) != nullptr)
@@ -741,7 +767,7 @@ namespace de::server::engine::network
 			return;
 
 		default:
-			Logger::Error("InnerNetwork", "unknown MessageID");
+			HandlePayloadMessage(sessionId, messageID, data);
 			return;
 		}
 	}
@@ -794,6 +820,21 @@ namespace de::server::engine::network
 
 		entry->Session->OnHandShakeRsp();
 		RegisterSession(entry->Session.get(), remoteServerID);
+	}
+
+	void InnerNetwork::HandlePayloadMessage(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data)
+	{
+		const std::string serverID = GetSessionServerID(sessionId);
+		if (serverID.empty())
+		{
+			Logger::Warn("InnerNetwork", "Received payload message from unknown session.");
+			return;
+		}
+
+		if (Callbacks_.OnReceive)
+		{
+			Callbacks_.OnReceive(serverID, messageID, data);
+		}
 	}
 
 }

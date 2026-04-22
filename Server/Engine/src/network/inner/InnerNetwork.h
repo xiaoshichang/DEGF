@@ -14,6 +14,7 @@ InnerNetwork handles cluster-internal messaging.
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -23,8 +24,8 @@ InnerNetwork handles cluster-internal messaging.
 
 namespace de::server::engine::network
 {
-	typedef void (*OnInnerNetworkReceiveCallback)(const std::string& serverID, std::uint32_t messageID, const std::vector<std::byte>& data);
-	typedef void (*OnInnerNetworkDisconnectCallback)(const std::string& serverID);
+	using OnInnerNetworkReceiveCallback = std::function<void(const std::string& serverID, std::uint32_t messageID, const std::vector<std::byte>& data)>;
+	using OnInnerNetworkDisconnectCallback = std::function<void(const std::string& serverID)>;
 
 	struct InnerNetworkCallbacks
 	{
@@ -44,6 +45,7 @@ namespace de::server::engine::network
 		bool Listen(const std::string& endpoint);
 		InnerNetworkSession* ConnectTo(const std::string& endpoint);
 		bool Send(const std::string& serverID, std::uint32_t messageID, const std::vector<std::byte>& data);
+		bool HasRegisteredSession(const std::string& serverID) const;
 		bool ActiveDisconnect(SessionId sessionId);
 
 	private:
@@ -71,6 +73,7 @@ namespace de::server::engine::network
 		void OnReceive(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data);
 		void HandleHandShakeReq(SessionId sessionId, const std::vector<std::byte>& data);
 		void HandleHandShakeRsp(SessionId sessionId, const std::vector<std::byte>& data);
+		void HandlePayloadMessage(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data);
 
 	private:
 		std::string ServerID_;

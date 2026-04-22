@@ -2,19 +2,22 @@
 
 #include "config/ClusterConfig.h"
 #include "core/BoostAsio.h"
+#include "network/inner/InnerNetwork.h"
+#include "timer/TimerManager.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace de::server::engine
 {
 	class TelnetService;
-	class TimerManager;
 
 	class ServerBase
 	{
 	public:
-		explicit ServerBase(std::string serverId);
+		ServerBase(std::string serverId, config::ClusterConfig clusterConfig);
 		virtual ~ServerBase();
 
 		const std::string& GetServerId() const;
@@ -25,18 +28,30 @@ namespace de::server::engine
 	protected:
 		asio::io_context& GetIoContext();
 		TimerManager& GetTimerManager();
+		network::InnerNetwork& GetInnerNetwork();
 		void Stop();
+		const config::ClusterConfig& GetClusterConfig() const;
 		virtual const config::TelnetConfig& GetTelnetConfig() const = 0;
+		virtual const config::NetworkConfig& GetInnerNetworkConfig() const = 0;
+		virtual void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data);
+		virtual void OnInnerDisconnect(const std::string& serverId);
 
 	private:
+		void InitInnerNetwork();
+		void UninitInnerNetwork();
+		void OnInnerNetworkReceive(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data);
+		void OnInnerNetworkDisconnect(const std::string& serverId);
+
 		void InitTelnet();
 		void UninitTelnet();
 		void InitTimerManager();
 		void UninitTimerManager();
 
 		std::string serverId_;
+		config::ClusterConfig clusterConfig_;
 		asio::io_context ioContext_;
 		asio::executor_work_guard<asio::io_context::executor_type> workGuard_;
+		std::unique_ptr<network::InnerNetwork> innerNetwork_;
 		std::unique_ptr<TelnetService> telnetService_;
 		std::unique_ptr<TimerManager> timerManager_;
 	};

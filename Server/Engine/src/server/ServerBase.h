@@ -33,12 +33,14 @@ namespace de::server::engine
 		const config::ClusterConfig& GetClusterConfig() const;
 		virtual const config::TelnetConfig& GetTelnetConfig() const = 0;
 		virtual const config::NetworkConfig& GetInnerNetworkConfig() const = 0;
+		virtual void OnInnerRegistered(const std::string& serverId);
 		virtual void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data);
 		virtual void OnInnerDisconnect(const std::string& serverId);
 
 	private:
 		void InitInnerNetwork();
 		void UninitInnerNetwork();
+		void OnInnerNetworkRegistered(const std::string& serverId);
 		void OnInnerNetworkReceive(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data);
 		void OnInnerNetworkDisconnect(const std::string& serverId);
 

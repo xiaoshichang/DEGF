@@ -66,31 +66,60 @@ namespace de::server::engine
 		return config_.innerNetwork;
 	}
 
+	void GMServer::OnInnerRegistered(const std::string& serverId)
+	{
+		registeredNodeServerIds_.insert(serverId);
+		ServerBase::OnInnerRegistered(serverId);
+		TryNotifyAllNodeReady();
+	}
+
 	void GMServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
-		if (static_cast<network::MessageID>(messageId) == network::MessageID::HeartBeatWithDataNtf)
+		switch (static_cast<network::MessageID>(messageId))
 		{
-			network::HeartBeatWithDataNtfMessage heartBeatMessage;
-			if (!network::HeartBeatWithDataNtfMessage::TryDeserialize(data.data(), data.size(), heartBeatMessage))
-			{
-				Logger::Warn("GMServer", "Received invalid heartbeat payload from " + serverId + ".");
-				return;
-			}
+		case network::MessageID::HeartBeatWithDataNtf:
+			HandleHeartBeatWithDataNtf(serverId, data);
+			return;
 
-			latestNodePerformanceSnapshots_[serverId] = heartBeatMessage.performance;
-			Logger::Debug(
-				"GMServer",
-				"Updated heartbeat snapshot from " + serverId + ", workingSetBytes=" + std::to_string(heartBeatMessage.performance.workingSetBytes)
-			);
+		case network::MessageID::GameReadyNtf:
+			HandleGameReadyNtf(serverId);
+			return;
+
+		default:
+			ServerBase::OnInnerMessage(serverId, messageId, data);
+			return;
+		}
+	}
+
+	void GMServer::HandleHeartBeatWithDataNtf(const std::string& serverId, const std::vector<std::byte>& data)
+	{
+		network::HeartBeatWithDataNtfMessage heartBeatMessage;
+		if (!network::HeartBeatWithDataNtfMessage::TryDeserialize(data.data(), data.size(), heartBeatMessage))
+		{
+			Logger::Warn("GMServer", "Received invalid heartbeat payload from " + serverId + ".");
 			return;
 		}
 
-		ServerBase::OnInnerMessage(serverId, messageId, data);
+		latestNodePerformanceSnapshots_[serverId] = heartBeatMessage.performance;
+		Logger::Debug(
+			"GMServer",
+			"Updated heartbeat snapshot from " + serverId + ", workingSetBytes=" + std::to_string(heartBeatMessage.performance.workingSetBytes)
+		);
+	}
+
+	void GMServer::HandleGameReadyNtf(const std::string& serverId)
+	{
+		readyGameServerIds_.insert(serverId);
+		TryLogAllGameReady();
 	}
 
 	void GMServer::OnInnerDisconnect(const std::string& serverId)
 	{
+		registeredNodeServerIds_.erase(serverId);
+		readyGameServerIds_.erase(serverId);
 		latestNodePerformanceSnapshots_.erase(serverId);
+		allNodeReadyNotified_ = false;
+		allGameReadyLogged_ = false;
 		ServerBase::OnInnerDisconnect(serverId);
 	}
 
@@ -121,6 +150,68 @@ namespace de::server::engine
 
 		httpService_->Stop();
 		httpService_.reset();
+	}
+
+	void GMServer::TryNotifyAllNodeReady()
+	{
+		if (allNodeReadyNotified_)
+		{
+			return;
+		}
+
+		const auto& clusterConfig = GetClusterConfig();
+		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
+		{
+			(void)gateConfig;
+			if (registeredNodeServerIds_.find(serverId) == registeredNodeServerIds_.end())
+			{
+				return;
+			}
+		}
+
+		for (const auto& [serverId, gameConfig] : clusterConfig.game)
+		{
+			(void)gameConfig;
+			if (registeredNodeServerIds_.find(serverId) == registeredNodeServerIds_.end())
+			{
+				return;
+			}
+		}
+
+		auto& innerNetwork = GetInnerNetwork();
+		for (const auto& [serverId, gameConfig] : clusterConfig.game)
+		{
+			(void)gameConfig;
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::AllNodeReadyNtf), {}))
+			{
+				Logger::Warn("GMServer", "Failed to send AllNodeReadyNtf to " + serverId + ".");
+				return;
+			}
+		}
+
+		allNodeReadyNotified_ = true;
+		Logger::Info("GMServer", "Sent AllNodeReadyNtf to all game nodes.");
+	}
+
+	void GMServer::TryLogAllGameReady()
+	{
+		if (allGameReadyLogged_)
+		{
+			return;
+		}
+
+		const auto& clusterConfig = GetClusterConfig();
+		for (const auto& [serverId, gameConfig] : clusterConfig.game)
+		{
+			(void)gameConfig;
+			if (readyGameServerIds_.find(serverId) == readyGameServerIds_.end())
+			{
+				return;
+			}
+		}
+
+		allGameReadyLogged_ = true;
+		Logger::Info("GMServer", "all game ready");
 	}
 
 	std::string GMServer::BuildPerformanceResponse() const

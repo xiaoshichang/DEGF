@@ -18,8 +18,13 @@ namespace de::server::engine
 	private:
 		const config::TelnetConfig& GetTelnetConfig() const override;
 		const config::NetworkConfig& GetInnerNetworkConfig() const override;
+		void OnInnerRegistered(const std::string& serverId) override;
+		void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data) override;
 		void OnInnerDisconnect(const std::string& serverId) override;
 		void ConnectToGm();
+		void ConnectToAllGates();
+		void TryNotifyGameReady();
+		bool AreAllGateSessionsRegistered();
 		void StartHeartbeatTimer();
 		void StopHeartbeatTimer();
 		void OnHeartbeatTimer(TimerManager::TimerID timerId);
@@ -27,5 +32,7 @@ namespace de::server::engine
 		config::GameConfig config_;
 		std::optional<network::InnerNetwork::SessionId> gmSessionId_;
 		std::optional<TimerManager::TimerID> heartbeatTimerId_;
+		bool allNodeReadyReceived_ = false;
+		bool gameReadyNotified_ = false;
 	};
 }

@@ -798,6 +798,13 @@ namespace de::server::engine::network
 		))
 		{
 			Logger::Error("InnerNetwork", ZMQErrorMessage("Failed to respond handshake to " + remoteServerID, error));
+			DestroyListenSession(sessionId);
+			return;
+		}
+
+		if (!ShuttingDown_ && Callbacks_.OnConnect != nullptr)
+		{
+			Callbacks_.OnConnect(remoteServerID);
 		}
 	}
 
@@ -820,6 +827,10 @@ namespace de::server::engine::network
 
 		entry->Session->OnHandShakeRsp();
 		RegisterSession(entry->Session.get(), remoteServerID);
+		if (!ShuttingDown_ && Callbacks_.OnConnect != nullptr)
+		{
+			Callbacks_.OnConnect(remoteServerID);
+		}
 	}
 
 	void InnerNetwork::HandlePayloadMessage(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data)

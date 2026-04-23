@@ -11,6 +11,7 @@ namespace de::server::engine::network
 		HeartBeatWithDataNtf = 3,
 		HeartBeatNtf = 4,
 
-		
+		AllNodeReadyNtf = 5,
+		GameReadyNtf = 6,
 	};
 }

@@ -95,6 +95,10 @@ namespace de::server::engine
 			serverId_,
 			ioContext_,
 			network::InnerNetworkCallbacks{
+				[this](const std::string& remoteServerId)
+				{
+					OnInnerNetworkRegistered(remoteServerId);
+				},
 				[this](const std::string& remoteServerId, std::uint32_t messageId, const std::vector<std::byte>& data)
 				{
 					OnInnerNetworkReceive(remoteServerId, messageId, data);
@@ -118,6 +122,11 @@ namespace de::server::engine
 		innerNetwork_.reset();
 	}
 
+	void ServerBase::OnInnerNetworkRegistered(const std::string& serverId)
+	{
+		OnInnerRegistered(serverId);
+	}
+
 	void ServerBase::OnInnerNetworkReceive(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
 		OnInnerMessage(serverId, messageId, data);
@@ -126,6 +135,11 @@ namespace de::server::engine
 	void ServerBase::OnInnerNetworkDisconnect(const std::string& serverId)
 	{
 		OnInnerDisconnect(serverId);
+	}
+
+	void ServerBase::OnInnerRegistered(const std::string& serverId)
+	{
+		Logger::Info("ServerBase", "Inner network registered " + serverId + ".");
 	}
 
 	void ServerBase::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)

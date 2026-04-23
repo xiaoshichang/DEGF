@@ -24,11 +24,13 @@ InnerNetwork handles cluster-internal messaging.
 
 namespace de::server::engine::network
 {
+	using OnInnerNetworkConnectCallback = std::function<void(const std::string& serverID)>;
 	using OnInnerNetworkReceiveCallback = std::function<void(const std::string& serverID, std::uint32_t messageID, const std::vector<std::byte>& data)>;
 	using OnInnerNetworkDisconnectCallback = std::function<void(const std::string& serverID)>;
 
 	struct InnerNetworkCallbacks
 	{
+		OnInnerNetworkConnectCallback OnConnect;
 		OnInnerNetworkReceiveCallback OnReceive;
 		OnInnerNetworkDisconnectCallback OnDisconnect;
 	};

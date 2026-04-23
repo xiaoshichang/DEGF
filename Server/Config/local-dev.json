@@ -4,7 +4,7 @@
     "environment": "dev"
   },
   "logging": {
-    "rootDir": "logs",
+    "rootDir": "../Scripts/logs",
     "minLevel": "Info",
     "flushIntervalMs": 1000,
     "enableConsole": true,

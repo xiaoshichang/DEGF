@@ -73,11 +73,47 @@ namespace de::server::engine
 		return config_.innerNetwork;
 	}
 
+	void GameServer::OnInnerRegistered(const std::string& serverId)
+	{
+		ServerBase::OnInnerRegistered(serverId);
+
+		if (const auto* gateConfig = config::FindGateConfig(GetClusterConfig(), serverId))
+		{
+			(void)gateConfig;
+			TryNotifyGameReady();
+		}
+	}
+
+	void GameServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
+	{
+		(void)serverId;
+		(void)data;
+
+		switch (static_cast<network::MessageID>(messageId))
+		{
+		case network::MessageID::AllNodeReadyNtf:
+			allNodeReadyReceived_ = true;
+			ConnectToAllGates();
+			return;
+
+		default:
+			ServerBase::OnInnerMessage(serverId, messageId, data);
+			return;
+		}
+	}
+
 	void GameServer::OnInnerDisconnect(const std::string& serverId)
 	{
 		if (config::IsGmServerId(serverId))
 		{
 			gmSessionId_.reset();
+			allNodeReadyReceived_ = false;
+			gameReadyNotified_ = false;
+		}
+		else if (const auto* gateConfig = config::FindGateConfig(GetClusterConfig(), serverId))
+		{
+			(void)gateConfig;
+			gameReadyNotified_ = false;
 		}
 
 		ServerBase::OnInnerDisconnect(serverId);
@@ -100,6 +136,74 @@ namespace de::server::engine
 
 		gmSessionId_ = session->GetSessionId();
 		Logger::Info("GameServer", "Connecting inner network to GM at " + gmEndpoint);
+	}
+
+	void GameServer::ConnectToAllGates()
+	{
+		if (!allNodeReadyReceived_)
+		{
+			return;
+		}
+
+		auto& innerNetwork = GetInnerNetwork();
+		const auto& clusterConfig = GetClusterConfig();
+		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
+		{
+			if (innerNetwork.HasRegisteredSession(serverId))
+			{
+				continue;
+			}
+
+			const auto gateEndpoint = BuildInnerNetworkEndpoint(gateConfig.innerNetwork.listenEndpoint);
+			auto* session = innerNetwork.ConnectTo(gateEndpoint);
+			if (session == nullptr)
+			{
+				Logger::Warn("GameServer", "Failed to connect inner network to gate " + serverId + ": " + gateEndpoint);
+				continue;
+			}
+
+			(void)session;
+			Logger::Info("GameServer", "Connecting inner network to gate " + serverId + " at " + gateEndpoint);
+		}
+	}
+
+	bool GameServer::AreAllGateSessionsRegistered()
+	{
+		const auto& innerNetwork = GetInnerNetwork();
+		for (const auto& [serverId, gateConfig] : GetClusterConfig().gate)
+		{
+			(void)gateConfig;
+			if (!innerNetwork.HasRegisteredSession(serverId))
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	void GameServer::TryNotifyGameReady()
+	{
+		if (!allNodeReadyReceived_ || gameReadyNotified_)
+		{
+			return;
+		}
+
+		const std::string gmServerId(config::GetCanonicalGmServerId());
+		auto& innerNetwork = GetInnerNetwork();
+		if (!innerNetwork.HasRegisteredSession(gmServerId) || !AreAllGateSessionsRegistered())
+		{
+			return;
+		}
+
+		if (!innerNetwork.Send(gmServerId, static_cast<std::uint32_t>(network::MessageID::GameReadyNtf), {}))
+		{
+			Logger::Warn("GameServer", "Failed to send GameReadyNtf to GM.");
+			return;
+		}
+
+		gameReadyNotified_ = true;
+		Logger::Info("GameServer", "Sent GameReadyNtf to GM.");
 	}
 
 	void GameServer::StartHeartbeatTimer()
@@ -141,11 +245,7 @@ namespace de::server::engine
 		const std::string gmServerId(config::GetCanonicalGmServerId());
 		if (!innerNetwork.HasRegisteredSession(gmServerId))
 		{
-			if (!gmSessionId_.has_value())
-			{
-				ConnectToGm();
-			}
-
+			Logger::Warn("GameServer", "OnHeartbeatTimer gm not registered.");
 			return;
 		}
 

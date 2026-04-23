@@ -13,5 +13,6 @@ namespace de::server::engine::network
 
 		AllNodeReadyNtf = 5,
 		GameReadyNtf = 6,
+		OpenGateNtf = 7,
 	};
 }

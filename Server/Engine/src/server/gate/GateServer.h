@@ -25,6 +25,7 @@ public:
 	private:
 		const config::TelnetConfig& GetTelnetConfig() const override;
 		const config::NetworkConfig& GetInnerNetworkConfig() const override;
+		void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data) override;
 		void OnInnerDisconnect(const std::string& serverId) override;
 		void InitClientNetwork();
 		void UninitClientNetwork();
@@ -40,5 +41,6 @@ public:
 		std::unique_ptr<network::ClientNetwork> clientNetwork_;
 		std::optional<network::InnerNetwork::SessionId> gmSessionId_;
 		std::optional<TimerManager::TimerID> heartbeatTimerId_;
+		bool openGateReceived_ = false;
 	};
 }

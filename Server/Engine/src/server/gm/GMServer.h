@@ -31,7 +31,7 @@ namespace de::server::engine
 		void InitHttp();
 		void UninitHttp();
 		void TryNotifyAllNodeReady();
-		void TryLogAllGameReady();
+		void TryNotifyOpenGate();
 
 		config::GMConfig config_;
 		std::unique_ptr<GMHttpHandler> httpHandler_;
@@ -39,6 +39,6 @@ namespace de::server::engine
 		std::unordered_set<std::string> registeredNodeServerIds_;
 		std::unordered_set<std::string> readyGameServerIds_;
 		bool allNodeReadyNotified_ = false;
-		bool allGameReadyLogged_ = false;
+		bool openGateNotified_ = false;
 	};
 }

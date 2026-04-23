@@ -51,7 +51,6 @@ namespace de::server::engine
 	void GateServer::Init()
 	{
 		ServerBase::Init();
-		InitClientNetwork();
 		ConnectToGm();
 		StartHeartbeatTimer();
 		Logger::Info("GateServer", "Init");
@@ -62,6 +61,7 @@ namespace de::server::engine
 		Logger::Info("GateServer", "Uninit");
 		StopHeartbeatTimer();
 		gmSessionId_.reset();
+		openGateReceived_ = false;
 		UninitClientNetwork();
 		ServerBase::Uninit();
 	}
@@ -81,9 +81,30 @@ namespace de::server::engine
 		if (config::IsGmServerId(serverId))
 		{
 			gmSessionId_.reset();
+			openGateReceived_ = false;
+			UninitClientNetwork();
 		}
 
 		ServerBase::OnInnerDisconnect(serverId);
+	}
+
+	void GateServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
+	{
+		(void)serverId;
+		(void)data;
+
+		switch (static_cast<network::MessageID>(messageId))
+		{
+		case network::MessageID::OpenGateNtf:
+			openGateReceived_ = true;
+			InitClientNetwork();
+			Logger::Info("GateServer", "Received OpenGateNtf and opened client network.");
+			return;
+
+		default:
+			ServerBase::OnInnerMessage(serverId, messageId, data);
+			return;
+		}
 	}
 
 	void GateServer::InitClientNetwork()
@@ -202,11 +223,7 @@ namespace de::server::engine
 		const std::string gmServerId(config::GetCanonicalGmServerId());
 		if (!innerNetwork.HasRegisteredSession(gmServerId))
 		{
-			if (!gmSessionId_.has_value())
-			{
-				ConnectToGm();
-			}
-
+			Logger::Warn("Gate", "OnHeartbeatTimer gm not registered.");
 			return;
 		}
 
@@ -215,7 +232,8 @@ namespace de::server::engine
 			static_cast<std::uint32_t>(network::MessageID::HeartBeatWithDataNtf),
 			[&]()
 			{
-				const network::HeartBeatWithDataNtfMessage heartBeatMessage{
+				const network::HeartBeatWithDataNtfMessage heartBeatMessage
+				{
 					network::HeartBeatWithDataNtfMessage::kCurrentVersion,
 					0,
 					CollectProcessPerformanceSnapshot()

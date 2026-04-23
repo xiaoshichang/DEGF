@@ -92,7 +92,7 @@ namespace de::server::engine
 	void GMServer::HandleGameReadyNtf(const std::string& serverId)
 	{
 		readyGameServerIds_.insert(serverId);
-		TryLogAllGameReady();
+		TryNotifyOpenGate();
 	}
 
 	void GMServer::OnInnerDisconnect(const std::string& serverId)
@@ -105,7 +105,7 @@ namespace de::server::engine
 		}
 
 		allNodeReadyNotified_ = false;
-		allGameReadyLogged_ = false;
+		openGateNotified_ = false;
 		ServerBase::OnInnerDisconnect(serverId);
 	}
 
@@ -181,9 +181,9 @@ namespace de::server::engine
 		Logger::Info("GMServer", "Sent AllNodeReadyNtf to all game nodes.");
 	}
 
-	void GMServer::TryLogAllGameReady()
+	void GMServer::TryNotifyOpenGate()
 	{
-		if (allGameReadyLogged_)
+		if (openGateNotified_)
 		{
 			return;
 		}
@@ -198,7 +198,19 @@ namespace de::server::engine
 			}
 		}
 
-		allGameReadyLogged_ = true;
-		Logger::Info("GMServer", "all game ready");
+		auto& innerNetwork = GetInnerNetwork();
+		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
+		{
+			(void)gateConfig;
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::OpenGateNtf), {}))
+			{
+				Logger::Warn("GMServer", "Failed to send OpenGateNtf to " + serverId + ".");
+				return;
+			}
+		}
+
+		openGateNotified_ = true;
+		Logger::Info("GMServer", "Sent OpenGateNtf to all gate nodes.");
 	}
+
 }

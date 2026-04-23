@@ -6,3 +6,5 @@ obj/
 .vs/
 *.user
 *.suo
+
+.idea/

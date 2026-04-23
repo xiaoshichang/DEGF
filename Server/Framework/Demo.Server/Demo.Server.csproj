@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>Demo</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\DE.Server.Foundation\DE.Server.Foundation.csproj" />
+      <ProjectReference Include="..\DE.Server\DE.Server.csproj" />
+      <ProjectReference Include="..\DE.Share.Foundation\DE.Share.Foundation.csproj" />
+      <ProjectReference Include="..\DE.Share\DE.Share.csproj" />
+    </ItemGroup>
+
+</Project>

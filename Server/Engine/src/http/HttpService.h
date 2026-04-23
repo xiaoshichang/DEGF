@@ -15,6 +15,7 @@ namespace de::server::engine
 		std::string method;
 		std::string target;
 		std::string version;
+		std::string body;
 	};
 
 	struct HttpResponse

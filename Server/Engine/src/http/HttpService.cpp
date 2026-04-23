@@ -4,6 +4,7 @@
 
 #include <cctype>
 #include <deque>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -27,6 +28,16 @@ namespace de::server::engine
 			}
 
 			return std::string(value.substr(begin, end - begin));
+		}
+
+		std::string ToLowerAscii(std::string value)
+		{
+			for (auto& ch : value)
+			{
+				ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+			}
+
+			return value;
 		}
 	}
 
@@ -110,13 +121,89 @@ namespace de::server::engine
 			}
 			else
 			{
-				response = service_.HandleRequest(HttpRequest{
+				std::size_t contentLength = 0;
+				std::string headerLine;
+				while (std::getline(input, headerLine))
+				{
+					if (!headerLine.empty() && headerLine.back() == '\r')
+					{
+						headerLine.pop_back();
+					}
+
+					if (headerLine.empty())
+					{
+						break;
+					}
+
+					const auto separator = headerLine.find(':');
+					if (separator == std::string::npos)
+					{
+						continue;
+					}
+
+					const auto name = ToLowerAscii(Trim(headerLine.substr(0, separator)));
+					const auto value = Trim(headerLine.substr(separator + 1));
+					if (name == "content-length")
+					{
+						contentLength = static_cast<std::size_t>(std::stoull(value));
+					}
+				}
+
+				HttpRequest request{
 					Trim(method),
 					Trim(target),
-					Trim(version)
-				});
+					Trim(version),
+					std::string{}
+				};
+				ReadRequestBody(std::move(request), contentLength);
+				return;
 			}
 
+			EnqueueWrite(service_.BuildHttpResponseText(response));
+		}
+
+		void ReadRequestBody(HttpRequest request, std::size_t contentLength)
+		{
+			if (contentLength <= readBuffer_.size())
+			{
+				DispatchRequest(std::move(request), contentLength);
+				return;
+			}
+
+			auto self = shared_from_this();
+			asio::async_read(
+				socket_,
+				readBuffer_,
+				asio::transfer_exactly(contentLength - readBuffer_.size()),
+				[self, request = std::move(request), contentLength](const boost::system::error_code& errorCode, std::size_t)
+				mutable
+				{
+					if (errorCode)
+					{
+						if (errorCode != asio::error::eof && errorCode != asio::error::operation_aborted)
+						{
+							Logger::Warn("HttpSession", "Read body failed: " + errorCode.message());
+						}
+
+						self->Close();
+						return;
+					}
+
+					self->DispatchRequest(std::move(request), contentLength);
+				}
+			);
+		}
+
+		void DispatchRequest(HttpRequest request, std::size_t contentLength)
+		{
+			if (contentLength > 0)
+			{
+				request.body.resize(contentLength);
+				std::istream input(&readBuffer_);
+				input.read(request.body.data(), static_cast<std::streamsize>(contentLength));
+			}
+
+			const auto response = service_.HandleRequest(request);
 			EnqueueWrite(service_.BuildHttpResponseText(response));
 		}
 

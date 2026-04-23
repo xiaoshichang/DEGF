@@ -5,10 +5,14 @@
 #include "network/client/ClientNetworkSession.h"
 
 #include <memory>
+#include <vector>
 #include <optional>
 
 namespace de::server::engine
 {
+	class GateHttpHandler;
+	class HttpService;
+
 	namespace network
 	{
 		class ClientNetwork;
@@ -29,6 +33,8 @@ public:
 		void OnInnerDisconnect(const std::string& serverId) override;
 		void InitClientNetwork();
 		void UninitClientNetwork();
+		void InitHttp();
+		void UninitHttp();
 		void OnClientConnect(network::ClientNetworkSession::SessionId sessionId);
 		void OnClientReceive(network::ClientNetworkSession::SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data);
 		void OnClientDisconnect(network::ClientNetworkSession::SessionId sessionId);
@@ -38,6 +44,8 @@ public:
 		void OnHeartbeatTimer(TimerManager::TimerID timerId);
 
 		config::GateConfig config_;
+		std::unique_ptr<GateHttpHandler> httpHandler_;
+		std::unique_ptr<HttpService> httpService_;
 		std::unique_ptr<network::ClientNetwork> clientNetwork_;
 		std::optional<network::InnerNetwork::SessionId> gmSessionId_;
 		std::optional<TimerManager::TimerID> heartbeatTimerId_;

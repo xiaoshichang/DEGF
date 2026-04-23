@@ -4,6 +4,9 @@
 #include "http/HttpService.h"
 #include "network/client/ClientNetwork.h"
 #include "network/protocal/Header.h"
+#include "network/protocal/Message.h"
+#include "network/protocal/MessageID.h"
+#include "server/gate/GateHttpHandler.h"
 #include "telnet/TelnetService.h"
 #include "timer/TimerManager.h"
 
@@ -12,6 +15,7 @@
 #include <zmq.h>
 
 #include <chrono>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -316,18 +320,48 @@ void TestHttpServiceRouting() {
         }
     );
 
-    const auto performanceResult = httpService.HandleRequest({"GET", "/performance", "HTTP/1.1"});
+    const auto performanceResult = httpService.HandleRequest({"GET", "/performance", "HTTP/1.1", ""});
     Require(performanceResult.statusCode == 200, "Expected /performance to return 200.");
     Require(performanceResult.body.find("\"workingSetBytes\":123") != std::string::npos, "Expected performance payload to be returned.");
 
-    const auto apiPerformanceResult = httpService.HandleRequest({"GET", "/api/performance", "HTTP/1.1"});
+    const auto apiPerformanceResult = httpService.HandleRequest({"GET", "/api/performance", "HTTP/1.1", ""});
     Require(apiPerformanceResult.statusCode == 200, "Expected /api/performance to return 200.");
 
-    const auto missingResult = httpService.HandleRequest({"GET", "/missing", "HTTP/1.1"});
+    const auto missingResult = httpService.HandleRequest({"GET", "/missing", "HTTP/1.1", ""});
     Require(missingResult.statusCode == 404, "Expected unknown path to return 404.");
 
-    const auto methodNotAllowedResult = httpService.HandleRequest({"POST", "/performance", "HTTP/1.1"});
+    const auto methodNotAllowedResult = httpService.HandleRequest({"POST", "/performance", "HTTP/1.1", ""});
     Require(methodNotAllowedResult.statusCode == 405, "Expected POST /performance to return 405.");
+}
+
+void TestGateHttpHandlerAuth() {
+    bool allocateCalled = false;
+    de::server::engine::GateHttpHandler handler(
+        "Gate0",
+        4000,
+        []() {
+            return true;
+        },
+        [&]() -> std::optional<de::server::engine::network::AllocatedClientSession> {
+            allocateCalled = true;
+            return de::server::engine::network::AllocatedClientSession{
+                100,
+                9527
+            };
+        }
+    );
+
+    const auto response = handler.HandleRequest({
+        "POST",
+        "/auth",
+        "HTTP/1.1",
+        R"({"account":"demo","password":"demo"})"
+    });
+    Require(allocateCalled, "Expected auth request to allocate client session.");
+    Require(response.statusCode == 200, "Expected auth request to succeed.");
+    Require(response.body.find("\"sessionId\":100") != std::string::npos, "Expected auth response to contain session id.");
+    Require(response.body.find("\"conv\":9527") != std::string::npos, "Expected auth response to contain conv.");
+    Require(response.body.find("\"clientPort\":4000") != std::string::npos, "Expected auth response to contain client port.");
 }
 
 struct TestClientKcpOutputContext {
@@ -375,7 +409,7 @@ void ConfigureTestKcp(ikcpcb* kcp, const de::server::engine::config::KcpConfig& 
     kcp->stream = config.streamMode ? 1 : 0;
 }
 
-void TestClientNetworkReceive() {
+void TestClientNetworkHandshake() {
     using namespace std::chrono_literals;
 
     asio::io_context ioContext;
@@ -392,10 +426,8 @@ void TestClientNetworkReceive() {
     kcpConfig.streamMode = false;
 
     bool connected = false;
-    bool received = false;
     de::server::engine::network::ClientNetwork::SessionId connectedSessionId = 0;
-    std::uint32_t receivedMessageId = 0;
-    std::vector<std::byte> receivedPayload;
+    ikcpcb* clientKcp = nullptr;
 
     de::server::engine::network::ClientNetwork clientNetwork(
         ioContext,
@@ -404,13 +436,12 @@ void TestClientNetworkReceive() {
             [&](de::server::engine::network::ClientNetwork::SessionId sessionId) {
                 connected = true;
                 connectedSessionId = sessionId;
+                ioContext.stop();
             },
             [&](de::server::engine::network::ClientNetwork::SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data) {
-                received = true;
-                connectedSessionId = sessionId;
-                receivedMessageId = messageId;
-                receivedPayload = data;
-                ioContext.stop();
+                (void)sessionId;
+                (void)messageId;
+                (void)data;
             },
             [&](de::server::engine::network::ClientNetwork::SessionId) {
             }
@@ -423,6 +454,9 @@ void TestClientNetworkReceive() {
     Require(clientNetwork.Listen(listenConfig), "Expected client network listen to succeed.");
     Require(clientNetwork.GetListenPort() != 0, "Expected client network to bind an actual port.");
 
+    const auto allocatedSession = clientNetwork.AllocateSession();
+    Require(allocatedSession.has_value(), "Expected client network to allocate a session.");
+
     asio::ip::udp::socket clientSocket(ioContext);
     clientSocket.open(asio::ip::udp::v4());
     const asio::ip::udp::endpoint serverEndpoint(asio::ip::make_address_v4("127.0.0.1"), clientNetwork.GetListenPort());
@@ -430,23 +464,33 @@ void TestClientNetworkReceive() {
     TestClientKcpOutputContext outputContext;
     outputContext.socket = &clientSocket;
     outputContext.remoteEndpoint = serverEndpoint;
-    ikcpcb* clientKcp = ikcp_create(9527, &outputContext);
+    clientKcp = ikcp_create(allocatedSession->conv, &outputContext);
     Require(clientKcp != nullptr, "Expected client kcp to be created.");
     ConfigureTestKcp(clientKcp, kcpConfig);
     ikcp_setoutput(clientKcp, &TestClientKcpOutput);
 
-    const std::string payloadText = "hello-client-network";
-    const auto header = de::server::engine::network::Header::CreateClient(1001, static_cast<std::uint32_t>(payloadText.size()));
-    const auto serializedHeader = header.Serialize();
-    std::vector<std::byte> frame(serializedHeader.size() + payloadText.size());
-    std::memcpy(frame.data(), serializedHeader.data(), serializedHeader.size());
-    std::memcpy(frame.data() + serializedHeader.size(), payloadText.data(), payloadText.size());
+    const de::server::engine::network::ClientHandShakeMessage handShakeMessage{
+        de::server::engine::network::ClientHandShakeMessage::kCurrentVersion,
+        0,
+        allocatedSession->sessionId
+    };
+    const auto handShakeBytes = handShakeMessage.Serialize();
+    const auto handShakeHeader = de::server::engine::network::Header::CreateClient(
+        static_cast<std::uint32_t>(de::server::engine::network::MessageID::HandShakeReq),
+        static_cast<std::uint32_t>(handShakeBytes.size())
+    );
+    const auto serializedHandShakeHeader = handShakeHeader.Serialize();
+    std::vector<std::byte> handShakeFrame(serializedHandShakeHeader.size() + handShakeBytes.size());
+    std::memcpy(handShakeFrame.data(), serializedHandShakeHeader.data(), serializedHandShakeHeader.size());
+    for (std::size_t index = 0; index < handShakeBytes.size(); ++index) {
+        handShakeFrame[serializedHandShakeHeader.size() + index] = static_cast<std::byte>(handShakeBytes[index]);
+    }
 
     Require(
-        ikcp_send(clientKcp, reinterpret_cast<const char*>(frame.data()), static_cast<int>(frame.size())) >= 0,
-        "Expected test client kcp send to succeed."
+        ikcp_send(clientKcp, reinterpret_cast<const char*>(handShakeFrame.data()), static_cast<int>(handShakeFrame.size())) >= 0,
+        "Expected test client handshake send to succeed."
     );
-    for (std::uint32_t current = 0; current <= 50 && outputContext.sentCount == 0; current += 10) {
+    for (std::uint32_t current = 0; current <= 50; current += 10) {
         ikcp_update(clientKcp, current);
     }
     Require(outputContext.sentCount > 0, "Expected test client kcp to flush at least one UDP packet.");
@@ -462,12 +506,7 @@ void TestClientNetworkReceive() {
     ikcp_release(clientKcp);
 
     Require(connected, "Expected client network to establish a session.");
-    Require(connectedSessionId != 0, "Expected client network session id.");
-    Require(received, "Expected client network to receive a KCP payload.");
-    Require(receivedMessageId == 1001, "Expected client network message id to round-trip.");
-
-    const std::string receivedText(reinterpret_cast<const char*>(receivedPayload.data()), receivedPayload.size());
-    Require(receivedText == payloadText, "Expected client network payload to round-trip.");
+    Require(connectedSessionId == allocatedSession->sessionId, "Expected client network session id to match allocated session.");
 }
 
 void TestTimerManager() {
@@ -541,7 +580,8 @@ int main() {
         RunTest("cluster_config_telnet", &TestClusterConfigTelnet);
         RunTest("telnet_command_handling", &TestTelnetCommandHandling);
         RunTest("http_service_routing", &TestHttpServiceRouting);
-        RunTest("client_network_receive", &TestClientNetworkReceive);
+        RunTest("gate_http_handler_auth", &TestGateHttpHandlerAuth);
+        RunTest("client_network_handshake", &TestClientNetworkHandshake);
         RunTest("timer_manager", &TestTimerManager);
 
         std::cout << "engine_smoke_tests passed" << std::endl;

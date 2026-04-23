@@ -6,6 +6,8 @@ add_executable(engine_smoke_tests
     "${PROJECT_SOURCE_DIR}/src/network/client/ClientNetwork.cpp"
     "${PROJECT_SOURCE_DIR}/src/network/client/ClientNetworkSession.cpp"
     "${PROJECT_SOURCE_DIR}/src/network/protocal/Header.cpp"
+    "${PROJECT_SOURCE_DIR}/src/network/protocal/Message.cpp"
+    "${PROJECT_SOURCE_DIR}/src/server/gate/GateHttpHandler.cpp"
     "${PROJECT_SOURCE_DIR}/src/telnet/TelnetService.cpp"
     "${PROJECT_SOURCE_DIR}/src/timer/TimerManager.cpp"
 )

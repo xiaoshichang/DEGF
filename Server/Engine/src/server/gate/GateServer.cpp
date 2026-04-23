@@ -1,10 +1,12 @@
 #include "server/gate/GateServer.h"
 
 #include "core/Logger.h"
+#include "http/HttpService.h"
 #include "network/client/ClientNetwork.h"
 #include "core/ProcessPerformance.h"
 #include "network/protocal/Message.h"
 #include "network/protocal/MessageID.h"
+#include "server/gate/GateHttpHandler.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -51,6 +53,7 @@ namespace de::server::engine
 	void GateServer::Init()
 	{
 		ServerBase::Init();
+		InitHttp();
 		ConnectToGm();
 		StartHeartbeatTimer();
 		Logger::Info("GateServer", "Init");
@@ -63,6 +66,7 @@ namespace de::server::engine
 		gmSessionId_.reset();
 		openGateReceived_ = false;
 		UninitClientNetwork();
+		UninitHttp();
 		ServerBase::Uninit();
 	}
 
@@ -143,6 +147,54 @@ namespace de::server::engine
 	void GateServer::UninitClientNetwork()
 	{
 		clientNetwork_.reset();
+	}
+
+	void GateServer::InitHttp()
+	{
+		if (httpService_ != nullptr || config_.authNetwork.listenEndpoint.host.empty() || config_.authNetwork.listenEndpoint.port == 0)
+		{
+			return;
+		}
+
+		httpHandler_ = std::make_unique<GateHttpHandler>(
+			GetServerId(),
+			config_.clientNetwork.listenEndpoint.port,
+			[this]()
+			{
+				return openGateReceived_ && clientNetwork_ != nullptr;
+			},
+			[this]() -> std::optional<network::AllocatedClientSession>
+			{
+				if (clientNetwork_ == nullptr)
+				{
+					return std::nullopt;
+				}
+
+				return clientNetwork_->AllocateSession();
+			}
+		);
+
+		httpService_ = std::make_unique<HttpService>(
+			GetIoContext(),
+			GetServerId(),
+			[this](const HttpRequest& request)
+			{
+				return httpHandler_->HandleRequest(request);
+			}
+		);
+		httpService_->Start(config::HttpConfig{ config_.authNetwork.listenEndpoint });
+	}
+
+	void GateServer::UninitHttp()
+	{
+		if (httpService_ == nullptr)
+		{
+			return;
+		}
+
+		httpService_->Stop();
+		httpService_.reset();
+		httpHandler_.reset();
 	}
 
 	void GateServer::OnClientConnect(network::ClientNetworkSession::SessionId sessionId)

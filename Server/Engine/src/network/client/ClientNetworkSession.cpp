@@ -16,11 +16,10 @@ namespace de::server::engine::network
 		}
 	}
 
-	ClientNetworkSession::ClientNetworkSession(ClientNetwork* owner, asio::ip::udp::endpoint remoteEndpoint, std::uint32_t conv)
+	ClientNetworkSession::ClientNetworkSession(ClientNetwork* owner, std::uint32_t conv)
 		: SessionId_(NextClientNetworkSessionId())
-		, SessionState_(ClientNetworkSessionState::BeforeConnected)
+		, SessionState_(ClientNetworkSessionState::Allocated)
 		, Owner_(owner)
-		, RemoteEndpoint_(std::move(remoteEndpoint))
 		, Conv_(conv)
 		, Kcp_(ikcp_create(conv, this))
 	{
@@ -64,6 +63,27 @@ namespace de::server::engine::network
 		return RemoteEndpoint_;
 	}
 
+	bool ClientNetworkSession::HasRemoteEndpoint() const
+	{
+		return RemoteEndpoint_.port() != 0;
+	}
+
+	bool ClientNetworkSession::BindRemoteEndpoint(const asio::ip::udp::endpoint& remoteEndpoint)
+	{
+		if (!HasRemoteEndpoint())
+		{
+			RemoteEndpoint_ = remoteEndpoint;
+			return true;
+		}
+
+		return RemoteEndpoint_ == remoteEndpoint;
+	}
+
+	bool ClientNetworkSession::MatchesRemoteEndpoint(const asio::ip::udp::endpoint& remoteEndpoint) const
+	{
+		return HasRemoteEndpoint() && RemoteEndpoint_ == remoteEndpoint;
+	}
+
 	std::uint32_t ClientNetworkSession::GetConv() const
 	{
 		return Conv_;
@@ -96,9 +116,9 @@ namespace de::server::engine::network
 			return;
 		}
 
-		if (SessionState_ != ClientNetworkSessionState::BeforeConnected)
+		if (SessionState_ != ClientNetworkSessionState::Allocated)
 		{
-			throw std::logic_error("Only before-connected ClientNetworkSession can become connected.");
+			throw std::logic_error("Only allocated ClientNetworkSession can become connected.");
 		}
 
 		SessionState_ = ClientNetworkSessionState::Connected;

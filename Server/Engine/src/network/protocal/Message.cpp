@@ -72,4 +72,34 @@ namespace de::server::engine::network
 		message = parsed;
 		return true;
 	}
+
+	std::array<std::uint8_t, ClientHandShakeMessage::kWireSize> ClientHandShakeMessage::Serialize() const
+	{
+		std::array<std::uint8_t, kWireSize> bytes{};
+		WriteUInt16BigEndian(bytes.data(), version);
+		WriteUInt16BigEndian(bytes.data() + 2, reserved);
+		WriteUInt64BigEndian(bytes.data() + 4, sessionId);
+		return bytes;
+	}
+
+	bool ClientHandShakeMessage::TryDeserialize(const void* data, std::size_t size, ClientHandShakeMessage& message)
+	{
+		if (data == nullptr || size != kWireSize)
+		{
+			return false;
+		}
+
+		const auto* bytes = static_cast<const std::uint8_t*>(data);
+		ClientHandShakeMessage parsed;
+		parsed.version = ReadUInt16BigEndian(bytes);
+		parsed.reserved = ReadUInt16BigEndian(bytes + 2);
+		parsed.sessionId = ReadUInt64BigEndian(bytes + 4);
+		if (parsed.version != kCurrentVersion || parsed.sessionId == 0)
+		{
+			return false;
+		}
+
+		message = parsed;
+		return true;
+	}
 }

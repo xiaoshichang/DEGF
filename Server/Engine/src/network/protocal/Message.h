@@ -20,4 +20,17 @@ namespace de::server::engine::network
 		std::array<std::uint8_t, kWireSize> Serialize() const;
 		static bool TryDeserialize(const void* data, std::size_t size, HeartBeatWithDataNtfMessage& message);
 	};
+
+	struct ClientHandShakeMessage
+	{
+		static constexpr std::uint16_t kCurrentVersion = 1;
+		static constexpr std::size_t kWireSize = 12;
+
+		std::uint16_t version = kCurrentVersion;
+		std::uint16_t reserved = 0;
+		std::uint64_t sessionId = 0;
+
+		std::array<std::uint8_t, kWireSize> Serialize() const;
+		static bool TryDeserialize(const void* data, std::size_t size, ClientHandShakeMessage& message);
+	};
 }

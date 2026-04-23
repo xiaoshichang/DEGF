@@ -2,6 +2,8 @@
 
 #include "core/Logger.h"
 #include "ikcp.h"
+#include "network/protocal/Message.h"
+#include "network/protocal/MessageID.h"
 #include "network/protocal/Header.h"
 
 #include <algorithm>
@@ -137,6 +139,26 @@ namespace de::server::engine::network
 		return error ? 0 : endpoint.port();
 	}
 
+	std::optional<AllocatedClientSession> ClientNetwork::AllocateSession()
+	{
+		const auto conv = AllocateConv();
+		if (conv == 0)
+		{
+			return std::nullopt;
+		}
+
+		auto* session = CreateSession(conv);
+		if (session == nullptr)
+		{
+			return std::nullopt;
+		}
+
+		return AllocatedClientSession{
+			session->GetSessionId(),
+			session->GetConv()
+		};
+	}
+
 	bool ClientNetwork::Send(SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
 		auto* session = FindSession(sessionId);
@@ -152,23 +174,7 @@ namespace de::server::engine::network
 			return false;
 		}
 
-		auto frame = BuildClientFrame(messageId, data);
-		auto* kcp = session->GetKcp();
-		if (kcp == nullptr)
-		{
-			Logger::Warn("ClientNetwork", "Send target session has no KCP control block.");
-			return false;
-		}
-
-		const int result = ikcp_send(kcp, reinterpret_cast<const char*>(frame.data()), static_cast<int>(frame.size()));
-		if (result < 0)
-		{
-			Logger::Warn("ClientNetwork", "ikcp_send failed for session " + std::to_string(sessionId) + ".");
-			return false;
-		}
-
-		ikcp_update(kcp, GetCurrentMs());
-		return true;
+		return SendFrame(*session, messageId, data, true);
 	}
 
 	bool ClientNetwork::ActiveDisconnect(SessionId sessionId)
@@ -205,23 +211,17 @@ namespace de::server::engine::network
 		return static_cast<int>(sent);
 	}
 
-	ClientNetworkSession* ClientNetwork::CreateSession(const Endpoint& remoteEndpoint, std::uint32_t conv)
+	ClientNetworkSession* ClientNetwork::CreateSession(std::uint32_t conv)
 	{
-		auto session = std::make_unique<ClientNetworkSession>(this, remoteEndpoint, conv);
+		auto session = std::make_unique<ClientNetworkSession>(this, conv);
 		auto* sessionPtr = session.get();
 		ConfigureSession(*sessionPtr);
 		sessions_.emplace(sessionPtr->GetSessionId(), std::move(session));
-		endpointConvToSession_.emplace(BuildEndpointConvKey(remoteEndpoint, conv), sessionPtr->GetSessionId());
-		sessionPtr->OnConnected();
-
-		if (!shuttingDown_ && callbacks_.OnConnect != nullptr)
-		{
-			callbacks_.OnConnect(sessionPtr->GetSessionId());
-		}
+		convToSession_.emplace(conv, sessionPtr->GetSessionId());
 
 		Logger::Info(
 			"ClientNetwork",
-			"Accepted KCP client session " + std::to_string(sessionPtr->GetSessionId()) + " conv=" + std::to_string(conv)
+			"Allocated KCP client session " + std::to_string(sessionPtr->GetSessionId()) + " conv=" + std::to_string(conv)
 		);
 		return sessionPtr;
 	}
@@ -232,10 +232,10 @@ namespace de::server::engine::network
 		return iterator == sessions_.end() ? nullptr : iterator->second.get();
 	}
 
-	ClientNetworkSession* ClientNetwork::FindSession(const Endpoint& remoteEndpoint, std::uint32_t conv)
+	ClientNetworkSession* ClientNetwork::FindSessionByConv(std::uint32_t conv)
 	{
-		const auto iterator = endpointConvToSession_.find(BuildEndpointConvKey(remoteEndpoint, conv));
-		if (iterator == endpointConvToSession_.end())
+		const auto iterator = convToSession_.find(conv);
+		if (iterator == convToSession_.end())
 		{
 			return nullptr;
 		}
@@ -251,8 +251,7 @@ namespace de::server::engine::network
 			return;
 		}
 
-		const auto key = BuildEndpointConvKey(iterator->second->GetRemoteEndpoint(), iterator->second->GetConv());
-		endpointConvToSession_.erase(key);
+		convToSession_.erase(iterator->second->GetConv());
 		sessions_.erase(iterator);
 
 		if (!shuttingDown_ && callbacks_.OnDisconnect != nullptr)
@@ -321,10 +320,19 @@ namespace de::server::engine::network
 			return;
 		}
 
-		auto* session = FindSession(receiveRemoteEndpoint_, conv);
+		auto* session = FindSessionByConv(conv);
 		if (session == nullptr)
 		{
-			session = CreateSession(receiveRemoteEndpoint_, conv);
+			Logger::Warn("ClientNetwork", "Received UDP packet for unknown conv.");
+			StartReceive();
+			return;
+		}
+
+		if (!session->BindRemoteEndpoint(receiveRemoteEndpoint_))
+		{
+			Logger::Warn("ClientNetwork", "Received UDP packet from unexpected remote endpoint.");
+			StartReceive();
+			return;
 		}
 
 		auto* kcp = session->GetKcp();
@@ -379,6 +387,10 @@ namespace de::server::engine::network
 			sessionBuffer.resize(originalSize + static_cast<std::size_t>(receivedSize));
 			std::memcpy(sessionBuffer.data() + originalSize, buffer.data(), static_cast<std::size_t>(receivedSize));
 			HandleDecodedFrames(session);
+			if (FindSession(session.GetSessionId()) == nullptr)
+			{
+				return;
+			}
 		}
 	}
 
@@ -387,6 +399,7 @@ namespace de::server::engine::network
 		auto& buffer = session.GetReceiveBuffer();
 		while (buffer.size() >= Header::kWireSize)
 		{
+			const auto sessionId = session.GetSessionId();
 			Header header;
 			if (!Header::TryDeserialize(buffer.data(), buffer.size(), header))
 			{
@@ -407,13 +420,104 @@ namespace de::server::engine::network
 				payload = ToByteVector(buffer.data() + header.headerLength, header.length);
 			}
 
-			if (callbacks_.OnReceive != nullptr)
+			buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(frameLength));
+
+			if (session.GetSessionState() != ClientNetworkSessionState::Connected)
+			{
+				if (header.messageId != static_cast<std::uint32_t>(MessageID::HandShakeReq))
+				{
+					Logger::Warn("ClientNetwork", "Received non-handshake payload before client session connected.");
+					DestroySession(session.GetSessionId());
+					return;
+				}
+
+				HandleHandShakeReq(session, payload);
+				if (FindSession(sessionId) == nullptr)
+				{
+					return;
+				}
+			}
+			else if (header.messageId == static_cast<std::uint32_t>(MessageID::HandShakeReq))
+			{
+				Logger::Warn("ClientNetwork", "Received duplicate client handshake request.");
+			}
+			else if (callbacks_.OnReceive != nullptr)
 			{
 				callbacks_.OnReceive(session.GetSessionId(), header.messageId, payload);
+				if (FindSession(sessionId) == nullptr)
+				{
+					return;
+				}
 			}
-
-			buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(frameLength));
 		}
+	}
+
+	void ClientNetwork::HandleHandShakeReq(ClientNetworkSession& session, const std::vector<std::byte>& data)
+	{
+		network::ClientHandShakeMessage message;
+		if (!network::ClientHandShakeMessage::TryDeserialize(data.data(), data.size(), message))
+		{
+			Logger::Warn("ClientNetwork", "Received invalid client handshake payload.");
+			DestroySession(session.GetSessionId());
+			return;
+		}
+
+		if (message.sessionId != session.GetSessionId())
+		{
+			Logger::Warn("ClientNetwork", "Received client handshake with mismatched session id.");
+			DestroySession(session.GetSessionId());
+			return;
+		}
+
+		if (!SendFrame(session, static_cast<std::uint32_t>(MessageID::HandShakeRsp), data, false))
+		{
+			Logger::Warn("ClientNetwork", "Failed to send client handshake response.");
+			DestroySession(session.GetSessionId());
+			return;
+		}
+
+		session.OnConnected();
+		if (!shuttingDown_ && callbacks_.OnConnect != nullptr)
+		{
+			callbacks_.OnConnect(session.GetSessionId());
+		}
+
+		Logger::Info(
+			"ClientNetwork",
+			"Client session connected: sessionId=" + std::to_string(session.GetSessionId()) + ", conv=" + std::to_string(session.GetConv())
+		);
+	}
+
+	bool ClientNetwork::SendFrame(ClientNetworkSession& session, std::uint32_t messageId, const std::vector<std::byte>& data, bool requireConnected)
+	{
+		if (requireConnected && session.GetSessionState() != ClientNetworkSessionState::Connected)
+		{
+			return false;
+		}
+
+		if (!session.HasRemoteEndpoint())
+		{
+			Logger::Warn("ClientNetwork", "Send target session has no bound remote endpoint.");
+			return false;
+		}
+
+		auto frame = BuildClientFrame(messageId, data);
+		auto* kcp = session.GetKcp();
+		if (kcp == nullptr)
+		{
+			Logger::Warn("ClientNetwork", "Send target session has no KCP control block.");
+			return false;
+		}
+
+		const int result = ikcp_send(kcp, reinterpret_cast<const char*>(frame.data()), static_cast<int>(frame.size()));
+		if (result < 0)
+		{
+			Logger::Warn("ClientNetwork", "ikcp_send failed for session " + std::to_string(session.GetSessionId()) + ".");
+			return false;
+		}
+
+		ikcp_update(kcp, GetCurrentMs());
+		return true;
 	}
 
 	void ClientNetwork::StartUpdateTimer()
@@ -487,9 +591,23 @@ namespace de::server::engine::network
 		kcp->stream = kcpConfig_.streamMode ? 1 : 0;
 	}
 
-	std::string ClientNetwork::BuildEndpointConvKey(const Endpoint& remoteEndpoint, std::uint32_t conv)
+	std::uint32_t ClientNetwork::AllocateConv()
 	{
-		return remoteEndpoint.address().to_string() + ":" + std::to_string(remoteEndpoint.port()) + "#" + std::to_string(conv);
+		for (std::uint32_t attempt = 0; attempt < std::numeric_limits<std::uint32_t>::max(); ++attempt)
+		{
+			const std::uint32_t conv = nextConv_++;
+			if (conv == 0)
+			{
+				continue;
+			}
+
+			if (convToSession_.find(conv) == convToSession_.end())
+			{
+				return conv;
+			}
+		}
+
+		return 0;
 	}
 
 	std::uint32_t ClientNetwork::GetCurrentMs()

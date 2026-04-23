@@ -2,7 +2,7 @@
 
 namespace DE.Server.Entities
 {
-    public sealed class ServerStubEntity : ServerEntity
+    public abstract class ServerStubEntity : ServerEntity
     {
         public ServerStubEntity()
         {
@@ -16,5 +16,7 @@ namespace DE.Server.Entities
         {
             return false;
         }
+
+        public abstract void OnStubReady();
     }
 }

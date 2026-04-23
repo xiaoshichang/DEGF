@@ -1,8 +1,8 @@
 #include "config/ClusterConfig.h"
 #include "core/Logger.h"
-#include "server/GameServer.h"
-#include "server/GateServer.h"
-#include "server/GMServer.h"
+#include "server/game/GameServer.h"
+#include "server/gate/GateServer.h"
+#include "server/gm/GMServer.h"
 
 #include <exception>
 #include <iostream>

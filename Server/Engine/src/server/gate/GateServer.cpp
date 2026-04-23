@@ -1,4 +1,4 @@
-#include "GateServer.h"
+#include "server/gate/GateServer.h"
 
 #include "core/Logger.h"
 #include "core/ProcessPerformance.h"

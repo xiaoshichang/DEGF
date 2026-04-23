@@ -285,22 +285,45 @@ void TestHttpServiceRouting() {
     de::server::engine::HttpService httpService(
         ioContext,
         "GM",
-        []() {
-            return std::string(R"({"nodes":{"GM":{"serverId":"GM","workingSetBytes":123}}})");
+        [](const de::server::engine::HttpRequest& request) {
+            if (request.method != "GET") {
+                return de::server::engine::HttpResponse{
+                    405,
+                    "Method Not Allowed",
+                    "application/json; charset=utf-8",
+                    R"({"error":"method not allowed"})"
+                };
+            }
+
+            if (request.target == "/performance" || request.target == "/api/performance") {
+                return de::server::engine::HttpResponse{
+                    200,
+                    "OK",
+                    "application/json; charset=utf-8",
+                    R"({"nodes":{"GM":{"serverId":"GM","workingSetBytes":123}}})"
+                };
+            }
+
+            return de::server::engine::HttpResponse{
+                404,
+                "Not Found",
+                "application/json; charset=utf-8",
+                R"({"error":"not found"})"
+            };
         }
     );
 
-    const auto performanceResult = httpService.HandleRequest("GET", "/performance");
+    const auto performanceResult = httpService.HandleRequest({"GET", "/performance", "HTTP/1.1"});
     Require(performanceResult.statusCode == 200, "Expected /performance to return 200.");
     Require(performanceResult.body.find("\"workingSetBytes\":123") != std::string::npos, "Expected performance payload to be returned.");
 
-    const auto apiPerformanceResult = httpService.HandleRequest("GET", "/api/performance");
+    const auto apiPerformanceResult = httpService.HandleRequest({"GET", "/api/performance", "HTTP/1.1"});
     Require(apiPerformanceResult.statusCode == 200, "Expected /api/performance to return 200.");
 
-    const auto missingResult = httpService.HandleRequest("GET", "/missing");
+    const auto missingResult = httpService.HandleRequest({"GET", "/missing", "HTTP/1.1"});
     Require(missingResult.statusCode == 404, "Expected unknown path to return 404.");
 
-    const auto methodNotAllowedResult = httpService.HandleRequest("POST", "/performance");
+    const auto methodNotAllowedResult = httpService.HandleRequest({"POST", "/performance", "HTTP/1.1"});
     Require(methodNotAllowedResult.statusCode == 405, "Expected POST /performance to return 405.");
 }
 

@@ -110,7 +110,11 @@ namespace de::server::engine
 			}
 			else
 			{
-				response = service_.HandleRequest(Trim(method), Trim(target));
+				response = service_.HandleRequest(HttpRequest{
+					Trim(method),
+					Trim(target),
+					Trim(version)
+				});
 			}
 
 			EnqueueWrite(service_.BuildHttpResponseText(response));
@@ -169,11 +173,11 @@ namespace de::server::engine
 		bool closed_ = false;
 	};
 
-	HttpService::HttpService(asio::io_context& ioContext, std::string serverId, PerformanceProvider performanceProvider)
+	HttpService::HttpService(asio::io_context& ioContext, std::string serverId, RequestHandler requestHandler)
 		: ioContext_(ioContext)
 		, acceptor_(ioContext)
 		, serverId_(std::move(serverId))
-		, performanceProvider_(std::move(performanceProvider))
+		, requestHandler_(std::move(requestHandler))
 	{
 	}
 
@@ -234,26 +238,11 @@ namespace de::server::engine
 		return running_;
 	}
 
-	HttpResponse HttpService::HandleRequest(std::string_view method, std::string_view target) const
+	HttpResponse HttpService::HandleRequest(const HttpRequest& request) const
 	{
-		if (method != "GET")
+		if (requestHandler_)
 		{
-			return HttpResponse{
-				405,
-				"Method Not Allowed",
-				"application/json; charset=utf-8",
-				R"({"error":"method not allowed"})"
-			};
-		}
-
-		if (target == "/performance" || target == "/api/performance")
-		{
-			return HttpResponse{
-				200,
-				"OK",
-				"application/json; charset=utf-8",
-				performanceProvider_ ? performanceProvider_() : R"({"nodes":{}})"
-			};
+			return requestHandler_(request);
 		}
 
 		return HttpResponse{

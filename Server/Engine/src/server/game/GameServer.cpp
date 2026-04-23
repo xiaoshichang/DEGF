@@ -1,4 +1,4 @@
-#include "GameServer.h"
+#include "server/game/GameServer.h"
 
 #include "core/Logger.h"
 #include "core/ProcessPerformance.h"

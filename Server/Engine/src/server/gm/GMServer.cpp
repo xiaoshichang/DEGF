@@ -1,37 +1,15 @@
-#include "GMServer.h"
+#include "server/gm/GMServer.h"
 
-#include "http/HttpService.h"
 #include "core/Logger.h"
+#include "http/HttpService.h"
 #include "network/protocal/Message.h"
 #include "network/protocal/MessageID.h"
+#include "server/gm/GMHttpHandler.h"
 
-#include <boost/json.hpp>
-
-#include <string>
-#include <string_view>
 #include <utility>
 
 namespace de::server::engine
 {
-	namespace
-	{
-		boost::json::object BuildSnapshotJson(std::string_view serverId, const ProcessPerformanceSnapshot& snapshot)
-		{
-			return boost::json::object{
-				{ "serverId", std::string(serverId) },
-				{ "workingSetBytes", snapshot.workingSetBytes }
-			};
-		}
-
-		boost::json::object BuildMissingSnapshotJson(std::string_view serverId)
-		{
-			return boost::json::object{
-				{ "serverId", std::string(serverId) },
-				{ "workingSetBytes", static_cast<std::uint64_t>(0) }
-			};
-		}
-	}
-
 	GMServer::GMServer(std::string serverId, std::string configPath, const config::ClusterConfig& clusterConfig)
 		: ServerBase(serverId, std::move(configPath), clusterConfig)
 		, config_(clusterConfig.gm)
@@ -100,7 +78,11 @@ namespace de::server::engine
 			return;
 		}
 
-		latestNodePerformanceSnapshots_[serverId] = heartBeatMessage.performance;
+		if (httpHandler_ != nullptr)
+		{
+			httpHandler_->UpdateNodePerformanceSnapshot(serverId, heartBeatMessage.performance);
+		}
+
 		Logger::Debug(
 			"GMServer",
 			"Updated heartbeat snapshot from " + serverId + ", workingSetBytes=" + std::to_string(heartBeatMessage.performance.workingSetBytes)
@@ -117,7 +99,11 @@ namespace de::server::engine
 	{
 		registeredNodeServerIds_.erase(serverId);
 		readyGameServerIds_.erase(serverId);
-		latestNodePerformanceSnapshots_.erase(serverId);
+		if (httpHandler_ != nullptr)
+		{
+			httpHandler_->ClearNodePerformanceSnapshot(serverId);
+		}
+
 		allNodeReadyNotified_ = false;
 		allGameReadyLogged_ = false;
 		ServerBase::OnInnerDisconnect(serverId);
@@ -130,12 +116,13 @@ namespace de::server::engine
 			return;
 		}
 
+		httpHandler_ = std::make_unique<GMHttpHandler>(GetServerId(), GetClusterConfig());
 		httpService_ = std::make_unique<HttpService>(
 			GetIoContext(),
 			GetServerId(),
-			[this]()
+			[this](const HttpRequest& request)
 			{
-				return BuildPerformanceResponse();
+				return httpHandler_->HandleRequest(request);
 			}
 		);
 		httpService_->Start(config_.http);
@@ -150,6 +137,7 @@ namespace de::server::engine
 
 		httpService_->Stop();
 		httpService_.reset();
+		httpHandler_.reset();
 	}
 
 	void GMServer::TryNotifyAllNodeReady()
@@ -212,45 +200,5 @@ namespace de::server::engine
 
 		allGameReadyLogged_ = true;
 		Logger::Info("GMServer", "all game ready");
-	}
-
-	std::string GMServer::BuildPerformanceResponse() const
-	{
-		boost::json::object nodes;
-		const auto& clusterConfig = GetClusterConfig();
-
-		nodes.emplace(GetServerId(), BuildSnapshotJson(GetServerId(), CollectProcessPerformanceSnapshot()));
-
-		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
-		{
-			(void)gateConfig;
-
-			const auto snapshotIterator = latestNodePerformanceSnapshots_.find(serverId);
-			if (snapshotIterator == latestNodePerformanceSnapshots_.end())
-			{
-				nodes.emplace(serverId, BuildMissingSnapshotJson(serverId));
-				continue;
-			}
-
-			nodes.emplace(serverId, BuildSnapshotJson(serverId, snapshotIterator->second));
-		}
-
-		for (const auto& [serverId, gameConfig] : clusterConfig.game)
-		{
-			(void)gameConfig;
-
-			const auto snapshotIterator = latestNodePerformanceSnapshots_.find(serverId);
-			if (snapshotIterator == latestNodePerformanceSnapshots_.end())
-			{
-				nodes.emplace(serverId, BuildMissingSnapshotJson(serverId));
-				continue;
-			}
-
-			nodes.emplace(serverId, BuildSnapshotJson(serverId, snapshotIterator->second));
-		}
-
-		boost::json::object payload;
-		payload.emplace("nodes", std::move(nodes));
-		return boost::json::serialize(payload);
 	}
 }

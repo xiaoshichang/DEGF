@@ -6,11 +6,17 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 
 namespace de::server::engine
 {
+	struct HttpRequest
+	{
+		std::string method;
+		std::string target;
+		std::string version;
+	};
+
 	struct HttpResponse
 	{
 		int statusCode = 200;
@@ -22,16 +28,16 @@ namespace de::server::engine
 	class HttpService
 	{
 	public:
-		using PerformanceProvider = std::function<std::string()>;
+		using RequestHandler = std::function<HttpResponse(const HttpRequest&)>;
 
-		HttpService(asio::io_context& ioContext, std::string serverId, PerformanceProvider performanceProvider);
+		HttpService(asio::io_context& ioContext, std::string serverId, RequestHandler requestHandler);
 		~HttpService();
 
 		void Start(const config::HttpConfig& config);
 		void Stop();
 
 		bool IsRunning() const;
-		HttpResponse HandleRequest(std::string_view method, std::string_view target) const;
+		HttpResponse HandleRequest(const HttpRequest& request) const;
 
 	private:
 		class Session;
@@ -43,7 +49,7 @@ namespace de::server::engine
 		asio::io_context& ioContext_;
 		asio::ip::tcp::acceptor acceptor_;
 		std::string serverId_;
-		PerformanceProvider performanceProvider_;
+		RequestHandler requestHandler_;
 		bool running_ = false;
 		std::uint64_t nextSessionId_ = 1;
 		std::unordered_map<std::uint64_t, std::shared_ptr<Session>> sessions_;

@@ -1,16 +1,15 @@
 #pragma once
 
-#include "ServerBase.h"
+#include "server/ServerBase.h"
 #include "config/ClusterConfig.h"
-#include "core/ProcessPerformance.h"
 
 #include <memory>
 #include <string>
 #include <unordered_set>
-#include <unordered_map>
 
 namespace de::server::engine
 {
+	class GMHttpHandler;
 	class HttpService;
 
 	class GMServer : public ServerBase
@@ -33,13 +32,12 @@ namespace de::server::engine
 		void UninitHttp();
 		void TryNotifyAllNodeReady();
 		void TryLogAllGameReady();
-		std::string BuildPerformanceResponse() const;
 
 		config::GMConfig config_;
+		std::unique_ptr<GMHttpHandler> httpHandler_;
 		std::unique_ptr<HttpService> httpService_;
 		std::unordered_set<std::string> registeredNodeServerIds_;
 		std::unordered_set<std::string> readyGameServerIds_;
-		std::unordered_map<std::string, ProcessPerformanceSnapshot> latestNodePerformanceSnapshots_;
 		bool allNodeReadyNotified_ = false;
 		bool allGameReadyLogged_ = false;
 	};

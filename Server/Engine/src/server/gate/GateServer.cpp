@@ -1,6 +1,7 @@
 #include "server/gate/GateServer.h"
 
 #include "core/Logger.h"
+#include "network/client/ClientNetwork.h"
 #include "core/ProcessPerformance.h"
 #include "network/protocal/Message.h"
 #include "network/protocal/MessageID.h"
@@ -50,6 +51,7 @@ namespace de::server::engine
 	void GateServer::Init()
 	{
 		ServerBase::Init();
+		InitClientNetwork();
 		ConnectToGm();
 		StartHeartbeatTimer();
 		Logger::Info("GateServer", "Init");
@@ -60,6 +62,7 @@ namespace de::server::engine
 		Logger::Info("GateServer", "Uninit");
 		StopHeartbeatTimer();
 		gmSessionId_.reset();
+		UninitClientNetwork();
 		ServerBase::Uninit();
 	}
 
@@ -81,6 +84,64 @@ namespace de::server::engine
 		}
 
 		ServerBase::OnInnerDisconnect(serverId);
+	}
+
+	void GateServer::InitClientNetwork()
+	{
+		if (clientNetwork_ != nullptr)
+		{
+			return;
+		}
+
+		clientNetwork_ = std::make_unique<network::ClientNetwork>(
+			GetIoContext(),
+			GetClusterConfig().kcp,
+			network::ClientNetworkCallbacks{
+				[this](network::ClientNetworkSession::SessionId sessionId)
+				{
+					OnClientConnect(sessionId);
+				},
+				[this](network::ClientNetworkSession::SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data)
+				{
+					OnClientReceive(sessionId, messageId, data);
+				},
+				[this](network::ClientNetworkSession::SessionId sessionId)
+				{
+					OnClientDisconnect(sessionId);
+				}
+			}
+		);
+
+		if (!clientNetwork_->Listen(config_.clientNetwork))
+		{
+			clientNetwork_.reset();
+			throw std::runtime_error("Failed to start client network.");
+		}
+	}
+
+	void GateServer::UninitClientNetwork()
+	{
+		clientNetwork_.reset();
+	}
+
+	void GateServer::OnClientConnect(network::ClientNetworkSession::SessionId sessionId)
+	{
+		Logger::Info("GateServer", "Client session connected: " + std::to_string(sessionId));
+	}
+
+	void GateServer::OnClientReceive(network::ClientNetworkSession::SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data)
+	{
+		Logger::Info(
+			"GateServer",
+			"Client session received message, sessionId=" + std::to_string(sessionId)
+			+ ", messageId=" + std::to_string(messageId)
+			+ ", payload=" + std::to_string(data.size())
+		);
+	}
+
+	void GateServer::OnClientDisconnect(network::ClientNetworkSession::SessionId sessionId)
+	{
+		Logger::Info("GateServer", "Client session disconnected: " + std::to_string(sessionId));
 	}
 
 	void GateServer::ConnectToGm()

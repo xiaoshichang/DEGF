@@ -2,6 +2,8 @@
 #include "core/BoostAsio.h"
 #include "core/Logger.h"
 #include "http/HttpService.h"
+#include "network/client/ClientNetwork.h"
+#include "network/protocal/Header.h"
 #include "telnet/TelnetService.h"
 #include "timer/TimerManager.h"
 
@@ -18,6 +20,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -327,6 +330,146 @@ void TestHttpServiceRouting() {
     Require(methodNotAllowedResult.statusCode == 405, "Expected POST /performance to return 405.");
 }
 
+struct TestClientKcpOutputContext {
+    asio::ip::udp::socket* socket = nullptr;
+    asio::ip::udp::endpoint remoteEndpoint;
+    int sentCount = 0;
+};
+
+int TestClientKcpOutput(const char* buffer, int length, ikcpcb* kcp, void* user) {
+    (void)kcp;
+
+    if (buffer == nullptr || length <= 0 || user == nullptr) {
+        return -1;
+    }
+
+    auto* context = static_cast<TestClientKcpOutputContext*>(user);
+    boost::system::error_code error;
+    const auto sent = context->socket->send_to(
+        asio::buffer(buffer, static_cast<std::size_t>(length)),
+        context->remoteEndpoint,
+        0,
+        error
+    );
+    if (error) {
+        return -1;
+    }
+
+    ++context->sentCount;
+    return static_cast<int>(sent);
+}
+
+void ConfigureTestKcp(ikcpcb* kcp, const de::server::engine::config::KcpConfig& config) {
+    Require(kcp != nullptr, "Expected valid kcp instance.");
+    ikcp_setmtu(kcp, config.mtu);
+    ikcp_wndsize(kcp, config.sndwnd, config.rcvwnd);
+    ikcp_nodelay(
+        kcp,
+        config.nodelay ? 1 : 0,
+        config.intervalMs,
+        config.fastResend,
+        config.noCongestionWindow ? 1 : 0
+    );
+    kcp->rx_minrto = static_cast<IUINT32>(config.minRtoMs);
+    kcp->dead_link = static_cast<IUINT32>(config.deadLinkCount);
+    kcp->stream = config.streamMode ? 1 : 0;
+}
+
+void TestClientNetworkReceive() {
+    using namespace std::chrono_literals;
+
+    asio::io_context ioContext;
+    de::server::engine::config::KcpConfig kcpConfig;
+    kcpConfig.mtu = 1200;
+    kcpConfig.sndwnd = 128;
+    kcpConfig.rcvwnd = 128;
+    kcpConfig.nodelay = true;
+    kcpConfig.intervalMs = 10;
+    kcpConfig.fastResend = 2;
+    kcpConfig.noCongestionWindow = false;
+    kcpConfig.minRtoMs = 30;
+    kcpConfig.deadLinkCount = 20;
+    kcpConfig.streamMode = false;
+
+    bool connected = false;
+    bool received = false;
+    de::server::engine::network::ClientNetwork::SessionId connectedSessionId = 0;
+    std::uint32_t receivedMessageId = 0;
+    std::vector<std::byte> receivedPayload;
+
+    de::server::engine::network::ClientNetwork clientNetwork(
+        ioContext,
+        kcpConfig,
+        {
+            [&](de::server::engine::network::ClientNetwork::SessionId sessionId) {
+                connected = true;
+                connectedSessionId = sessionId;
+            },
+            [&](de::server::engine::network::ClientNetwork::SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data) {
+                received = true;
+                connectedSessionId = sessionId;
+                receivedMessageId = messageId;
+                receivedPayload = data;
+                ioContext.stop();
+            },
+            [&](de::server::engine::network::ClientNetwork::SessionId) {
+            }
+        }
+    );
+
+    de::server::engine::config::NetworkConfig listenConfig;
+    listenConfig.listenEndpoint.host = "127.0.0.1";
+    listenConfig.listenEndpoint.port = 0;
+    Require(clientNetwork.Listen(listenConfig), "Expected client network listen to succeed.");
+    Require(clientNetwork.GetListenPort() != 0, "Expected client network to bind an actual port.");
+
+    asio::ip::udp::socket clientSocket(ioContext);
+    clientSocket.open(asio::ip::udp::v4());
+    const asio::ip::udp::endpoint serverEndpoint(asio::ip::make_address_v4("127.0.0.1"), clientNetwork.GetListenPort());
+
+    TestClientKcpOutputContext outputContext;
+    outputContext.socket = &clientSocket;
+    outputContext.remoteEndpoint = serverEndpoint;
+    ikcpcb* clientKcp = ikcp_create(9527, &outputContext);
+    Require(clientKcp != nullptr, "Expected client kcp to be created.");
+    ConfigureTestKcp(clientKcp, kcpConfig);
+    ikcp_setoutput(clientKcp, &TestClientKcpOutput);
+
+    const std::string payloadText = "hello-client-network";
+    const auto header = de::server::engine::network::Header::CreateClient(1001, static_cast<std::uint32_t>(payloadText.size()));
+    const auto serializedHeader = header.Serialize();
+    std::vector<std::byte> frame(serializedHeader.size() + payloadText.size());
+    std::memcpy(frame.data(), serializedHeader.data(), serializedHeader.size());
+    std::memcpy(frame.data() + serializedHeader.size(), payloadText.data(), payloadText.size());
+
+    Require(
+        ikcp_send(clientKcp, reinterpret_cast<const char*>(frame.data()), static_cast<int>(frame.size())) >= 0,
+        "Expected test client kcp send to succeed."
+    );
+    for (std::uint32_t current = 0; current <= 50 && outputContext.sentCount == 0; current += 10) {
+        ikcp_update(clientKcp, current);
+    }
+    Require(outputContext.sentCount > 0, "Expected test client kcp to flush at least one UDP packet.");
+
+    asio::steady_timer stopTimer(ioContext);
+    stopTimer.expires_after(200ms);
+    stopTimer.async_wait([&](const boost::system::error_code&) {
+        ioContext.stop();
+    });
+
+    ioContext.run();
+
+    ikcp_release(clientKcp);
+
+    Require(connected, "Expected client network to establish a session.");
+    Require(connectedSessionId != 0, "Expected client network session id.");
+    Require(received, "Expected client network to receive a KCP payload.");
+    Require(receivedMessageId == 1001, "Expected client network message id to round-trip.");
+
+    const std::string receivedText(reinterpret_cast<const char*>(receivedPayload.data()), receivedPayload.size());
+    Require(receivedText == payloadText, "Expected client network payload to round-trip.");
+}
+
 void TestTimerManager() {
     using namespace std::chrono_literals;
 
@@ -398,6 +541,7 @@ int main() {
         RunTest("cluster_config_telnet", &TestClusterConfigTelnet);
         RunTest("telnet_command_handling", &TestTelnetCommandHandling);
         RunTest("http_service_routing", &TestHttpServiceRouting);
+        RunTest("client_network_receive", &TestClientNetworkReceive);
         RunTest("timer_manager", &TestTimerManager);
 
         std::cout << "engine_smoke_tests passed" << std::endl;

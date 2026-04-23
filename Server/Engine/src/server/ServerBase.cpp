@@ -1,6 +1,7 @@
 #include "ServerBase.h"
 
 #include "core/Logger.h"
+#include "managed/ManagedRuntimeService.h"
 #include "network/inner/InnerNetwork.h"
 #include "network/protocal/MessageID.h"
 #include "telnet/TelnetService.h"
@@ -25,8 +26,9 @@ namespace de::server::engine
 		}
 	}
 
-	ServerBase::ServerBase(std::string serverId, config::ClusterConfig clusterConfig)
+	ServerBase::ServerBase(std::string serverId, std::string configPath, config::ClusterConfig clusterConfig)
 		: serverId_(std::move(serverId))
+		, configPath_(std::move(configPath))
 		, clusterConfig_(std::move(clusterConfig))
 		, ioContext_()
 		, workGuard_(asio::make_work_guard(ioContext_))
@@ -43,6 +45,11 @@ namespace de::server::engine
 	const config::ClusterConfig& ServerBase::GetClusterConfig() const
 	{
 		return clusterConfig_;
+	}
+
+	const std::string& ServerBase::GetConfigPath() const
+	{
+		return configPath_;
 	}
 
 	asio::io_context& ServerBase::GetIoContext()
@@ -75,10 +82,12 @@ namespace de::server::engine
 		InitTimerManager();
 		InitInnerNetwork();
 		InitTelnet();
+		InitManagedRuntimeService();
 	}
 
 	void ServerBase::Uninit()
 	{
+		UninitManagedRuntimeService();
 		UninitTelnet();
 		UninitInnerNetwork();
 		UninitTimerManager();
@@ -192,6 +201,32 @@ namespace de::server::engine
 
 		telnetService_->Stop();
 		telnetService_.reset();
+	}
+
+	void ServerBase::InitManagedRuntimeService()
+	{
+		if (managedRuntimeService_ != nullptr)
+		{
+			return;
+		}
+
+		managedRuntimeService_ = std::make_unique<ManagedRuntimeService>();
+		managedRuntimeService_->Start(
+			GetServerId(),
+			GetConfigPath(),
+			GetClusterConfig().managed
+		);
+	}
+
+	void ServerBase::UninitManagedRuntimeService()
+	{
+		if (managedRuntimeService_ == nullptr)
+		{
+			return;
+		}
+
+		managedRuntimeService_->Stop();
+		managedRuntimeService_.reset();
 	}
 
 	void ServerBase::InitTimerManager()

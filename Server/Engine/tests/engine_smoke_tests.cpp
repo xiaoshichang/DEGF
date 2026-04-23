@@ -142,10 +142,8 @@ void TestClusterConfigTelnet() {
     "streamMode": false
   },
   "managed": {
-    "assemblyName": "Managed",
-    "assemblyPath": "Managed.dll",
-    "runtimeConfigPath": "Managed.runtimeconfig.json",
-    "searchAssemblyPaths": [ "Managed.dll" ]
+    "frameworkDll": "../Framework/DE.Server/bin/Debug/net10.0/DE.Server.dll",
+    "gameplayDll": "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll"
   },
   "gm": {
     "innerNetwork": {
@@ -228,6 +226,14 @@ void TestClusterConfigTelnet() {
     Require(
         de::server::engine::config::IsGmServerId("GM"),
         "Expected uppercase GM id to be recognized."
+    );
+    Require(
+        clusterConfig.managed.frameworkDll == "../Framework/DE.Server/bin/Debug/net10.0/DE.Server.dll",
+        "Expected managed framework dll to parse."
+    );
+    Require(
+        clusterConfig.managed.gameplayDll == "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll",
+        "Expected managed gameplay dll to parse."
     );
     Require(clusterConfig.gm.telnet.port == 5200, "Expected gm telnet port to parse.");
     Require(clusterConfig.gm.http.listenEndpoint.port == 5101, "Expected gm http port to parse.");

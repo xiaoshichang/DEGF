@@ -31,3 +31,13 @@ target_include_directories(DEServer
     PUBLIC
         "${PROJECT_SOURCE_DIR}/3rd"
 )
+
+if (WIN32)
+    add_custom_command(
+        TARGET DEServer
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/3rd/dotnet_host/win-x64/nethost.dll"
+            "$<TARGET_FILE_DIR:DEServer>/nethost.dll"
+    )
+endif()

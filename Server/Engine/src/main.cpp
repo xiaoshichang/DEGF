@@ -13,6 +13,7 @@ namespace
 {
 	std::unique_ptr<de::server::engine::ServerBase> CreateServer(
 		const de::server::engine::config::ClusterConfig& clusterConfig,
+		const std::string& configPath,
 		const std::string& serverId
 	)
 	{
@@ -20,19 +21,19 @@ namespace
 
 		if (config::IsGmServerId(serverId))
 		{
-			return std::make_unique<GMServer>(serverId, clusterConfig);
+			return std::make_unique<GMServer>(serverId, configPath, clusterConfig);
 		}
 
 		if (const auto* gateConfig = config::FindGateConfig(clusterConfig, serverId))
 		{
 			(void)gateConfig;
-			return std::make_unique<GateServer>(serverId, clusterConfig);
+			return std::make_unique<GateServer>(serverId, configPath, clusterConfig);
 		}
 
 		if (const auto* gameConfig = config::FindGameConfig(clusterConfig, serverId))
 		{
 			(void)gameConfig;
-			return std::make_unique<GameServer>(serverId, clusterConfig);
+			return std::make_unique<GameServer>(serverId, configPath, clusterConfig);
 		}
 
 		return nullptr;
@@ -59,7 +60,7 @@ int main(int argc, char* argv[])
 		const auto clusterConfig = de::server::engine::config::LoadClusterConfig(configPath);
 		de::server::engine::Logger::Init(serverId, clusterConfig.logging);
 
-		auto server = CreateServer(clusterConfig, serverId);
+		auto server = CreateServer(clusterConfig, configPath, serverId);
 		if (server == nullptr)
 		{
 			de::server::engine::Logger::Error("Main", "Unknown server-id: " + serverId);

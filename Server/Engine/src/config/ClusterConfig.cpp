@@ -44,17 +44,6 @@ namespace de::server::engine::config
 			return static_cast<std::uint16_t>(json::value_to<std::uint64_t>(*value));
 		}
 
-		std::vector<std::string> GetStringVector(const json::object& object, std::string_view key)
-		{
-			std::vector<std::string> values;
-			for (const auto& value : object.at(key).as_array())
-			{
-				values.emplace_back(json::value_to<std::string>(value));
-			}
-
-			return values;
-		}
-
 		EndpointConfig ParseEndpointConfig(const json::object& object)
 		{
 			return EndpointConfig{
@@ -153,10 +142,8 @@ namespace de::server::engine::config
 			GetBool(root.at("kcp").as_object(), "streamMode")
 		};
 		clusterConfig.managed = ManagedConfig{
-			GetString(root.at("managed").as_object(), "assemblyName"),
-			GetString(root.at("managed").as_object(), "assemblyPath"),
-			GetString(root.at("managed").as_object(), "runtimeConfigPath"),
-			GetStringVector(root.at("managed").as_object(), "searchAssemblyPaths")
+			GetString(root.at("managed").as_object(), "frameworkDll"),
+			GetString(root.at("managed").as_object(), "gameplayDll")
 		};
 		clusterConfig.gm = ParseGMConfig(root.at("gm").as_object());
 

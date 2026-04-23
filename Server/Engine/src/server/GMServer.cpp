@@ -32,8 +32,8 @@ namespace de::server::engine
 		}
 	}
 
-	GMServer::GMServer(std::string serverId, const config::ClusterConfig& clusterConfig)
-		: ServerBase(serverId, clusterConfig)
+	GMServer::GMServer(std::string serverId, std::string configPath, const config::ClusterConfig& clusterConfig)
+		: ServerBase(serverId, std::move(configPath), clusterConfig)
 		, config_(clusterConfig.gm)
 	{
 	}

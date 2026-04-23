@@ -10,7 +10,7 @@ namespace de::server::engine
 	class GameServer : public ServerBase
 	{
 	public:
-		GameServer(std::string serverId, const config::ClusterConfig& clusterConfig);
+		GameServer(std::string serverId, std::string configPath, const config::ClusterConfig& clusterConfig);
 		~GameServer() override;
 		void Init() override;
 		void Uninit() override;

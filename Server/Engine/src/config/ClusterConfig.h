@@ -62,10 +62,8 @@ namespace de::server::engine::config
 
 	struct ManagedConfig
 	{
-		std::string assemblyName;
-		std::string assemblyPath;
-		std::string runtimeConfigPath;
-		std::vector<std::string> searchAssemblyPaths;
+		std::string frameworkDll;
+		std::string gameplayDll;
 	};
 
 	struct GMConfig

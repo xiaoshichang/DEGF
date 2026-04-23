@@ -25,13 +25,8 @@
     "streamMode": false
   },
   "managed": {
-    "assemblyName": "XServer.Managed.Framework",
-    "assemblyPath": "../Engine/src/managed/Framework/bin/Debug/net10.0/XServer.Managed.Framework.dll",
-    "runtimeConfigPath": "../Engine/src/managed/Framework/bin/Debug/net10.0/XServer.Managed.Framework.runtimeconfig.json",
-    "searchAssemblyPaths": [
-      "../Engine/src/managed/Framework/bin/Debug/net10.0/XServer.Managed.Framework.dll",
-      "../Engine/src/managed/GameLogic/bin/Debug/net10.0/XServer.Managed.GameLogic.dll"
-    ]
+    "frameworkDll": "../Framework/DE.Server/bin/Debug/net10.0/DE.Server.dll",
+    "gameplayDll": "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll"
   },
   "gm": {
     "innerNetwork": {

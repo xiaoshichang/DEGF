@@ -37,8 +37,8 @@ namespace de::server::engine
 		}
 	}
 
-	GameServer::GameServer(std::string serverId, const config::ClusterConfig& clusterConfig)
-		: ServerBase(serverId, clusterConfig)
+	GameServer::GameServer(std::string serverId, std::string configPath, const config::ClusterConfig& clusterConfig)
+		: ServerBase(serverId, std::move(configPath), clusterConfig)
 		, config_(ResolveGameConfig(clusterConfig, serverId))
 	{
 	}

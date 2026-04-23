@@ -37,8 +37,8 @@ namespace de::server::engine
 		}
 	}
 
-	GateServer::GateServer(std::string serverId, const config::ClusterConfig& clusterConfig)
-		: ServerBase(serverId, clusterConfig)
+	GateServer::GateServer(std::string serverId, std::string configPath, const config::ClusterConfig& clusterConfig)
+		: ServerBase(serverId, std::move(configPath), clusterConfig)
 		, config_(ResolveGateConfig(clusterConfig, serverId))
 	{
 	}

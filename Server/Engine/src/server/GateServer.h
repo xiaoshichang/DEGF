@@ -10,7 +10,7 @@ namespace de::server::engine
 	class GateServer : public ServerBase
 	{
 	public:
-		GateServer(std::string serverId, const config::ClusterConfig& clusterConfig);
+		GateServer(std::string serverId, std::string configPath, const config::ClusterConfig& clusterConfig);
 		~GateServer() override;
 		void Init() override;
 		void Uninit() override;

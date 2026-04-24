@@ -9,10 +9,5 @@ namespace DE.Server.Stubs
             NativeBridge.DELogger.Info(nameof(OnlineStub), "InitStub");
             OnReady();
         }
-
-        protected override void OnStubReady()
-        {
-            NativeBridge.DELogger.Info(nameof(OnlineStub), "OnStubReady");
-        }
     }
 }

@@ -6,6 +6,7 @@
 #include <hostfxr.h>
 #include <nethost.h>
 
+#include <chrono>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -160,7 +161,10 @@ namespace de::server::engine
 		}
 	}
 
-	ManagedRuntimeService::ManagedRuntimeService() = default;
+	ManagedRuntimeService::ManagedRuntimeService(TimerManager& timerManager)
+		: timerManager_(&timerManager)
+	{
+	}
 
 	ManagedRuntimeService::~ManagedRuntimeService()
 	{
@@ -176,6 +180,65 @@ namespace de::server::engine
 		}
 
 		service->OnManagedGameServerReady();
+	}
+
+	std::uint64_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeAddTimer(
+		void* context,
+		std::int64_t delayMilliseconds,
+		std::int32_t repeat,
+		managed::NativeManagedTimerCallbackFn callback,
+		void* state
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr)
+		{
+			return 0;
+		}
+
+		try
+		{
+			return service->AddManagedTimer(
+				std::chrono::milliseconds(delayMilliseconds),
+				repeat != 0,
+				callback,
+				state
+			);
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeAddTimer failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeAddTimer failed with unknown exception.");
+			return 0;
+		}
+	}
+
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeCancelTimer(void* context, std::uint64_t timerId)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr)
+		{
+			return 0;
+		}
+
+		try
+		{
+			return service->CancelManagedTimer(timerId) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeCancelTimer failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeCancelTimer failed with unknown exception.");
+			return 0;
+		}
 	}
 
 	void ManagedRuntimeService::Start(std::string serverId, std::string configPath, const config::ManagedConfig& managedConfig)
@@ -223,10 +286,13 @@ namespace de::server::engine
 			managed::NativeApi{
 				this,
 				&NativeLog,
-				&ManagedRuntimeService::NativeNotifyGameServerReady
+				&ManagedRuntimeService::NativeNotifyGameServerReady,
+				&ManagedRuntimeService::NativeAddTimer,
+				&ManagedRuntimeService::NativeCancelTimer
 			}
 		};
 
+		running_ = true;
 		const int result = initializeFn_(&initInfo, static_cast<std::int32_t>(sizeof(initInfo)));
 		if (result != 0)
 		{
@@ -234,7 +300,6 @@ namespace de::server::engine
 			throw std::runtime_error("Managed runtime initialize failed with code: " + std::to_string(result));
 		}
 
-		running_ = true;
 		Logger::Info("ManagedRuntimeService", "Managed runtime initialized for " + serverId_);
 	}
 
@@ -244,6 +309,8 @@ namespace de::server::engine
 		{
 			return;
 		}
+
+		CancelAllManagedTimers();
 
 		if (running_ && uninitializeFn_ != nullptr)
 		{
@@ -333,6 +400,89 @@ namespace de::server::engine
 	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
 	{
 		gameServerReadyCallback_ = std::move(callback);
+	}
+
+	std::uint64_t ManagedRuntimeService::AddManagedTimer(
+		std::chrono::milliseconds delay,
+		bool repeat,
+		managed::NativeManagedTimerCallbackFn callback,
+		void* state
+	)
+	{
+		if (!running_)
+		{
+			throw std::runtime_error("Managed runtime is not running.");
+		}
+
+		if (timerManager_ == nullptr)
+		{
+			throw std::runtime_error("TimerManager is not available.");
+		}
+
+		if (callback == nullptr)
+		{
+			throw std::invalid_argument("Managed timer callback must not be null.");
+		}
+
+		const auto timerId = timerManager_->AddTimer(
+			delay,
+			[this, callback, state, repeat](TimerManager::TimerID timerId)
+			{
+				if (!repeat)
+				{
+					managedTimerIds_.erase(timerId);
+				}
+
+				if (!running_)
+				{
+					return;
+				}
+
+				callback(this, timerId, state);
+			},
+			repeat
+		);
+
+		managedTimerIds_.insert(timerId);
+		return timerId;
+	}
+
+	bool ManagedRuntimeService::CancelManagedTimer(std::uint64_t timerId)
+	{
+		if (!running_ || timerManager_ == nullptr)
+		{
+			return false;
+		}
+
+		const auto iterator = managedTimerIds_.find(timerId);
+		if (iterator == managedTimerIds_.end())
+		{
+			return false;
+		}
+
+		managedTimerIds_.erase(iterator);
+		return timerManager_->CancelTimer(timerId);
+	}
+
+	void ManagedRuntimeService::CancelAllManagedTimers()
+	{
+		if (timerManager_ == nullptr || managedTimerIds_.empty())
+		{
+			return;
+		}
+
+		std::vector<TimerManager::TimerID> timerIds;
+		timerIds.reserve(managedTimerIds_.size());
+		for (const auto timerId : managedTimerIds_)
+		{
+			timerIds.push_back(timerId);
+		}
+
+		managedTimerIds_.clear();
+		for (const auto timerId : timerIds)
+		{
+			timerManager_->CancelTimer(timerId);
+		}
 	}
 
 	void ManagedRuntimeService::LoadHostFxr()
@@ -475,6 +625,7 @@ namespace de::server::engine
 		handleAllNodeReadyFn_ = nullptr;
 		uninitializeFn_ = nullptr;
 		gameServerReadyCallback_ = {};
+		managedTimerIds_.clear();
 		CloseDynamicLibrary(hostfxrLibraryHandle_);
 		hostfxrLibraryHandle_ = nullptr;
 		serverId_.clear();

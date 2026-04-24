@@ -23,10 +23,7 @@ namespace DE.Server.NativeBridge
                 .OrderBy(stubTypeKey => stubTypeKey, StringComparer.Ordinal)
                 .ToList();
 
-            DELogger.Info(
-                "GameServerRuntimeState",
-                $"Server {ManagedRuntimeState.ServerId} assigned {assignedStubTypeKeys.Count} stub(s)."
-            );
+            DELogger.Info($"Server {ManagedRuntimeState.ServerId} assigned {assignedStubTypeKeys.Count} stub(s).");
 
             foreach (var stubTypeKey in assignedStubTypeKeys)
             {
@@ -51,9 +48,7 @@ namespace DE.Server.NativeBridge
 
             if (!assignedStubTypeKeys.Contains(stubTypeKey))
             {
-                DELogger.Warn(
-                    "GameServerRuntimeState",
-                    $"Ignored ready notification for unassigned stub {stubType.FullName} on {ManagedRuntimeState.ServerId}."
+                DELogger.Warn($"Ignored ready notification for unassigned stub {stubType.FullName} on {ManagedRuntimeState.ServerId}."
                 );
                 return;
             }
@@ -100,12 +95,9 @@ namespace DE.Server.NativeBridge
                     return;
                 }
             }
-
+            DELogger.Info($"All assigned stubs are ready on {ManagedRuntimeState.ServerId}." );
             NativeAPI.NotifyGameServerReady();
-            DELogger.Info(
-                "GameServerRuntimeState",
-                $"All assigned stubs are ready on {ManagedRuntimeState.ServerId}."
-            );
+            
         }
     }
 }

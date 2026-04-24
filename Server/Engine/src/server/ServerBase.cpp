@@ -215,7 +215,7 @@ namespace de::server::engine
 			return;
 		}
 
-		managedRuntimeService_ = std::make_unique<ManagedRuntimeService>();
+		managedRuntimeService_ = std::make_unique<ManagedRuntimeService>(GetTimerManager());
 		managedRuntimeService_->Start(
 			GetServerId(),
 			GetConfigPath(),

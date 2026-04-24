@@ -1,4 +1,5 @@
 using DE.Server.Entities;
+using DE.Server.NativeBridge;
 
 namespace DE.Server.Stubs
 {
@@ -7,12 +8,7 @@ namespace DE.Server.Stubs
         public override void InitStub()
         {
             NativeBridge.DELogger.Info(nameof(SpaceStub), "InitStub");
-            OnReady();
-        }
-
-        protected override void OnStubReady()
-        {
-            NativeBridge.DELogger.Info(nameof(SpaceStub), "OnStubReady");
+            DETimer.AddTimer(2000, OnReady);
         }
     }
 }

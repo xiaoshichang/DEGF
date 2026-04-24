@@ -3,6 +3,15 @@ using System.Runtime.InteropServices;
 
 namespace DE.Server.NativeBridge
 {
+    public enum NativeLogLevel
+    {
+        Debug = 0,
+        Info = 1,
+        Warn = 2,
+        Error = 3,
+    }
+    
+    
     public static class DELogger
     {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -47,6 +56,26 @@ namespace DE.Server.NativeBridge
         public static void Error(string tag, string message)
         {
             Log(NativeLogLevel.Error, tag, message);
+        }
+        
+        public static void Debug(string message)
+        {
+            Log(NativeLogLevel.Debug, string.Empty, message);
+        }
+
+        public static void Info(string message)
+        {
+            Log(NativeLogLevel.Info, string.Empty, message);
+        }
+
+        public static void Warn(string message)
+        {
+            Log(NativeLogLevel.Warn, string.Empty, message);
+        }
+
+        public static void Error(string message)
+        {
+            Log(NativeLogLevel.Error, string.Empty, message);
         }
 
         private static void Log(NativeLogLevel level, string tag, string message)

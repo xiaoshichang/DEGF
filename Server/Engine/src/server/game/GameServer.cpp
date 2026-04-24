@@ -120,7 +120,6 @@ namespace de::server::engine
 			}
 
 			ConnectToAllGates();
-			TryNotifyGameReady();
 			return;
 
 		default:

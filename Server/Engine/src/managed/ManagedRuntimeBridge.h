@@ -20,12 +20,23 @@ namespace de::server::engine::managed
 
 	using NativeLogFn = void (DE_MANAGED_CALLTYPE*)(void* context, std::int32_t level, const char* tag, const char* message);
 	using NativeNotifyGameServerReadyFn = void (DE_MANAGED_CALLTYPE*)(void* context);
+	using NativeManagedTimerCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId, void* state);
+	using NativeAddTimerFn = std::uint64_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		std::int64_t delayMilliseconds,
+		std::int32_t repeat,
+		NativeManagedTimerCallbackFn callback,
+		void* state
+	);
+	using NativeCancelTimerFn = std::int32_t (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId);
 
 	struct NativeApi
 	{
 		void* Context = nullptr;
 		NativeLogFn Log = nullptr;
 		NativeNotifyGameServerReadyFn NotifyGameServerReady = nullptr;
+		NativeAddTimerFn AddTimer = nullptr;
+		NativeCancelTimerFn CancelTimer = nullptr;
 	};
 
 	struct ManagedRuntimeInitInfo

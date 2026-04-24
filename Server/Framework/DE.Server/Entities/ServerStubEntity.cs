@@ -30,12 +30,8 @@ namespace DE.Server.Entities
             }
 
             _isReady = true;
+            DELogger.Info(nameof(ServerStubEntity), $"{nameof(ServerStubEntity)} ready");
             GameServerRuntimeState.NotifyStubReady(this);
-            OnStubReady();
-        }
-
-        protected virtual void OnStubReady()
-        {
         }
     }
 }

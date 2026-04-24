@@ -7,6 +7,7 @@ namespace DE.Share.Entities
     {
         protected Entity()
         {
+            Guid = Guid.NewGuid();
         }
 
         protected Entity(object entityDocument)

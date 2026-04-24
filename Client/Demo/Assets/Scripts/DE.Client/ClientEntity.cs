@@ -16,16 +16,6 @@ namespace DE.Client.Entities
         }
     }
 
-    [Serializable]
-    public sealed class AvatarEntity : ClientEntity
-    {
-        public AvatarEntity()
-        {
-        }
-
-        public AvatarEntity(object entityDocument) : base(entityDocument)
-        {
-        }
-    }
+    
     
 }

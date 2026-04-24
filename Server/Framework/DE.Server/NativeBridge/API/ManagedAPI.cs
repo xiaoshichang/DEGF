@@ -31,6 +31,17 @@ namespace DE.Server.NativeBridge
     /// </summary>
     public static class ManagedAPI
     {
+        private static void _LogManagedEntryException(string operation, Exception exception)
+        {
+            if (exception == null)
+            {
+                return;
+            }
+
+            Console.Error.WriteLine(exception);
+            DELogger.Error("ManagedAPI", $"{operation} failed: {exception}");
+        }
+
         private static byte[] _CopyPayloadFromNative(IntPtr payload, int sizeBytes)
         {
             if (sizeBytes < 0)
@@ -96,7 +107,7 @@ namespace DE.Server.NativeBridge
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine(exception);
+                _LogManagedEntryException(nameof(InitializeNative), exception);
                 return -2;
             }
         }
@@ -139,8 +150,7 @@ namespace DE.Server.NativeBridge
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine(exception);
-                DELogger.Error("ManagedAPI", $"BuildStubDistributePayloadNative failed: {exception.Message}");
+                _LogManagedEntryException(nameof(BuildStubDistributePayloadNative), exception);
                 return -2;
             }
         }
@@ -162,8 +172,7 @@ namespace DE.Server.NativeBridge
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine(exception);
-                DELogger.Error("ManagedAPI", $"HandleAllNodeReadyNative failed: {exception.Message}");
+                _LogManagedEntryException(nameof(HandleAllNodeReadyNative), exception);
                 return -2;
             }
         }
@@ -187,7 +196,7 @@ namespace DE.Server.NativeBridge
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine(exception);
+                _LogManagedEntryException(nameof(UninitializeNative), exception);
                 return -1;
             }
         }

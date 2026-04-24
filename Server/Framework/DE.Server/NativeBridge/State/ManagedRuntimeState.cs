@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Threading.Tasks;
 using DE.Server.Entities;
 
 namespace DE.Server.NativeBridge
@@ -17,6 +18,7 @@ namespace DE.Server.NativeBridge
         private static string s_gameplayAssemblyDirectory = string.Empty;
         private static string s_frameworkAssemblyDirectory = string.Empty;
         private static bool s_gameplayAssemblyResolverRegistered;
+        private static bool s_unhandledExceptionHandlersRegistered;
 
         public static bool IsInitialized { get; private set; }
         public static string ServerId { get; private set; } = string.Empty;
@@ -44,6 +46,76 @@ namespace DE.Server.NativeBridge
         /// stub distribute table
         /// </summary>
         public static ServerStubDistributeTable StubDistributeTable = new ServerStubDistributeTable();
+
+        private static void _RegisterUnhandledExceptionHandlers()
+        {
+            if (s_unhandledExceptionHandlersRegistered)
+            {
+                return;
+            }
+
+            AppDomain.CurrentDomain.UnhandledException += _OnUnhandledException;
+            TaskScheduler.UnobservedTaskException += _OnUnobservedTaskException;
+            s_unhandledExceptionHandlersRegistered = true;
+        }
+
+        private static void _UnregisterUnhandledExceptionHandlers()
+        {
+            if (!s_unhandledExceptionHandlersRegistered)
+            {
+                return;
+            }
+
+            AppDomain.CurrentDomain.UnhandledException -= _OnUnhandledException;
+            TaskScheduler.UnobservedTaskException -= _OnUnobservedTaskException;
+            s_unhandledExceptionHandlersRegistered = false;
+        }
+
+        private static void _OnUnhandledException(object sender, UnhandledExceptionEventArgs eventArgs)
+        {
+            _ = sender;
+
+            var exception = eventArgs?.ExceptionObject as Exception;
+            var exceptionText = exception?.ToString() ?? eventArgs?.ExceptionObject?.ToString() ?? "Unknown managed exception.";
+            var terminating = eventArgs != null && eventArgs.IsTerminating;
+
+            _TryReportManagedException(
+                "ManagedUnhandledException",
+                $"Unhandled managed exception on {ServerId}, terminating={terminating}: {exceptionText}"
+            );
+        }
+
+        private static void _OnUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs eventArgs)
+        {
+            _ = sender;
+
+            try
+            {
+                var exceptionText = eventArgs?.Exception?.ToString() ?? "Unknown unobserved task exception.";
+                _TryReportManagedException(
+                    "ManagedUnhandledException",
+                    $"Unobserved task exception on {ServerId}: {exceptionText}"
+                );
+                eventArgs?.SetObserved();
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception);
+            }
+        }
+
+        private static void _TryReportManagedException(string tag, string message)
+        {
+            try
+            {
+                Console.Error.WriteLine(message);
+                DELogger.Error(tag, message);
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception);
+            }
+        }
 
         public static string GetStubTypeKey(Type stubType)
         {
@@ -229,6 +301,7 @@ namespace DE.Server.NativeBridge
             ConfigPath = info.ConfigPath ?? string.Empty;
             FrameworkDllPath = info.FrameworkDllPath ?? string.Empty;
             GameplayDllPath = info.GameplayDllPath ?? string.Empty;
+            _RegisterUnhandledExceptionHandlers();
             ReadyStubs.Clear();
             StubInstances.Clear();
             StubDistributeTable = new ServerStubDistributeTable();
@@ -240,6 +313,7 @@ namespace DE.Server.NativeBridge
 
         public static void Uninitialize()
         {
+            _UnregisterUnhandledExceptionHandlers();
             IsInitialized = false;
             ServerId = string.Empty;
             ConfigPath = string.Empty;

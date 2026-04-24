@@ -308,6 +308,7 @@ namespace DE.Server.NativeBridge
             _LoadGameplayAssemblies();
             var assemblies = new[] { GameplayAssembly, Assembly.GetExecutingAssembly() };
             StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies);
+            GameServerRuntimeState.SearchImportEntityTypeFromGameplayDll();
             IsInitialized = true;
         }
 

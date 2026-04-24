@@ -2,7 +2,7 @@
 
 namespace Demo;
 
-public class DemoSpaceEntity : SpaceEntity
+public partial class DemoSpaceEntity : SpaceEntity
 {
     
 }

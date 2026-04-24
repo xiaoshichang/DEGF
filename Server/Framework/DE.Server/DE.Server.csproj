@@ -13,5 +13,8 @@
     <ProjectReference Include="..\DE.Server.Foundation\DE.Server.Foundation.csproj" />
     <ProjectReference Include="..\DE.Share\DE.Share.csproj" />
     <ProjectReference Include="..\DE.Share.Foundation\DE.Share.Foundation.csproj" />
+    <ProjectReference Include="..\DE.Share.EntityPropertySG\DE.Share.EntityPropertySG.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

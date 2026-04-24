@@ -3,7 +3,7 @@ using DE.Server.NativeBridge;
 
 namespace DE.Server.Entities
 {
-    public abstract class ServerStubEntity : ServerEntity
+    public abstract partial class ServerStubEntity : ServerEntity
     {
         private bool _isReady;
 

@@ -3,7 +3,7 @@ using DE.Server.NativeBridge;
 
 namespace DE.Server.Stubs
 {
-    public class SpaceStub : ServerStubEntity
+    public partial class SpaceStub : ServerStubEntity
     {
         public override void InitStub()
         {

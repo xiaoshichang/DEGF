@@ -2,7 +2,7 @@ using DE.Server.Entities;
 
 namespace DE.Server.Stubs
 {
-    public class OnlineStub : ServerStubEntity
+    public partial class OnlineStub : ServerStubEntity
     {
         public override void InitStub()
         {

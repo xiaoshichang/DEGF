@@ -1,6 +1,9 @@
-﻿namespace DE.Server.Entities
+﻿using System;
+using DE.Share.Entities;
+
+namespace DE.Server.Entities
 {
-    public class AvatarEntity : ServerEntity
+    public partial class AvatarEntity : ServerEntity
     {
         public AvatarEntity()
         {

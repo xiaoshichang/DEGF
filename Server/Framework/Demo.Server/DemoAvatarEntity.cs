@@ -2,7 +2,7 @@
 
 namespace Demo;
 
-public class DemoAvatarEntity : AvatarEntity
+public partial class DemoAvatarEntity : AvatarEntity
 {
     
 }

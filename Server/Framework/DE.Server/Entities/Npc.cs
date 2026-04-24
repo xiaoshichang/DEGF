@@ -1,6 +1,6 @@
 ﻿namespace DE.Server.Entities
 {
-    public class NpcEntity : ServerEntity
+    public partial class NpcEntity : ServerEntity
     {
         public NpcEntity()
         {

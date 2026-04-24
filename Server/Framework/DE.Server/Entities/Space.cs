@@ -1,6 +1,6 @@
 ﻿namespace DE.Server.Entities
 {
-    public class SpaceEntity : ServerEntity
+    public partial class SpaceEntity : ServerEntity
     {
         public SpaceEntity()
         {

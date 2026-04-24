@@ -35,6 +35,8 @@ namespace de::server::engine
 
 		constexpr const char_t* kManagedApiTypeName = DE_HOST_CHAR_LITERAL("DE.Server.NativeBridge.ManagedAPI, DE.Server");
 		constexpr const char_t* kInitializeMethodName = DE_HOST_CHAR_LITERAL("InitializeNative");
+		constexpr const char_t* kBuildStubDistributePayloadMethodName = DE_HOST_CHAR_LITERAL("BuildStubDistributePayloadNative");
+		constexpr const char_t* kHandleAllNodeReadyMethodName = DE_HOST_CHAR_LITERAL("HandleAllNodeReadyNative");
 		constexpr const char_t* kUninitializeMethodName = DE_HOST_CHAR_LITERAL("UninitializeNative");
 
 		std::filesystem::path ResolvePathFromConfig(const std::string& configPath, const std::string& value)
@@ -105,8 +107,30 @@ namespace de::server::engine
 #endif
 		}
 
-		void DE_MANAGED_CALLTYPE NativeLog(std::int32_t level, const char* tag, const char* message)
+		std::string SerializeGameServerIds(const std::vector<std::string>& gameServerIds)
 		{
+			std::string payload;
+			for (const auto& gameServerId : gameServerIds)
+			{
+				if (gameServerId.empty())
+				{
+					continue;
+				}
+
+				if (!payload.empty())
+				{
+					payload.push_back('\n');
+				}
+
+				payload.append(gameServerId);
+			}
+
+			return payload;
+		}
+
+		void DE_MANAGED_CALLTYPE NativeLog(void* context, std::int32_t level, const char* tag, const char* message)
+		{
+			(void)context;
 			const std::string_view safeTag = tag == nullptr ? std::string_view("ManagedRuntime") : std::string_view(tag);
 			const std::string_view safeMessage = message == nullptr ? std::string_view{} : std::string_view(message);
 
@@ -141,6 +165,17 @@ namespace de::server::engine
 	ManagedRuntimeService::~ManagedRuntimeService()
 	{
 		Stop();
+	}
+
+	void DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeNotifyGameServerReady(void* context)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr)
+		{
+			return;
+		}
+
+		service->OnManagedGameServerReady();
 	}
 
 	void ManagedRuntimeService::Start(std::string serverId, std::string configPath, const config::ManagedConfig& managedConfig)
@@ -186,7 +221,9 @@ namespace de::server::engine
 			frameworkDllPath_.c_str(),
 			gameplayDllPath_.c_str(),
 			managed::NativeApi{
-				&NativeLog
+				this,
+				&NativeLog,
+				&ManagedRuntimeService::NativeNotifyGameServerReady
 			}
 		};
 
@@ -223,6 +260,79 @@ namespace de::server::engine
 	bool ManagedRuntimeService::IsRunning() const
 	{
 		return running_;
+	}
+
+	bool ManagedRuntimeService::TryBuildStubDistributePayload(const std::vector<std::string>& gameServerIds, std::vector<std::byte>& payload)
+	{
+		payload.clear();
+		if (!running_ || buildStubDistributePayloadFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const auto serializedGameServerIds = SerializeGameServerIds(gameServerIds);
+		const auto* inputPayload = serializedGameServerIds.empty() ? nullptr : serializedGameServerIds.data();
+		const auto inputPayloadSize = static_cast<std::int32_t>(serializedGameServerIds.size());
+
+		const int requiredSize = buildStubDistributePayloadFn_(inputPayload, inputPayloadSize, nullptr, 0);
+		if (requiredSize < 0)
+		{
+			Logger::Warn(
+				"ManagedRuntimeService",
+				"BuildStubDistributePayloadNative failed with code: " + std::to_string(requiredSize)
+			);
+			return false;
+		}
+
+		if (requiredSize == 0)
+		{
+			return true;
+		}
+
+		payload.resize(static_cast<std::size_t>(requiredSize));
+		const int writtenSize = buildStubDistributePayloadFn_(
+			inputPayload,
+			inputPayloadSize,
+			payload.data(),
+			requiredSize
+		);
+		if (writtenSize != requiredSize)
+		{
+			Logger::Warn(
+				"ManagedRuntimeService",
+				"BuildStubDistributePayloadNative wrote unexpected size: " + std::to_string(writtenSize)
+			);
+			payload.clear();
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::HandleAllNodeReady(const std::vector<std::byte>& payload)
+	{
+		if (!running_ || handleAllNodeReadyFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const auto* payloadData = payload.empty() ? nullptr : payload.data();
+		const int result = handleAllNodeReadyFn_(payloadData, static_cast<std::int32_t>(payload.size()));
+		if (result != 0)
+		{
+			Logger::Warn(
+				"ManagedRuntimeService",
+				"HandleAllNodeReadyNative failed with code: " + std::to_string(result)
+			);
+			return false;
+		}
+
+		return true;
+	}
+
+	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
+	{
+		gameServerReadyCallback_ = std::move(callback);
 	}
 
 	void ManagedRuntimeService::LoadHostFxr()
@@ -323,6 +433,16 @@ namespace de::server::engine
 		bindMethod(kInitializeMethodName, &initializePointer);
 		initializeFn_ = reinterpret_cast<managed::ManagedInitializeFn>(initializePointer);
 
+		void* buildStubDistributePayloadPointer = nullptr;
+		bindMethod(kBuildStubDistributePayloadMethodName, &buildStubDistributePayloadPointer);
+		buildStubDistributePayloadFn_ = reinterpret_cast<managed::ManagedBuildStubDistributePayloadFn>(
+			buildStubDistributePayloadPointer
+		);
+
+		void* handleAllNodeReadyPointer = nullptr;
+		bindMethod(kHandleAllNodeReadyMethodName, &handleAllNodeReadyPointer);
+		handleAllNodeReadyFn_ = reinterpret_cast<managed::ManagedHandleAllNodeReadyFn>(handleAllNodeReadyPointer);
+
 		void* uninitializePointer = nullptr;
 		bindMethod(kUninitializeMethodName, &uninitializePointer);
 		uninitializeFn_ = reinterpret_cast<managed::ManagedUninitializeFn>(uninitializePointer);
@@ -330,9 +450,20 @@ namespace de::server::engine
 
 	void ManagedRuntimeService::BindManagedEntrypoints()
 	{
-		if (initializeFn_ == nullptr || uninitializeFn_ == nullptr)
+		if (initializeFn_ == nullptr
+			|| buildStubDistributePayloadFn_ == nullptr
+			|| handleAllNodeReadyFn_ == nullptr
+			|| uninitializeFn_ == nullptr)
 		{
 			throw std::runtime_error("Managed runtime entrypoints are not bound.");
+		}
+	}
+
+	void ManagedRuntimeService::OnManagedGameServerReady()
+	{
+		if (gameServerReadyCallback_)
+		{
+			gameServerReadyCallback_();
 		}
 	}
 
@@ -340,7 +471,10 @@ namespace de::server::engine
 	{
 		running_ = false;
 		initializeFn_ = nullptr;
+		buildStubDistributePayloadFn_ = nullptr;
+		handleAllNodeReadyFn_ = nullptr;
 		uninitializeFn_ = nullptr;
+		gameServerReadyCallback_ = {};
 		CloseDynamicLibrary(hostfxrLibraryHandle_);
 		hostfxrLibraryHandle_ = nullptr;
 		serverId_.clear();

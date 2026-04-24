@@ -77,6 +77,11 @@ namespace de::server::engine
 		return *innerNetwork_;
 	}
 
+	ManagedRuntimeService* ServerBase::GetManagedRuntimeService()
+	{
+		return managedRuntimeService_.get();
+	}
+
 	void ServerBase::Init()
 	{
 		InitTimerManager();

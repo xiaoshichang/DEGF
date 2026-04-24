@@ -1,12 +1,18 @@
-﻿using DE.Server.Entities;
+using DE.Server.Entities;
 
 namespace DE.Server.Stubs
 {
     public class MatchStub : ServerStubEntity
     {
-        public override void OnStubReady()
+        public override void InitStub()
         {
-            throw new System.NotImplementedException();
+            NativeBridge.DELogger.Info(nameof(MatchStub), "InitStub");
+            OnReady();
+        }
+
+        protected override void OnStubReady()
+        {
+            NativeBridge.DELogger.Info(nameof(MatchStub), "OnStubReady");
         }
     }
 }

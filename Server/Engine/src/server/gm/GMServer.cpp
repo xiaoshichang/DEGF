@@ -166,11 +166,32 @@ namespace de::server::engine
 			}
 		}
 
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService == nullptr)
+		{
+			Logger::Warn("GMServer", "Managed runtime service is not initialized.");
+			return;
+		}
+
+		std::vector<std::string> gameServerIds;
+		for (const auto& [serverId, gameConfig] : clusterConfig.game)
+		{
+			(void)gameConfig;
+			gameServerIds.push_back(serverId);
+		}
+
+		std::vector<std::byte> payload;
+		if (!managedRuntimeService->TryBuildStubDistributePayload(gameServerIds, payload))
+		{
+			Logger::Warn("GMServer", "Failed to build stub distribute payload before AllNodeReadyNtf.");
+			return;
+		}
+
 		auto& innerNetwork = GetInnerNetwork();
 		for (const auto& [serverId, gameConfig] : clusterConfig.game)
 		{
 			(void)gameConfig;
-			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::AllNodeReadyNtf), {}))
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::AllNodeReadyNtf), payload))
 			{
 				Logger::Warn("GMServer", "Failed to send AllNodeReadyNtf to " + serverId + ".");
 				return;
@@ -178,7 +199,10 @@ namespace de::server::engine
 		}
 
 		allNodeReadyNotified_ = true;
-		Logger::Info("GMServer", "Sent AllNodeReadyNtf to all game nodes.");
+		Logger::Info(
+			"GMServer",
+			"Sent AllNodeReadyNtf to all game nodes with stub distribute payload size " + std::to_string(payload.size()) + "."
+		);
 	}
 
 	void GMServer::TryNotifyOpenGate()

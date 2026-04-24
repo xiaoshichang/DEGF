@@ -21,6 +21,7 @@ namespace de::server::engine
 		void OnInnerRegistered(const std::string& serverId) override;
 		void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data) override;
 		void OnInnerDisconnect(const std::string& serverId) override;
+		void OnManagedGameServerReady();
 		void ConnectToGm();
 		void ConnectToAllGates();
 		void TryNotifyGameReady();
@@ -33,6 +34,7 @@ namespace de::server::engine
 		std::optional<network::InnerNetwork::SessionId> gmSessionId_;
 		std::optional<TimerManager::TimerID> heartbeatTimerId_;
 		bool allNodeReadyReceived_ = false;
+		bool managedStubsReady_ = false;
 		bool gameReadyNotified_ = false;
 	};
 }

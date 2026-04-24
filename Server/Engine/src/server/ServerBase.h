@@ -30,6 +30,7 @@ namespace de::server::engine
 		asio::io_context& GetIoContext();
 		TimerManager& GetTimerManager();
 		network::InnerNetwork& GetInnerNetwork();
+		ManagedRuntimeService* GetManagedRuntimeService();
 		void Stop();
 		const config::ClusterConfig& GetClusterConfig() const;
 		const std::string& GetConfigPath() const;

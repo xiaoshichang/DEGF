@@ -50,6 +50,18 @@ namespace de::server::engine
 	void GameServer::Init()
 	{
 		ServerBase::Init();
+
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService != nullptr)
+		{
+			managedRuntimeService->SetGameServerReadyCallback(
+				[this]()
+				{
+					OnManagedGameServerReady();
+				}
+			);
+		}
+
 		ConnectToGm();
 		StartHeartbeatTimer();
 		Logger::Info("GameServer", "Init");
@@ -60,6 +72,13 @@ namespace de::server::engine
 		Logger::Info("GameServer", "Uninit");
 		StopHeartbeatTimer();
 		gmSessionId_.reset();
+
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService != nullptr)
+		{
+			managedRuntimeService->SetGameServerReadyCallback({});
+		}
+
 		ServerBase::Uninit();
 	}
 
@@ -87,13 +106,21 @@ namespace de::server::engine
 	void GameServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
 		(void)serverId;
-		(void)data;
 
 		switch (static_cast<network::MessageID>(messageId))
 		{
 		case network::MessageID::AllNodeReadyNtf:
 			allNodeReadyReceived_ = true;
+			managedStubsReady_ = false;
+
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleAllNodeReady(data))
+			{
+				Logger::Warn("GameServer", "Failed to process AllNodeReadyNtf payload in managed runtime.");
+			}
+
 			ConnectToAllGates();
+			TryNotifyGameReady();
 			return;
 
 		default:
@@ -108,6 +135,7 @@ namespace de::server::engine
 		{
 			gmSessionId_.reset();
 			allNodeReadyReceived_ = false;
+			managedStubsReady_ = false;
 			gameReadyNotified_ = false;
 		}
 		else if (const auto* gateConfig = config::FindGateConfig(GetClusterConfig(), serverId))
@@ -184,7 +212,7 @@ namespace de::server::engine
 
 	void GameServer::TryNotifyGameReady()
 	{
-		if (!allNodeReadyReceived_ || gameReadyNotified_)
+		if (!allNodeReadyReceived_ || !managedStubsReady_ || gameReadyNotified_)
 		{
 			return;
 		}
@@ -204,6 +232,13 @@ namespace de::server::engine
 
 		gameReadyNotified_ = true;
 		Logger::Info("GameServer", "Sent GameReadyNtf to GM.");
+	}
+
+	void GameServer::OnManagedGameServerReady()
+	{
+		managedStubsReady_ = true;
+		Logger::Info("GameServer", "Managed stubs are ready.");
+		TryNotifyGameReady();
 	}
 
 	void GameServer::StartHeartbeatTimer()

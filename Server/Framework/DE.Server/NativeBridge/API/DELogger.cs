@@ -3,43 +3,29 @@ using System.Runtime.InteropServices;
 
 namespace DE.Server.NativeBridge
 {
-    /// <summary>
-    /// Native API called from managed code
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    public struct NativeApiTable
-    {
-        public IntPtr Log;
-    }
-
-    public enum NativeLogLevel
-    {
-        Debug = 0,
-        Info = 1,
-        Warn = 2,
-        Error = 3,
-    }
-
-    public static class NativeAPI
+    public static class DELogger
     {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate void NativeLogDelegate(int level, IntPtr tagUtf8, IntPtr messageUtf8);
+        private delegate void NativeLogDelegate(IntPtr context, int level, IntPtr tagUtf8, IntPtr messageUtf8);
 
+        private static IntPtr s_context;
         private static NativeLogDelegate s_log;
 
-        public static void Initialize(NativeApiTable nativeApi)
+        public static void Initialize(IntPtr context, IntPtr nativeLog)
         {
-            if (nativeApi.Log == IntPtr.Zero)
+            s_context = context;
+            if (nativeLog == IntPtr.Zero)
             {
                 s_log = null;
                 return;
             }
 
-            s_log = Marshal.GetDelegateForFunctionPointer<NativeLogDelegate>(nativeApi.Log);
+            s_log = Marshal.GetDelegateForFunctionPointer<NativeLogDelegate>(nativeLog);
         }
 
         public static void Reset()
         {
+            s_context = IntPtr.Zero;
             s_log = null;
         }
 
@@ -77,7 +63,7 @@ namespace DE.Server.NativeBridge
 
             try
             {
-                s_log((int)level, tagUtf8, messageUtf8);
+                s_log(s_context, (int)level, tagUtf8, messageUtf8);
             }
             finally
             {

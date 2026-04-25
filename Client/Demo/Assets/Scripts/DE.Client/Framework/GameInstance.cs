@@ -1,6 +1,8 @@
 
 
-namespace Assets.Scripts.DE.Client.Application
+using Assets.Scripts.DE.Client.Core;
+
+namespace Assets.Scripts.DE.Client.Framework
 {
     public class GameInstance
     {
@@ -16,7 +18,7 @@ namespace Assets.Scripts.DE.Client.Application
 
         public virtual void UnInit()
         {
-
+            
         }
     }
 }

@@ -1,6 +1,6 @@
 
 
-using Assets.Scripts.DE.Client.Application;
+using Assets.Scripts.DE.Client.Framework;
 
 namespace Demo.Client.Application
 {

@@ -55,7 +55,9 @@ namespace Assets.Scripts.DE.Client.UI
             _DialogLayerNode = _CreateLayerNode("DialogLayer", _RootNode.transform, 400);
             _PanelLayerNode = _CreateLayerNode("PanelLayer", _RootNode.transform, 500);
 
+#if __DEBUG__
             _InitDebugInfoLayer();
+#endif
         }
 
 

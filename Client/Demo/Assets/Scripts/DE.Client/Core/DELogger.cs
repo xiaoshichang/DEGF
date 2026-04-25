@@ -39,7 +39,9 @@ namespace Assets.Scripts.DE.Client.Core
         private static LoggingConfig s_loggingConfig;
         private static ClientLogLevel s_minLevel = ClientLogLevel.Info;
         private static string s_loggerName = "DEFramework";
+        public static string FileName => s_loggerName;
         private static string s_logDirectory;
+        public static string LogDirectory => s_logDirectory;
         private static string s_logFilePath;
         private static DateTime s_currentFileDate = DateTime.MinValue;
         private static StreamWriter s_writer;

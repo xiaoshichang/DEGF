@@ -15,10 +15,9 @@ namespace Assets.Scripts.DE.Client.Framework
     {
         private void _InitLogger()
         {
-            var config = new LoggingConfig();
             var clientID = Application.productName + DateTime.Now.ToString("_yyyyMMdd_HHmmss");
-            DELogger.Init(clientID, config);
-            DELogger.Info($"DELogger initialized, log dir: {config.RootDir}, log file: {clientID}");
+            DELogger.Init(clientID, null);
+            DELogger.Info($"DELogger initialized, log dir: {DELogger.LogDirectory}, log file: {DELogger.FileName}");
         }
 
         private void _UninitLogger()

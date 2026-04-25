@@ -1,3 +1,4 @@
+#if __DEBUG__
 
 using System.Globalization;
 using UnityEngine;
@@ -8,7 +9,7 @@ namespace Assets.Scripts.DE.Client.UI
 {
     public class DebugInfoLayerController : MonoBehaviour
     {
-        private const float RefreshInterval = 0.2f;
+        private const float RefreshInterval = 1f;
         private const float BytesPerMegabyte = 1024.0f * 1024.0f;
         public void Bind(Text contentText)
         {
@@ -94,3 +95,5 @@ namespace Assets.Scripts.DE.Client.UI
         private DebugInfoLayerController _DebugInfoLayerController;
     }
 }
+
+#endif

@@ -1,6 +1,6 @@
 using DE.Client.Entities;
 
-public sealed class AvatarEntity : ClientEntity
+public class AvatarEntity : ClientEntity
 {
     public AvatarEntity()
     {

@@ -524,7 +524,6 @@ namespace Assets.Scripts.DE.Client.UI
 
         private void _HandleGMCommandDispatched(string gmCommand)
         {
-            DELogger.Info("handle gm command: " + gmCommand);
             GMCommandDispatched?.Invoke(gmCommand);
         }
 

@@ -166,7 +166,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7d9bb9556c7f7e40b7bd2fbdacb6ac8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  ClientID: DemoGame
+  AssemblyNameList:
+  - Demo.Client
 --- !u!1 &519420028
 GameObject:
   m_ObjectHideFlags: 0

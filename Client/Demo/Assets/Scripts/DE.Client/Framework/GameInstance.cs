@@ -20,5 +20,18 @@ namespace Assets.Scripts.DE.Client.Framework
         {
             
         }
+
+
+        [GMCommand("Test GM command")]
+        public static void TestGM(int a, float b, string c)
+        {
+            DELogger.Info($"TestGM executed. a: {a}, b: {b}, c: {c}");
+        }
+
+        [GMCommand("Test GM command 2")]
+        public static void TestGM2(int a, float b)
+        {
+            DELogger.Info($"TestGM2 executed. a: {a}, b: {b}");
+        }
     }
 }

@@ -1,31 +1,11 @@
-using System.Globalization;
 using UnityEngine;
-using UnityEngine.Profiling;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace Assets.Scripts.DE.Client.UI
 {
     public partial class UIManager
     {
-        public GameObject RootNode => _RootNode;
-
-        public GameObject DebugInfoLayerNode => _DebugInfoLayerNode;
-
-        public GameObject BlackScreenLayerNode => _BlackScreenLayerNode;
-
-        public GameObject NotificationLayerNode => _NotificationLayerNode;
-
-        public GameObject DialogLayerNode => _DialogLayerNode;
-
-        public GameObject PanelLayerNode => _PanelLayerNode;
-
-        private GameObject _RootNode;
-        private GameObject _DebugInfoLayerNode;
-        private GameObject _BlackScreenLayerNode;
-        private GameObject _NotificationLayerNode;
-        private GameObject _DialogLayerNode;
-        private GameObject _PanelLayerNode;
-
         private void _InitUIFramework()
         {
             if (_RootNode != null)
@@ -47,6 +27,7 @@ namespace Assets.Scripts.DE.Client.UI
             canvasScaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             canvasScaler.matchWidthOrHeight = 0.5f;
 
+            _EnsureEventSystem();
             _StretchToFullScreen(_RootNode.GetComponent<RectTransform>());
 
             _DebugInfoLayerNode = _CreateLayerNode("DebugInfoLayer", _RootNode.transform, 100);
@@ -55,20 +36,29 @@ namespace Assets.Scripts.DE.Client.UI
             _DialogLayerNode = _CreateLayerNode("DialogLayer", _RootNode.transform, 400);
             _PanelLayerNode = _CreateLayerNode("PanelLayer", _RootNode.transform, 500);
 
-#if __DEBUG__
             _InitDebugInfoLayer();
-#endif
         }
-
 
         private void _UninitUIFramework()
         {
+            if (_GMPanelController != null)
+            {
+                _GMPanelController.GMCommandDispatched -= _HandleGMCommandDispatched;
+            }
+
+            _PerformanceDataPanelController = null;
+            _GMPanelController = null;
             _DebugInfoLayerNode = null;
             _BlackScreenLayerNode = null;
             _NotificationLayerNode = null;
             _DialogLayerNode = null;
             _PanelLayerNode = null;
-            _DebugInfoLayerController = null;
+
+            if (_EventSystemNode != null)
+            {
+                Object.Destroy(_EventSystemNode);
+                _EventSystemNode = null;
+            }
 
             if (_RootNode == null)
             {
@@ -94,7 +84,16 @@ namespace Assets.Scripts.DE.Client.UI
             return layerNode;
         }
 
-        
+        private void _EnsureEventSystem()
+        {
+            if (EventSystem.current != null)
+            {
+                return;
+            }
+
+            _EventSystemNode = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+            Object.DontDestroyOnLoad(_EventSystemNode);
+        }
 
         private void _StretchToFullScreen(RectTransform rectTransform)
         {
@@ -106,6 +105,4 @@ namespace Assets.Scripts.DE.Client.UI
             rectTransform.localScale = Vector3.one;
         }
     }
-
-    
 }

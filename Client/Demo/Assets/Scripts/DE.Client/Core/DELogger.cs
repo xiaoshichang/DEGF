@@ -33,6 +33,8 @@ namespace Assets.Scripts.DE.Client.Core
 
     public static class DELogger
     {
+        public delegate void LogMessageHandler(ClientLogLevel level, string formattedMessage);
+
         private static readonly object s_syncRoot = new object();
         private static readonly UTF8Encoding s_utf8Encoding = new UTF8Encoding(false);
 
@@ -45,6 +47,8 @@ namespace Assets.Scripts.DE.Client.Core
         private static string s_logFilePath;
         private static DateTime s_currentFileDate = DateTime.MinValue;
         private static StreamWriter s_writer;
+
+        public static event LogMessageHandler MessageLogged;
 
         public static bool IsInitialized()
         {
@@ -145,6 +149,7 @@ namespace Assets.Scripts.DE.Client.Core
                 RotateIfNeeded(now);
 
                 var formattedMessage = FormatMessage(now, level, safeTag, safeMessage);
+                NotifyMessageLogged(level, formattedMessage);
 
                 if (s_loggingConfig.EnableConsole)
                 {
@@ -367,7 +372,19 @@ namespace Assets.Scripts.DE.Client.Core
                 ? prefix + "[" + levelName + "] " + message
                 : prefix + "[" + levelName + "] [" + tag + "] " + message;
 
+            NotifyMessageLogged(level, formattedMessage);
             WriteUnityLog(level, formattedMessage);
+        }
+
+        private static void NotifyMessageLogged(ClientLogLevel level, string formattedMessage)
+        {
+            var handler = MessageLogged;
+            if (handler == null)
+            {
+                return;
+            }
+
+            handler(level, formattedMessage);
         }
 
         private static void WriteUnityLog(ClientLogLevel level, string message)

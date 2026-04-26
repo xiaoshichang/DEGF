@@ -13,15 +13,29 @@ namespace Assets.Scripts.DE.Client.Framework
 
     public class ApplicationRoot : MonoBehaviour
     {
-
         private void _CollectAssemblies()
         {
-            _Assemblies.Add(Assembly.GetExecutingAssembly());
-            foreach(string name in AssemblyNameList)
+            _Assemblies.Clear();
+            _GameplayAssemblies.Clear();
+
+            var frameworkAssembly = Assembly.GetExecutingAssembly();
+            _Assemblies.Add(frameworkAssembly);
+
+            foreach (string name in AssemblyNameList)
             {
-                _Assemblies.Add(Assembly.Load(name));
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    DELogger.Warn("ApplicationRoot", "Ignore empty gameplay assembly name.");
+                    continue;
+                }
+
+                var gameplayAssembly = Assembly.Load(name);
+                _Assemblies.Add(gameplayAssembly);
+                _GameplayAssemblies.Add(gameplayAssembly);
             }
-            DELogger.Info($"{_Assemblies.Count} Assemblies collected");
+
+            DELogger.Info("ApplicationRoot", $"{_Assemblies.Count} assemblies collected.");
+            DELogger.Info("ApplicationRoot", $"{_GameplayAssemblies.Count} gameplay assemblies collected.");
         }
 
         private void _InitLogger()
@@ -41,17 +55,99 @@ namespace Assets.Scripts.DE.Client.Framework
             DELogger.Uninit();
         }
 
+        private void _SearchGameInstanceType()
+        {
+            _GameInstanceType = null;
+
+            foreach (var assembly in _GameplayAssemblies)
+            {
+                foreach (var type in _GetAssemblyTypes(assembly))
+                {
+                    if (type == null || type.IsAbstract || type.IsGenericTypeDefinition)
+                    {
+                        continue;
+                    }
+
+                    if (!typeof(GameInstance).IsAssignableFrom(type))
+                    {
+                        continue;
+                    }
+
+                    if (_GameInstanceType != null)
+                    {
+                        throw new InvalidOperationException(
+                            "Multiple GameInstance types found. first="
+                            + _GameInstanceType.FullName
+                            + ", second="
+                            + type.FullName
+                            + ".");
+                    }
+
+                    _GameInstanceType = type;
+                }
+            }
+
+            if (_GameInstanceType == null)
+            {
+                throw new InvalidOperationException("No GameInstance type found in gameplay assemblies.");
+            }
+
+            DELogger.Info("ApplicationRoot", "GameInstance type found: " + _GameInstanceType.FullName + ".");
+        }
+
         private void _InitGameInstance()
         {
-            _GameInstance = new GameInstance();
-            _GameInstance.Init();
+            _SearchGameInstanceType();
+
+            _GameInstance = Activator.CreateInstance(_GameInstanceType) as GameInstance;
+            if (_GameInstance == null)
+            {
+                throw new InvalidOperationException("Create GameInstance failed, type=" + _GameInstanceType.FullName + ".");
+            }
+
             GameInstance.Instance = _GameInstance;
+            _GameInstance.Init();
+        }
+
+        private IEnumerable<Type> _GetAssemblyTypes(Assembly assembly)
+        {
+            if (assembly == null)
+            {
+                yield break;
+            }
+
+            Type[] types = null;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException exception)
+            {
+                types = exception.Types;
+                DELogger.Warn("ApplicationRoot", $"Load types from assembly '{assembly.FullName}' partially failed: {exception.Message}");
+            }
+
+            if (types == null)
+            {
+                yield break;
+            }
+
+            foreach (var type in types)
+            {
+                if (type != null)
+                {
+                    yield return type;
+                }
+            }
+
         }
 
         private void _UninitGameInstance()
         {
             _GameInstance.UnInit();
+            GameInstance.Instance = _GameInstance;
             _GameInstance = null;
+            GameInstance.Instance = null;
         }
 
         private void _InitUIManager()
@@ -131,9 +227,11 @@ namespace Assets.Scripts.DE.Client.Framework
 
         public List<string> AssemblyNameList = new List<string>();
         private List<Assembly> _Assemblies = new List<Assembly>();
+        private List<Assembly> _GameplayAssemblies = new List<Assembly>();
         private UIManager _UIManager;
         private AssetManager _AssetManager;
         private GameInstance _GameInstance;
         private GMSystem _GMSystem;
+        private Type _GameInstanceType;
     }
 }

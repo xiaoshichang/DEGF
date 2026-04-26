@@ -4,7 +4,7 @@ using Assets.Scripts.DE.Client.Core;
 
 namespace Assets.Scripts.DE.Client.Framework
 {
-    public class GameInstance
+    public abstract class GameInstance
     {
         public static GameInstance Instance;
 

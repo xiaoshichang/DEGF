@@ -1,3 +1,4 @@
+using Assets.Scripts.DE.Client.Asset;
 using Assets.Scripts.DE.Client.Core;
 using Assets.Scripts.DE.Client.UI;
 using System;
@@ -66,6 +67,16 @@ namespace Assets.Scripts.DE.Client.Framework
             _UIManager = null;
         }
 
+        private void _InitAssetManager()
+        {
+            AssetManager.Init();
+        }
+
+        private void _UninitAssetManager()
+        {
+            AssetManager.UnInit();
+        }
+
         private void _InitGMSystem()
         {
             _GMSystem = new GMSystem();
@@ -85,6 +96,7 @@ namespace Assets.Scripts.DE.Client.Framework
             DELogger.Info("ApplicationRoot Awake");
 
             _CollectAssemblies();
+            _InitAssetManager();
             _InitUIManager();
             _InitGameInstance();
             _InitGMSystem();
@@ -108,6 +120,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _UninitGMSystem();
             _UninitGameInstance();
             _UninitUIManager();
+            _UninitAssetManager();
             _UninitLogger();
         }
 

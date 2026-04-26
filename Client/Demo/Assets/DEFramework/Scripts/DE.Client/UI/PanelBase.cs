@@ -1,4 +1,5 @@
 using System;
+using Assets.Scripts.DE.Client.Asset;
 using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.UI
@@ -33,5 +34,15 @@ namespace Assets.Scripts.DE.Client.UI
         /// When implemented in a derived class, gets the file system path to the associated prefab resource.
         /// </summary>
         protected abstract string GetPrefabPath();
+
+        protected AssetLoadHandle LoadPrefabAsync(Action<GameObject> onLoaded, Action<string> onFailed = null)
+        {
+            return AssetManager.LoadAssetAsync<GameObject>(GetPrefabPath(), onLoaded, onFailed);
+        }
+
+        protected GameObject LoadPrefabSync()
+        {
+            return AssetManager.LoadAsset<GameObject>(GetPrefabPath());
+        }
     }
 }

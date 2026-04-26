@@ -91,11 +91,7 @@ namespace Assets.Scripts.DE.Client.UI
             }
 
             _AppendLocalLog("[GM] Press ` to toggle GM panel.");
-            DELogger.MessageLogged += _OnLoggerMessageLogged;
-
-#if !UNITY_EDITOR
             Application.logMessageReceivedThreaded += _OnLogMessageReceived;
-#endif
         }
 
         public void SendCurrentCommand()
@@ -137,7 +133,6 @@ namespace Assets.Scripts.DE.Client.UI
 
         private void OnDestroy()
         {
-            DELogger.MessageLogged -= _OnLoggerMessageLogged;
             Application.logMessageReceivedThreaded -= _OnLogMessageReceived;
         }
 
@@ -183,14 +178,6 @@ namespace Assets.Scripts.DE.Client.UI
             lock (_PendingLogMessagesLock)
             {
                 _PendingLogMessages.Enqueue(logLine);
-            }
-        }
-
-        private void _OnLoggerMessageLogged(ClientLogLevel level, string formattedMessage)
-        {
-            lock (_PendingLogMessagesLock)
-            {
-                _PendingLogMessages.Enqueue(formattedMessage);
             }
         }
 

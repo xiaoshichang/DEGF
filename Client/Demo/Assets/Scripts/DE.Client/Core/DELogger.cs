@@ -22,7 +22,7 @@ namespace Assets.Scripts.DE.Client.Core
 
         public string MinLevel { get; set; } = "Info";
 
-        public bool EnableConsole { get; set; } = true;
+        public bool EnableFileLog { get; set; } = true;
 
         public bool RotateDaily { get; set; } = true;
 
@@ -33,8 +33,6 @@ namespace Assets.Scripts.DE.Client.Core
 
     public static class DELogger
     {
-        public delegate void LogMessageHandler(ClientLogLevel level, string formattedMessage);
-
         private static readonly object s_syncRoot = new object();
         private static readonly UTF8Encoding s_utf8Encoding = new UTF8Encoding(false);
 
@@ -47,8 +45,6 @@ namespace Assets.Scripts.DE.Client.Core
         private static string s_logFilePath;
         private static DateTime s_currentFileDate = DateTime.MinValue;
         private static StreamWriter s_writer;
-
-        public static event LogMessageHandler MessageLogged;
 
         public static bool IsInitialized()
         {
@@ -70,10 +66,19 @@ namespace Assets.Scripts.DE.Client.Core
                 s_loggingConfig = loggingConfig ?? CreateDefaultConfig();
                 s_loggerName = string.IsNullOrWhiteSpace(clientId) ? "Client" : clientId;
                 s_minLevel = ParseLogLevel(s_loggingConfig.MinLevel);
-                s_logDirectory = ResolveLogDirectory(s_loggingConfig.RootDir);
-                Directory.CreateDirectory(s_logDirectory);
-
-                OpenWriter(DateTime.Now);
+                if (s_loggingConfig.EnableFileLog)
+                {
+                    s_logDirectory = ResolveLogDirectory(s_loggingConfig.RootDir);
+                    Directory.CreateDirectory(s_logDirectory);
+                    OpenWriter(DateTime.Now);
+                }
+                else
+                {
+                    s_logDirectory = string.Empty;
+                    s_logFilePath = string.Empty;
+                    s_currentFileDate = DateTime.MinValue;
+                    s_writer = null;
+                }
             }
 
             Info("Logger", "initialized");
@@ -134,27 +139,24 @@ namespace Assets.Scripts.DE.Client.Core
 
             lock (s_syncRoot)
             {
-                if (s_writer == null)
-                {
-                    WriteUnityFallback(level, safeTag, safeMessage, true);
-                    return;
-                }
-
                 if (level < s_minLevel)
                 {
                     return;
                 }
 
                 var now = DateTime.Now;
-                RotateIfNeeded(now);
+                var formattedMessage = s_writer == null
+                    ? FormatFallbackMessage(level, safeTag, safeMessage)
+                    : FormatMessage(now, level, safeTag, safeMessage);
 
-                var formattedMessage = FormatMessage(now, level, safeTag, safeMessage);
-                NotifyMessageLogged(level, formattedMessage);
+                WriteUnityLog(level, formattedMessage);
 
-                if (s_loggingConfig.EnableConsole)
+                if (s_writer == null)
                 {
-                    WriteUnityLog(level, formattedMessage);
+                    return;
                 }
+
+                RotateIfNeeded(now);
 
                 s_writer.WriteLine(formattedMessage);
                 s_writer.Flush();
@@ -359,32 +361,13 @@ namespace Assets.Scripts.DE.Client.Core
             }
         }
 
-        private static void WriteUnityFallback(ClientLogLevel level, string tag, string message, bool uninitialized)
+        private static string FormatFallbackMessage(ClientLogLevel level, string tag, string message)
         {
-            if (level < s_minLevel)
-            {
-                return;
-            }
-
-            var prefix = uninitialized ? "[UninitializedLogger] " : string.Empty;
+            var prefix = "[UninitializedLogger] ";
             var levelName = ToLevelName(level);
-            var formattedMessage = string.IsNullOrEmpty(tag)
+            return string.IsNullOrEmpty(tag)
                 ? prefix + "[" + levelName + "] " + message
                 : prefix + "[" + levelName + "] [" + tag + "] " + message;
-
-            NotifyMessageLogged(level, formattedMessage);
-            WriteUnityLog(level, formattedMessage);
-        }
-
-        private static void NotifyMessageLogged(ClientLogLevel level, string formattedMessage)
-        {
-            var handler = MessageLogged;
-            if (handler == null)
-            {
-                return;
-            }
-
-            handler(level, formattedMessage);
         }
 
         private static void WriteUnityLog(ClientLogLevel level, string message)

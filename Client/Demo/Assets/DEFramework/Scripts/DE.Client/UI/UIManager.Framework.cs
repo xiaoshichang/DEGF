@@ -31,12 +31,13 @@ namespace Assets.Scripts.DE.Client.UI
             _StretchToFullScreen(_RootNode.GetComponent<RectTransform>());
 
             _DebugInfoLayerNode = _CreateLayerNode("DebugInfoLayer", _RootNode.transform, 100);
-            _BlackScreenLayerNode = _CreateLayerNode("BlackScreenLayer", _RootNode.transform, 200);
+            _ScreenTransferLayerNode = _CreateLayerNode("ScreenTransferLayer", _RootNode.transform, 200);
             _NotificationLayerNode = _CreateLayerNode("NotificationLayer", _RootNode.transform, 300);
             _DialogLayerNode = _CreateLayerNode("DialogLayer", _RootNode.transform, 400);
             _PanelLayerNode = _CreateLayerNode("PanelLayer", _RootNode.transform, 500);
 
             _InitDebugInfoLayer();
+            _InitScreenTransferLayer();
         }
 
         private void _UninitUIFramework()
@@ -46,10 +47,17 @@ namespace Assets.Scripts.DE.Client.UI
                 _GMPanelController.GMCommandDispatched -= _HandleGMCommandDispatched;
             }
 
+            if (_ScreenTransferLayerController != null)
+            {
+                _ScreenTransferLayerController.ScreenTransferEntered -= _HandleScreenTransferEntered;
+                _ScreenTransferLayerController.ScreenTransferExited -= _HandleScreenTransferExited;
+            }
+
             _PerformanceDataPanelController = null;
             _GMPanelController = null;
+            _ScreenTransferLayerController = null;
             _DebugInfoLayerNode = null;
-            _BlackScreenLayerNode = null;
+            _ScreenTransferLayerNode = null;
             _NotificationLayerNode = null;
             _DialogLayerNode = null;
             _PanelLayerNode = null;

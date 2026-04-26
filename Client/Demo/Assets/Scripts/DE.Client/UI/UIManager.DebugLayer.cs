@@ -67,19 +67,24 @@ namespace Assets.Scripts.DE.Client.UI
 
     public class GMPanelController : MonoBehaviour
     {
-        private const int MaxLogLineCount = 100;
+        private const int MaxLogItemCount = 100;
+        private static readonly Color OddLogItemBackgroundColor = new Color(1.0f, 1.0f, 1.0f, 0.04f);
+        private static readonly Color EvenLogItemBackgroundColor = new Color(1.0f, 1.0f, 1.0f, 0.09f);
+        private static readonly Color DebugLogTextColor = new Color(0.68f, 0.94f, 0.72f, 1.0f);
+        private static readonly Color InfoLogTextColor = Color.white;
+        private static readonly Color WarnLogTextColor = new Color(1.0f, 0.95f, 0.65f, 1.0f);
+        private static readonly Color ErrorLogTextColor = new Color(1.0f, 0.72f, 0.72f, 1.0f);
         private readonly Queue<string> _PendingLogMessages = new Queue<string>();
         private readonly object _PendingLogMessagesLock = new object();
-        private readonly List<string> _LogLines = new List<string>();
-        private readonly StringBuilder _LogContentBuilder = new StringBuilder(2048);
+        private readonly List<GMLogItemView> _LogItemViews = new List<GMLogItemView>();
 
         public event Action<string> GMCommandDispatched;
 
-        public void Bind(GameObject panelNode, InputField commandInputField, Text logText, ScrollRect logScrollRect)
+        public void Bind(GameObject panelNode, InputField commandInputField, RectTransform logContentNode, ScrollRect logScrollRect)
         {
             _PanelNode = panelNode;
             _CommandInputField = commandInputField;
-            _LogText = logText;
+            _LogContentNode = logContentNode;
             _LogScrollRect = logScrollRect;
         }
 
@@ -202,34 +207,161 @@ namespace Assets.Scripts.DE.Client.UI
 
         private void _AppendLocalLog(string logMessage)
         {
-            if (_LogText == null)
+            if (_LogContentNode == null)
             {
                 return;
             }
 
-            _LogLines.Add(logMessage);
-            if (_LogLines.Count > MaxLogLineCount)
+            var normalizedLogMessage = _StripRichTextTags(logMessage);
+            var logItemView = _CreateLogItemView(normalizedLogMessage);
+            _ApplyNextLogItemBackgroundColor(logItemView);
+            _LogItemViews.Add(logItemView);
+            if (_LogItemViews.Count > MaxLogItemCount)
             {
-                _LogLines.RemoveAt(0);
-            }
-
-            _LogContentBuilder.Clear();
-            for (var i = 0; i < _LogLines.Count; i++)
-            {
-                if (i > 0)
+                var oldestLogItemView = _LogItemViews[0];
+                _LogItemViews.RemoveAt(0);
+                if (oldestLogItemView.RootNode != null)
                 {
-                    _LogContentBuilder.Append('\n');
+                    Destroy(oldestLogItemView.RootNode);
                 }
-
-                _LogContentBuilder.Append(_LogLines[i]);
             }
 
-            _LogText.text = _LogContentBuilder.ToString();
             Canvas.ForceUpdateCanvases();
             if (_LogScrollRect != null)
             {
                 _LogScrollRect.verticalNormalizedPosition = 0.0f;
             }
+        }
+
+        private GMLogItemView _CreateLogItemView(string logMessage)
+        {
+            var logItemNode = new GameObject("LogItem", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+            logItemNode.transform.SetParent(_LogContentNode, false);
+
+            var logItemRectTransform = logItemNode.GetComponent<RectTransform>();
+            logItemRectTransform.localScale = Vector3.one;
+
+            var logItemLayoutElement = logItemNode.GetComponent<LayoutElement>();
+            logItemLayoutElement.minHeight = 28.0f;
+            logItemLayoutElement.preferredHeight = -1.0f;
+            logItemLayoutElement.flexibleHeight = 0.0f;
+
+            var logItemTextNode = new GameObject("Text", typeof(RectTransform), typeof(Text), typeof(ContentSizeFitter));
+            logItemTextNode.transform.SetParent(logItemNode.transform, false);
+
+            var logItemTextRectTransform = logItemTextNode.GetComponent<RectTransform>();
+            logItemTextRectTransform.anchorMin = Vector2.zero;
+            logItemTextRectTransform.anchorMax = Vector2.one;
+            logItemTextRectTransform.offsetMin = new Vector2(12.0f, 6.0f);
+            logItemTextRectTransform.offsetMax = new Vector2(-12.0f, -6.0f);
+            logItemTextRectTransform.localScale = Vector3.one;
+
+            var logItemText = logItemTextNode.GetComponent<Text>();
+            logItemText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            logItemText.fontSize = 18;
+            logItemText.alignment = TextAnchor.UpperLeft;
+            logItemText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            logItemText.verticalOverflow = VerticalWrapMode.Overflow;
+            logItemText.color = _ResolveLogTextColor(logMessage);
+            logItemText.supportRichText = false;
+            logItemText.text = logMessage;
+
+            var logItemTextContentSizeFitter = logItemTextNode.GetComponent<ContentSizeFitter>();
+            logItemTextContentSizeFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            logItemTextContentSizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            return new GMLogItemView
+            {
+                RootNode = logItemNode,
+                BackgroundImage = logItemNode.GetComponent<Image>(),
+                ContentText = logItemText,
+            };
+        }
+
+        private void _ApplyNextLogItemBackgroundColor(GMLogItemView logItemView)
+        {
+            if (logItemView == null || logItemView.BackgroundImage == null)
+            {
+                return;
+            }
+
+            var nextBackgroundColor = EvenLogItemBackgroundColor;
+            if (_LogItemViews.Count > 0)
+            {
+                var previousBackgroundImage = _LogItemViews[_LogItemViews.Count - 1].BackgroundImage;
+                var previousBackgroundColor = previousBackgroundImage == null
+                    ? OddLogItemBackgroundColor
+                    : previousBackgroundImage.color;
+                nextBackgroundColor = previousBackgroundColor == EvenLogItemBackgroundColor
+                    ? OddLogItemBackgroundColor
+                    : EvenLogItemBackgroundColor;
+            }
+
+            logItemView.BackgroundImage.color = nextBackgroundColor;
+        }
+
+        private Color _ResolveLogTextColor(string logMessage)
+        {
+            switch (_ResolveLogSeverity(logMessage))
+            {
+                case GMLogSeverity.Debug:
+                    return DebugLogTextColor;
+                case GMLogSeverity.Warn:
+                    return WarnLogTextColor;
+                case GMLogSeverity.Error:
+                    return ErrorLogTextColor;
+                default:
+                    return InfoLogTextColor;
+            }
+        }
+
+        private GMLogSeverity _ResolveLogSeverity(string logMessage)
+        {
+            if (string.IsNullOrEmpty(logMessage))
+            {
+                return GMLogSeverity.Info;
+            }
+
+            if (_ContainsLogToken(logMessage, "[error]")
+                || _ContainsLogToken(logMessage, "[fatal]")
+                || _ContainsLogToken(logMessage, "[exception]")
+                || _ContainsLogToken(logMessage, "[assert]"))
+            {
+                return GMLogSeverity.Error;
+            }
+
+            if (_ContainsLogToken(logMessage, "[warn]")
+                || _ContainsLogToken(logMessage, "[warning]"))
+            {
+                return GMLogSeverity.Warn;
+            }
+
+            if (_ContainsLogToken(logMessage, "[debug]"))
+            {
+                return GMLogSeverity.Debug;
+            }
+
+            return GMLogSeverity.Info;
+        }
+
+        private bool _ContainsLogToken(string logMessage, string token)
+        {
+            return logMessage.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private string _StripRichTextTags(string logMessage)
+        {
+            if (string.IsNullOrEmpty(logMessage))
+            {
+                return string.Empty;
+            }
+
+            return logMessage
+                .Replace("</color>", string.Empty)
+                .Replace("<color=#AEF0B8>", string.Empty)
+                .Replace("<color=#FFFFFF>", string.Empty)
+                .Replace("<color=#FFF2A6>", string.Empty)
+                .Replace("<color=#FFB8B8>", string.Empty);
         }
 
         private string _BuildLogLine(string condition, string stackTrace, LogType logType)
@@ -275,9 +407,24 @@ namespace Assets.Scripts.DE.Client.UI
         private readonly KeyCode _ToggleHotKey = KeyCode.BackQuote;
         private GameObject _PanelNode;
         private InputField _CommandInputField;
-        private Text _LogText;
+        private RectTransform _LogContentNode;
         private ScrollRect _LogScrollRect;
         private bool _FocusCommandInputNextFrame;
+
+        private sealed class GMLogItemView
+        {
+            public GameObject RootNode;
+            public Image BackgroundImage;
+            public Text ContentText;
+        }
+
+        private enum GMLogSeverity
+        {
+            Debug = 0,
+            Info = 1,
+            Warn = 2,
+            Error = 3,
+        }
     }
 
     public partial class UIManager
@@ -356,7 +503,7 @@ namespace Assets.Scripts.DE.Client.UI
             var logViewportMask = logViewportNode.GetComponent<Mask>();
             logViewportMask.showMaskGraphic = true;
 
-            var logContentNode = new GameObject("LogContent", typeof(RectTransform), typeof(Text), typeof(ContentSizeFitter));
+            var logContentNode = new GameObject("LogContent", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
             logContentNode.transform.SetParent(logViewportNode.transform, false);
 
             var logContentRectTransform = logContentNode.GetComponent<RectTransform>();
@@ -368,15 +515,14 @@ namespace Assets.Scripts.DE.Client.UI
             logContentRectTransform.anchoredPosition = Vector2.zero;
             logContentRectTransform.localScale = Vector3.one;
 
-            var logText = logContentNode.GetComponent<Text>();
-            logText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            logText.fontSize = 18;
-            logText.alignment = TextAnchor.UpperLeft;
-            logText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            logText.verticalOverflow = VerticalWrapMode.Overflow;
-            logText.color = new Color(0.88f, 0.92f, 0.88f, 1.0f);
-            logText.text = string.Empty;
-            logText.supportRichText = false;
+            var logContentVerticalLayoutGroup = logContentNode.GetComponent<VerticalLayoutGroup>();
+            logContentVerticalLayoutGroup.childAlignment = TextAnchor.UpperLeft;
+            logContentVerticalLayoutGroup.childControlWidth = true;
+            logContentVerticalLayoutGroup.childControlHeight = true;
+            logContentVerticalLayoutGroup.childForceExpandWidth = true;
+            logContentVerticalLayoutGroup.childForceExpandHeight = false;
+            logContentVerticalLayoutGroup.spacing = 0.0f;
+            logContentVerticalLayoutGroup.padding = new RectOffset(0, 0, 0, 0);
 
             var logContentSizeFitter = logContentNode.GetComponent<ContentSizeFitter>();
             logContentSizeFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
@@ -500,7 +646,7 @@ namespace Assets.Scripts.DE.Client.UI
             _StretchToFullScreen(sendButtonText.rectTransform);
 
             _GMPanelController = _DebugInfoLayerNode.AddComponent<GMPanelController>();
-            _GMPanelController.Bind(gmPanelNode, inputField, logText, scrollRect);
+            _GMPanelController.Bind(gmPanelNode, inputField, logContentRectTransform, scrollRect);
             _GMPanelController.GMCommandDispatched += _HandleGMCommandDispatched;
             _GMPanelController.Init();
 

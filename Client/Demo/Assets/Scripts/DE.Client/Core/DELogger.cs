@@ -35,6 +35,10 @@ namespace Assets.Scripts.DE.Client.Core
     {
         private static readonly object s_syncRoot = new object();
         private static readonly UTF8Encoding s_utf8Encoding = new UTF8Encoding(false);
+        private const string DebugLogColorHex = "#AEF0B8";
+        private const string InfoLogColorHex = "#FFFFFF";
+        private const string WarnLogColorHex = "#FFF2A6";
+        private const string ErrorLogColorHex = "#FFB8B8";
 
         private static LoggingConfig s_loggingConfig;
         private static ClientLogLevel s_minLevel = ClientLogLevel.Info;
@@ -372,20 +376,45 @@ namespace Assets.Scripts.DE.Client.Core
 
         private static void WriteUnityLog(ClientLogLevel level, string message)
         {
+            var colorizedMessage = ColorizeUnityLogMessage(level, message);
+
             switch (level)
             {
                 case ClientLogLevel.Trace:
                 case ClientLogLevel.Debug:
                 case ClientLogLevel.Info:
-                    UnityEngine.Debug.Log(message);
+                    UnityEngine.Debug.Log(colorizedMessage);
                     break;
                 case ClientLogLevel.Warn:
-                    UnityEngine.Debug.LogWarning(message);
+                    UnityEngine.Debug.LogWarning(colorizedMessage);
                     break;
                 case ClientLogLevel.Error:
                 case ClientLogLevel.Critical:
-                    UnityEngine.Debug.LogError(message);
+                    UnityEngine.Debug.LogError(colorizedMessage);
                     break;
+            }
+        }
+
+        private static string ColorizeUnityLogMessage(ClientLogLevel level, string message)
+        {
+            var colorHex = ResolveUnityLogColorHex(level);
+            return "<color=" + colorHex + ">" + message + "</color>";
+        }
+
+        private static string ResolveUnityLogColorHex(ClientLogLevel level)
+        {
+            switch (level)
+            {
+                case ClientLogLevel.Trace:
+                case ClientLogLevel.Debug:
+                    return DebugLogColorHex;
+                case ClientLogLevel.Warn:
+                    return WarnLogColorHex;
+                case ClientLogLevel.Error:
+                case ClientLogLevel.Critical:
+                    return ErrorLogColorHex;
+                default:
+                    return InfoLogColorHex;
             }
         }
     }

@@ -69,12 +69,16 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void _InitAssetManager()
         {
-            AssetManager.Init();
+            _AssetManager = new AssetManager();
+            _AssetManager.Init();
+            AssetManager.Instance = _AssetManager;
         }
 
         private void _UninitAssetManager()
         {
-            AssetManager.UnInit();
+            _AssetManager.UnInit();
+            _AssetManager = null;
+            AssetManager.Instance = null;
         }
 
         private void _InitGMSystem()
@@ -128,6 +132,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public List<string> AssemblyNameList = new List<string>();
         private List<Assembly> _Assemblies = new List<Assembly>();
         private UIManager _UIManager;
+        private AssetManager _AssetManager;
         private GameInstance _GameInstance;
         private GMSystem _GMSystem;
     }

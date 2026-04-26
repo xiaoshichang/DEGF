@@ -35,14 +35,5 @@ namespace Assets.Scripts.DE.Client.UI
         /// </summary>
         protected abstract string GetPrefabPath();
 
-        protected AssetLoadHandle LoadPrefabAsync(Action<GameObject> onLoaded, Action<string> onFailed = null)
-        {
-            return AssetManager.LoadAssetAsync<GameObject>(GetPrefabPath(), onLoaded, onFailed);
-        }
-
-        protected GameObject LoadPrefabSync()
-        {
-            return AssetManager.LoadAsset<GameObject>(GetPrefabPath());
-        }
     }
 }

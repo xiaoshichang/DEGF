@@ -29,14 +29,24 @@ namespace Assets.Scripts.DE.Client.Editor.Asset
         [MenuItem(UseAssetDatabaseMenu)]
         public static void UseAssetDatabaseProvider()
         {
-            AssetManager.SetProviderMode(AssetProviderMode.AssetDatabase);
+            AssetManager.SetConfiguredProviderMode(AssetProviderMode.AssetDatabase);
+            if (AssetManager.Instance != null)
+            {
+                AssetManager.Instance.SetProviderMode(AssetProviderMode.AssetDatabase);
+            }
+
             _RefreshProviderMenuState();
         }
 
         [MenuItem(UseAssetBundleMenu)]
         public static void UseAssetBundleProvider()
         {
-            AssetManager.SetProviderMode(AssetProviderMode.AssetBundle);
+            AssetManager.SetConfiguredProviderMode(AssetProviderMode.AssetBundle);
+            if (AssetManager.Instance != null)
+            {
+                AssetManager.Instance.SetProviderMode(AssetProviderMode.AssetBundle);
+            }
+
             _RefreshProviderMenuState();
         }
 

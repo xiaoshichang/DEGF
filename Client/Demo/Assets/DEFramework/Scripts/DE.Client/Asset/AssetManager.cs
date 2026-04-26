@@ -1,6 +1,5 @@
 using Assets.Scripts.DE.Client.Core;
 using System;
-using System.Threading;
 using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.Asset
@@ -9,18 +8,21 @@ namespace Assets.Scripts.DE.Client.Asset
     {
         private Action<AssetLoadHandle> _completedCallback;
         private AsyncOperation _asyncOperation;
+        private readonly AssetManager _assetManager;
         private readonly AssetProvider _provider;
 
         internal AssetLoadHandle(
             long handleValue,
             string assetPath,
             Type assetType,
+            AssetManager assetManager,
             AssetProvider provider,
             Action<AssetLoadHandle> completedCallback)
         {
             HandleValue = handleValue;
             AssetPath = AssetPathUtility.NormalizeLogicalAssetPath(assetPath);
             AssetType = assetType ?? typeof(UnityEngine.Object);
+            _assetManager = assetManager ?? throw new ArgumentNullException(nameof(assetManager));
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
             _completedCallback = completedCallback;
         }
@@ -63,7 +65,7 @@ namespace Assets.Scripts.DE.Client.Asset
 
         public void WaitForCompletion()
         {
-            AssetManager.WaitForCompletion(this);
+            _assetManager.WaitForCompletion(this);
         }
 
         public T WaitForCompletion<T>() where T : UnityEngine.Object
@@ -74,7 +76,7 @@ namespace Assets.Scripts.DE.Client.Asset
 
         public void Release()
         {
-            AssetManager.Release(this);
+            _assetManager.Release(this);
         }
 
         public void RegisterCompleted(Action<AssetLoadHandle> completedCallback)
@@ -157,53 +159,55 @@ namespace Assets.Scripts.DE.Client.Asset
         }
     }
 
-    public static class AssetManager
+    public sealed class AssetManager
     {
-        private static long s_nextHandleValue;
-        private static bool s_isInitialized;
-        private static AssetProviderMode s_providerMode;
-        private static AssetProvider s_provider;
-
         private const string ProviderModePreferenceKey = "DE.Client.Asset.ProviderMode";
 
-        public static AssetProviderMode CurrentProviderMode
+        public static AssetManager Instance;
+
+        private long _nextHandleValue;
+        private bool _isInitialized;
+        private AssetProviderMode _providerMode;
+        private AssetProvider _provider;
+
+        public AssetProviderMode CurrentProviderMode
         {
             get
             {
-                if (s_isInitialized)
+                if (_isInitialized)
                 {
-                    return s_providerMode;
+                    return _providerMode;
                 }
 
                 return GetConfiguredProviderMode();
             }
         }
 
-        public static void Init()
+        public void Init()
         {
-            if (s_isInitialized)
+            if (_isInitialized)
             {
                 return;
             }
 
-            s_providerMode = GetConfiguredProviderMode();
-            s_provider = _CreateProvider(s_providerMode);
-            s_provider.Init();
-            s_isInitialized = true;
+            _providerMode = GetConfiguredProviderMode();
+            _provider = _CreateProvider(_providerMode);
+            _provider.Init();
+            _isInitialized = true;
 
-            DELogger.Info("AssetManager", "Initialized with provider mode: " + s_providerMode + ".");
+            DELogger.Info("AssetManager", "Initialized with provider mode: " + _providerMode + ".");
         }
 
-        public static void UnInit()
+        public void UnInit()
         {
-            if (!s_isInitialized)
+            if (!_isInitialized)
             {
                 return;
             }
 
-            var providerToUninit = s_provider;
-            s_provider = null;
-            s_isInitialized = false;
+            var providerToUninit = _provider;
+            _provider = null;
+            _isInitialized = false;
 
             if (providerToUninit != null)
             {
@@ -211,14 +215,14 @@ namespace Assets.Scripts.DE.Client.Asset
             }
         }
 
-        public static AssetLoadHandle LoadAssetAsync<T>(
+        public AssetLoadHandle LoadAssetAsync<T>(
             string assetPath,
             Action<AssetLoadHandle> completedCallback = null) where T : UnityEngine.Object
         {
             return LoadAssetAsync(assetPath, typeof(T), completedCallback);
         }
 
-        public static AssetLoadHandle LoadAssetAsync<T>(
+        public AssetLoadHandle LoadAssetAsync<T>(
             string assetPath,
             Action<T> onLoaded,
             Action<string> onFailed = null) where T : UnityEngine.Object
@@ -237,7 +241,7 @@ namespace Assets.Scripts.DE.Client.Asset
                 });
         }
 
-        public static AssetLoadHandle LoadAssetAsync(
+        public AssetLoadHandle LoadAssetAsync(
             string assetPath,
             Type assetType,
             Action<AssetLoadHandle> completedCallback = null)
@@ -260,12 +264,12 @@ namespace Assets.Scripts.DE.Client.Asset
 
             _EnsureInitialized();
 
-            var provider = s_provider;
-
+            var provider = _provider;
             var handle = new AssetLoadHandle(
-                Interlocked.Increment(ref s_nextHandleValue),
+                ++_nextHandleValue,
                 normalizedAssetPath,
                 assetType,
+                this,
                 provider,
                 completedCallback);
 
@@ -283,13 +287,13 @@ namespace Assets.Scripts.DE.Client.Asset
             return handle;
         }
 
-        public static T LoadAsset<T>(string assetPath) where T : UnityEngine.Object
+        public T LoadAsset<T>(string assetPath) where T : UnityEngine.Object
         {
             var handle = LoadAssetAsync<T>(assetPath);
             return handle.WaitForCompletion<T>();
         }
 
-        public static void Release(AssetLoadHandle handle)
+        public void Release(AssetLoadHandle handle)
         {
             if (handle == null || !handle.IsValid || handle.IsReleased)
             {
@@ -311,36 +315,25 @@ namespace Assets.Scripts.DE.Client.Asset
 #endif
         }
 
-        public static void SetProviderMode(AssetProviderMode providerMode)
+        public void SetProviderMode(AssetProviderMode providerMode)
         {
-            PlayerPrefs.SetInt(ProviderModePreferenceKey, (int)providerMode);
-            PlayerPrefs.Save();
+            SetConfiguredProviderMode(providerMode);
 
-            AssetProvider currentProvider = null;
-            AssetProvider nextProvider = null;
-            var shouldSwitchProvider = false;
-
-            if (!s_isInitialized)
+            if (!_isInitialized)
             {
-                s_providerMode = providerMode;
+                _providerMode = providerMode;
                 return;
             }
 
-            if (s_providerMode == providerMode)
+            if (_providerMode == providerMode)
             {
                 return;
             }
 
-            currentProvider = s_provider;
-            nextProvider = _CreateProvider(providerMode);
-            s_provider = nextProvider;
-            s_providerMode = providerMode;
-            shouldSwitchProvider = true;
-
-            if (!shouldSwitchProvider)
-            {
-                return;
-            }
+            var currentProvider = _provider;
+            var nextProvider = _CreateProvider(providerMode);
+            _provider = nextProvider;
+            _providerMode = providerMode;
 
             if (currentProvider != null)
             {
@@ -351,7 +344,13 @@ namespace Assets.Scripts.DE.Client.Asset
             DELogger.Info("AssetManager", "Provider switched to: " + providerMode + ".");
         }
 
-        internal static void WaitForCompletion(AssetLoadHandle handle)
+        public static void SetConfiguredProviderMode(AssetProviderMode providerMode)
+        {
+            PlayerPrefs.SetInt(ProviderModePreferenceKey, (int)providerMode);
+            PlayerPrefs.Save();
+        }
+
+        internal void WaitForCompletion(AssetLoadHandle handle)
         {
             if (handle == null)
             {
@@ -372,9 +371,9 @@ namespace Assets.Scripts.DE.Client.Asset
             handle.GetProvider().WaitForCompletion(handle);
         }
 
-        private static void _EnsureInitialized()
+        private void _EnsureInitialized()
         {
-            if (s_isInitialized)
+            if (_isInitialized)
             {
                 return;
             }
@@ -382,7 +381,7 @@ namespace Assets.Scripts.DE.Client.Asset
             Init();
         }
 
-        private static AssetProvider _CreateProvider(AssetProviderMode providerMode)
+        private AssetProvider _CreateProvider(AssetProviderMode providerMode)
         {
             switch (providerMode)
             {

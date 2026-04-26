@@ -1,4 +1,5 @@
 using Assets.Scripts.DE.Client.Core;
+using Assets.Scripts.DE.Client.UI;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -42,22 +43,23 @@ namespace Assets.Scripts.DE.Client.Framework
 
     public class GMSystem
     {
+        public static GMSystem Instance;
         private readonly Dictionary<string, GMCommandMetadata> _GMCommandMetadataByName = new Dictionary<string, GMCommandMetadata>(StringComparer.OrdinalIgnoreCase);
 
         public void Init(List<Assembly> assemblies)
         {
             _CollectGMCommandsByReflection(assemblies);
-            if (G.UIManager != null)
+            if (UIManager.Instance != null)
             {
-                G.UIManager.GMCommandDispatched += OnGMCommandDispatched;
+                UIManager.Instance.GMCommandDispatched += OnGMCommandDispatched;
             }
         }
 
         public void UnInit()
         {
-            if (G.UIManager != null)
+            if (UIManager.Instance != null)
             {
-                G.UIManager.GMCommandDispatched -= OnGMCommandDispatched;
+                UIManager.Instance.GMCommandDispatched -= OnGMCommandDispatched;
             }
 
             _GMCommandMetadataByName.Clear();
@@ -513,10 +515,22 @@ namespace Assets.Scripts.DE.Client.Framework
                 return true;
             }
 
-            var globalFields = typeof(G).GetFields(BindingFlags.Public | BindingFlags.Static);
-            foreach (var globalField in globalFields)
+            var instanceProperty = declaringType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+            if (instanceProperty != null && declaringType.IsAssignableFrom(instanceProperty.PropertyType))
             {
-                var fieldValue = globalField.GetValue(null);
+                var propertyValue = instanceProperty.GetValue(null, null);
+                if (propertyValue != null && declaringType.IsInstanceOfType(propertyValue))
+                {
+                    invocationTarget = propertyValue;
+                    errorMessage = null;
+                    return true;
+                }
+            }
+
+            var instanceField = declaringType.GetField("Instance", BindingFlags.Public | BindingFlags.Static);
+            if (instanceField != null && declaringType.IsAssignableFrom(instanceField.FieldType))
+            {
+                var fieldValue = instanceField.GetValue(null);
                 if (fieldValue != null && declaringType.IsInstanceOfType(fieldValue))
                 {
                     invocationTarget = fieldValue;

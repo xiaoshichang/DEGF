@@ -1,5 +1,6 @@
 
 
+using Assets.Scripts.DE.Client.Core;
 using Assets.Scripts.DE.Client.Framework;
 
 namespace Demo.Client.Application
@@ -9,6 +10,7 @@ namespace Demo.Client.Application
         public override void Init()
         {
             base.Init();
+            DELogger.Info("DemoGameInstance initialized");
         }
     
         public override void Update()

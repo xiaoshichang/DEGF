@@ -6,6 +6,8 @@ namespace Assets.Scripts.DE.Client.Framework
 {
     public class GameInstance
     {
+        public static GameInstance Instance;
+
         public virtual void Init()
         {
 

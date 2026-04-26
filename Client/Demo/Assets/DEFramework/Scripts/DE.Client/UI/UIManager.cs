@@ -5,6 +5,7 @@ namespace Assets.Scripts.DE.Client.UI
 {
     public partial class UIManager
     {
+        public static UIManager Instance;
 
         public UIManager()
         {

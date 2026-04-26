@@ -8,11 +8,7 @@ using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.Framework
 {
-    public static class G
-    {
-        public static GameInstance GameInstance;
-        public static UIManager UIManager;
-    }
+
 
     public class ApplicationRoot : MonoBehaviour
     {
@@ -47,8 +43,8 @@ namespace Assets.Scripts.DE.Client.Framework
         private void _InitGameInstance()
         {
             _GameInstance = new GameInstance();
-            G.GameInstance = _GameInstance;
             _GameInstance.Init();
+            GameInstance.Instance = _GameInstance;
         }
 
         private void _UninitGameInstance()
@@ -60,8 +56,8 @@ namespace Assets.Scripts.DE.Client.Framework
         private void _InitUIManager()
         {
             _UIManager = new UIManager();
-            G.UIManager = _UIManager;
             _UIManager.Init();
+            UIManager.Instance = _UIManager;
         }
 
         private void _UninitUIManager()
@@ -74,6 +70,7 @@ namespace Assets.Scripts.DE.Client.Framework
         {
             _GMSystem = new GMSystem();
             _GMSystem.Init(_Assemblies);
+            GMSystem.Instance = _GMSystem;
         }
 
         private void _UninitGMSystem()

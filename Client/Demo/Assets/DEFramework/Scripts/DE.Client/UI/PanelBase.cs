@@ -1,11 +1,23 @@
 using System;
-using Assets.Scripts.DE.Client.Asset;
 using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.UI
 {
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+    public sealed class PanelAttribute : Attribute
+    {
+        public PanelAttribute(string prefabPath)
+        {
+            PrefabPath = prefabPath;
+        }
+
+        public string PrefabPath { get; }
+    }
+
     public abstract class PanelBase : MonoBehaviour
     {
+        private bool _IsShowing;
+
         private void Awake()
         {
             Bind();
@@ -30,10 +42,29 @@ namespace Assets.Scripts.DE.Client.UI
         /// </summary>
         protected abstract void OnHide();
 
-        /// <summary>
-        /// When implemented in a derived class, gets the file system path to the associated prefab resource.
-        /// </summary>
-        protected abstract string GetPrefabPath();
+        internal void ShowPanel(object arg)
+        {
+            if (_IsShowing)
+            {
+                OnShow(arg);
+                return;
+            }
 
+            _IsShowing = true;
+            gameObject.SetActive(true);
+            OnShow(arg);
+        }
+
+        internal void HidePanel()
+        {
+            if (!_IsShowing)
+            {
+                return;
+            }
+
+            _IsShowing = false;
+            OnHide();
+            gameObject.SetActive(false);
+        }
     }
 }

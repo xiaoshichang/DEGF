@@ -40,31 +40,5 @@ namespace Assets.Scripts.DE.Client.UI
         private GameObject _DialogLayerNode;
         private GameObject _PanelLayerNode;
         private GameObject _EventSystemNode;
-        private ScreenTransferLayerController _ScreenTransferLayerController;
-
-        /// <summary>
-        /// 表示用于管理性能数据面板的控制器实例。
-        /// </summary>
-        private PerformanceDataPanelController _PerformanceDataPanelController;
-
-        /// <summary>
-        /// GM面板控制器，负责GM面板的显示和GM命令的分发
-        /// </summary>
-        private GMPanelController _GMPanelController;
-
-        /// <summary>
-        /// GM命令被分发时触发，参数为GM命令文本
-        /// </summary>
-        public event Action<string> GMCommandDispatched;
-
-        /// <summary>
-        /// 进入切屏时触发，参数为触发切屏的来源ID。
-        /// </summary>
-        public event Action<string> ScreenTransferEntered;
-
-        /// <summary>
-        /// 离开切屏时触发，参数为触发切屏的来源ID。
-        /// </summary>
-        public event Action<string> ScreenTransferExited;
     }
 }

@@ -307,6 +307,18 @@ namespace Assets.Scripts.DE.Client.UI
 
     public partial class UIManager
     {
+        private ScreenTransferLayerController _ScreenTransferLayerController;
+
+        /// <summary>
+        /// Raised when screen transfer starts. The argument is the source identifier that triggered it.
+        /// </summary>
+        public event Action<string> ScreenTransferEntered;
+
+        /// <summary>
+        /// Raised when screen transfer ends. The argument is the source identifier that triggered it.
+        /// </summary>
+        public event Action<string> ScreenTransferExited;
+
         public bool EnterScreenTransfer(
             string sourceId,
             float enterDuration,

@@ -2,6 +2,8 @@
 
 using Assets.Scripts.DE.Client.Core;
 using Assets.Scripts.DE.Client.Framework;
+using Assets.Scripts.DE.Client.UI;
+using Assets.Scripts.Demo.Client.UI;
 
 namespace Demo.Client.Application
 {
@@ -11,6 +13,7 @@ namespace Demo.Client.Application
         {
             base.Init();
             DELogger.Info("DemoGameInstance initialized");
+            UIManager.Instance.PushPanel<LoginPanel>();
         }
     
         public override void Update()

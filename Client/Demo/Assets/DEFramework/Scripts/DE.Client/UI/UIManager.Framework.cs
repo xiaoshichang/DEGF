@@ -38,6 +38,7 @@ namespace Assets.Scripts.DE.Client.UI
 
             _InitDebugInfoLayer();
             _InitScreenTransferLayer();
+            _InitPanelLayer();
         }
 
         private void _UninitUIFramework()
@@ -52,6 +53,8 @@ namespace Assets.Scripts.DE.Client.UI
                 _ScreenTransferLayerController.ScreenTransferEntered -= _HandleScreenTransferEntered;
                 _ScreenTransferLayerController.ScreenTransferExited -= _HandleScreenTransferExited;
             }
+
+            _UninitPanelLayer();
 
             _PerformanceDataPanelController = null;
             _GMPanelController = null;

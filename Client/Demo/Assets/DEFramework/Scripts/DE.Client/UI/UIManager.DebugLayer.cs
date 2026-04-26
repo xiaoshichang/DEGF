@@ -429,6 +429,21 @@ namespace Assets.Scripts.DE.Client.UI
 
     public partial class UIManager
     {
+        /// <summary>
+        /// Controller instance used to manage the performance data panel.
+        /// </summary>
+        private PerformanceDataPanelController _PerformanceDataPanelController;
+
+        /// <summary>
+        /// Controller responsible for displaying the GM panel and dispatching GM commands.
+        /// </summary>
+        private GMPanelController _GMPanelController;
+
+        /// <summary>
+        /// Raised when a GM command is dispatched. The argument is the GM command text.
+        /// </summary>
+        public event Action<string> GMCommandDispatched;
+
         private void _InitDebugInfoLayer()
         {
             InitPerformanceDataPanel();

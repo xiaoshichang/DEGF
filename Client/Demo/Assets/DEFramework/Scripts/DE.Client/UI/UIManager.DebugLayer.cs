@@ -429,6 +429,8 @@ namespace Assets.Scripts.DE.Client.UI
 
     public partial class UIManager
     {
+        private const float DebugInfoLayerAlpha = 0.80f;
+
         /// <summary>
         /// Controller instance used to manage the performance data panel.
         /// </summary>
@@ -446,6 +448,13 @@ namespace Assets.Scripts.DE.Client.UI
 
         private void _InitDebugInfoLayer()
         {
+            var canvasGroup = _DebugInfoLayerNode.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+            {
+                canvasGroup = _DebugInfoLayerNode.AddComponent<CanvasGroup>();
+            }
+
+            canvasGroup.alpha = DebugInfoLayerAlpha;
             InitPerformanceDataPanel();
             InitGMPanel();
         }
@@ -454,6 +463,13 @@ namespace Assets.Scripts.DE.Client.UI
         {
             var performanceDataPanelNode = new GameObject("PerformanceDataPanel", typeof(RectTransform), typeof(Text));
             performanceDataPanelNode.transform.SetParent(_DebugInfoLayerNode.transform, false);
+            var canvasGroup = performanceDataPanelNode.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+            {
+                canvasGroup = performanceDataPanelNode.AddComponent<CanvasGroup>();
+            }
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
 
             var rectTransform = performanceDataPanelNode.GetComponent<RectTransform>();
             rectTransform.anchorMin = new Vector2(0.0f, 1.0f);

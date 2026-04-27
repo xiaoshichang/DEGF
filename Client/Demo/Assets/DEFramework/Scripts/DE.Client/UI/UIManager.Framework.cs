@@ -6,6 +6,12 @@ namespace Assets.Scripts.DE.Client.UI
 {
     public partial class UIManager
     {
+        private const int PanelLayerSortingOrder = 100;
+        private const int DialogLayerSortingOrder = 200;
+        private const int NotificationLayerSortingOrder = 300;
+        private const int ScreenTransferLayerSortingOrder = 400;
+        private const int DebugInfoLayerSortingOrder = 500;
+
         private void _InitUIFramework()
         {
             if (_RootNode != null)
@@ -30,11 +36,11 @@ namespace Assets.Scripts.DE.Client.UI
             _EnsureEventSystem();
             _StretchToFullScreen(_RootNode.GetComponent<RectTransform>());
 
-            _DebugInfoLayerNode = _CreateLayerNode("DebugInfoLayer", _RootNode.transform, 100);
-            _ScreenTransferLayerNode = _CreateLayerNode("ScreenTransferLayer", _RootNode.transform, 200);
-            _NotificationLayerNode = _CreateLayerNode("NotificationLayer", _RootNode.transform, 300);
-            _DialogLayerNode = _CreateLayerNode("DialogLayer", _RootNode.transform, 400);
-            _PanelLayerNode = _CreateLayerNode("PanelLayer", _RootNode.transform, 500);
+            _PanelLayerNode = _CreateLayerNode("PanelLayer", _RootNode.transform, PanelLayerSortingOrder);
+            _DialogLayerNode = _CreateLayerNode("DialogLayer", _RootNode.transform, DialogLayerSortingOrder);
+            _NotificationLayerNode = _CreateLayerNode("NotificationLayer", _RootNode.transform, NotificationLayerSortingOrder);
+            _ScreenTransferLayerNode = _CreateLayerNode("ScreenTransferLayer", _RootNode.transform, ScreenTransferLayerSortingOrder);
+            _DebugInfoLayerNode = _CreateLayerNode("DebugInfoLayer", _RootNode.transform, DebugInfoLayerSortingOrder);
 
             _InitDebugInfoLayer();
             _InitScreenTransferLayer();
@@ -82,7 +88,7 @@ namespace Assets.Scripts.DE.Client.UI
 
         private GameObject _CreateLayerNode(string nodeName, Transform parentNode, int sortingOrder)
         {
-            var layerNode = new GameObject(nodeName, typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
+            var layerNode = new GameObject(nodeName, typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster), typeof(CanvasGroup));
             layerNode.transform.SetParent(parentNode, false);
 
             var rectTransform = layerNode.GetComponent<RectTransform>();
@@ -91,6 +97,7 @@ namespace Assets.Scripts.DE.Client.UI
             var canvas = layerNode.GetComponent<Canvas>();
             canvas.overrideSorting = true;
             canvas.sortingOrder = sortingOrder;
+            canvas.vertexColorAlwaysGammaSpace = true;
 
             return layerNode;
         }

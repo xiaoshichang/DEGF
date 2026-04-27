@@ -45,6 +45,7 @@ consulo/
 *.ipa
 *.xcodeproj
 *.xcworkspace
+/[Aa]ssets/[Ss]treamingAssets/
 
 # Crash reports
 sysinfo.txt

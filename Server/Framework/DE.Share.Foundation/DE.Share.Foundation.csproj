@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Client\Demo\Assets\Scripts\DE.Share.Foundation\**\*.cs">
+    <Compile Include="..\..\..\Client\Demo\Assets\DEFramework\Scripts\DE.Share.Foundation\**\*.cs">
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
   </ItemGroup>

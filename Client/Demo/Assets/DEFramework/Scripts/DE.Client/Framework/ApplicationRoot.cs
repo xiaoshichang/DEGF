@@ -1,5 +1,6 @@
 using Assets.Scripts.DE.Client.Asset;
 using Assets.Scripts.DE.Client.Core;
+using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Client.UI;
 using System;
 using System.Collections;
@@ -109,6 +110,20 @@ namespace Assets.Scripts.DE.Client.Framework
             _GameInstance.Init();
         }
 
+        private void _InitNetworkManager()
+        {
+            _NetworkManager = new NetworkManager();
+            _NetworkManager.Init();
+            NetworkManager.Instance = _NetworkManager;
+        }
+
+        private void _InitAuthSystem()
+        {
+            _AuthSystem = new AuthSystem();
+            _AuthSystem.Init();
+            AuthSystem.Instance = _AuthSystem;
+        }
+
         private IEnumerable<Type> _GetAssemblyTypes(Assembly assembly)
         {
             if (assembly == null)
@@ -148,6 +163,30 @@ namespace Assets.Scripts.DE.Client.Framework
             GameInstance.Instance = _GameInstance;
             _GameInstance = null;
             GameInstance.Instance = null;
+        }
+
+        private void _UninitNetworkManager()
+        {
+            if (_NetworkManager == null)
+            {
+                return;
+            }
+
+            _NetworkManager.UnInit();
+            _NetworkManager = null;
+            NetworkManager.Instance = null;
+        }
+
+        private void _UninitAuthSystem()
+        {
+            if (_AuthSystem == null)
+            {
+                return;
+            }
+
+            _AuthSystem.UnInit();
+            _AuthSystem = null;
+            AuthSystem.Instance = null;
         }
 
         private void _InitUIManager()
@@ -198,6 +237,8 @@ namespace Assets.Scripts.DE.Client.Framework
             _CollectAssemblies();
             _InitAssetManager();
             _InitUIManager();
+            _InitNetworkManager();
+            _InitAuthSystem();
             _InitGameInstance();
             _InitGMSystem();
         }
@@ -210,7 +251,9 @@ namespace Assets.Scripts.DE.Client.Framework
         // Update is called once per frame
         void Update()
         {
+            _NetworkManager?.TickIncoming();
             _GameInstance.Update();
+            _NetworkManager?.TickOutgoing();
         }
 
         private void OnDestroy()
@@ -219,6 +262,8 @@ namespace Assets.Scripts.DE.Client.Framework
 
             _UninitGMSystem();
             _UninitGameInstance();
+            _UninitAuthSystem();
+            _UninitNetworkManager();
             _UninitUIManager();
             _UninitAssetManager();
             _UninitLogger();
@@ -230,6 +275,8 @@ namespace Assets.Scripts.DE.Client.Framework
         private List<Assembly> _GameplayAssemblies = new List<Assembly>();
         private UIManager _UIManager;
         private AssetManager _AssetManager;
+        private NetworkManager _NetworkManager;
+        private AuthSystem _AuthSystem;
         private GameInstance _GameInstance;
         private GMSystem _GMSystem;
         private Type _GameInstanceType;

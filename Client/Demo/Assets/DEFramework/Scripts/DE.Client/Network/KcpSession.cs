@@ -1,8 +1,10 @@
 using Assets.Scripts.DE.Client.Core;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using kcp2k;
 
 namespace Assets.Scripts.DE.Client.Network
@@ -28,6 +30,7 @@ namespace Assets.Scripts.DE.Client.Network
         private const int SocketBufferSize = 1024 * 1024 * 7;
         private const int RawReceiveBufferSize = 1500;
         private const uint KcpInterval = 10;
+        private const int WorkerIdleWaitMilliseconds = 1;
 
         public KcpSession(EndPoint endPoint, uint conv, KcpSessionCallback callback)
         {
@@ -37,14 +40,28 @@ namespace Assets.Scripts.DE.Client.Network
             _State = KcpSessionState.Created;
         }
 
-        public bool IsRegistered => _State == KcpSessionState.Registered;
+        public bool IsRegistered
+        {
+            get
+            {
+                lock (_LifecycleLock)
+                {
+                    return _State == KcpSessionState.Registered;
+                }
+            }
+        }
 
         public void Connect()
         {
-            if (_State != KcpSessionState.Created)
+            Thread workerThread = null;
+
+            lock (_LifecycleLock)
             {
-                DELogger.Error(LogTag, "Connect ignored because session is not in Created state.");
-                return;
+                if (_State != KcpSessionState.Created)
+                {
+                    DELogger.Error(LogTag, "Connect ignored because session is not in Created state.");
+                    return;
+                }
             }
 
             try
@@ -69,17 +86,34 @@ namespace Assets.Scripts.DE.Client.Network
                 _ReceiveMessageBuffer = new byte[Kcp.MTU_DEF];
                 _Stopwatch.Restart();
 
-                _State = KcpSessionState.Registered;
+                lock (_LifecycleLock)
+                {
+                    _WorkerStopRequested = false;
+                    _DisconnectedEventQueued = false;
+                    _DisconnectLogged = false;
+                    _State = KcpSessionState.Registered;
+                    _WorkerThread = new Thread(_WorkerLoop);
+                    _WorkerThread.IsBackground = true;
+                    _WorkerThread.Name = "KcpSession-" + _Conv;
+                    workerThread = _WorkerThread;
+                }
+
+                workerThread.Start();
                 DELogger.Info(
                     LogTag,
                     "Session registered, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ".");
-                _Callback?.OnRegistered?.Invoke();
+                _EnqueueSessionEvent(SessionEventType.Registered, null);
             }
             catch (Exception exception)
             {
+                lock (_LifecycleLock)
+                {
+                    _WorkerStopRequested = true;
+                    _State = KcpSessionState.Disconnected;
+                }
+
                 _DisposeSocket();
                 _Kcp = null;
-                _State = KcpSessionState.Disconnected;
                 DELogger.Error(
                     LogTag,
                     "Connect failed, remoteEndPoint=" + _EndPoint + ", conv=" + _Conv + ", error=" + exception + ".");
@@ -89,74 +123,17 @@ namespace Assets.Scripts.DE.Client.Network
 
         public void TickIncoming()
         {
-            if (_State != KcpSessionState.Registered || _Socket == null || _Kcp == null)
-            {
-                return;
-            }
-
-            try
-            {
-                ArraySegment<byte> segment;
-                while (_Socket.ReceiveNonBlocking(_RawReceiveBuffer, out segment))
-                {
-                    if (segment.Count <= 0)
-                    {
-                        continue;
-                    }
-
-                    var inputResult = _Kcp.Input(segment.Array, segment.Offset, segment.Count);
-                    if (inputResult < 0)
-                    {
-                        DELogger.Error(
-                            LogTag,
-                            "Kcp input failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + inputResult + ".");
-                        Disconnect();
-                        return;
-                    }
-                }
-
-                _DispatchReceivedMessages();
-            }
-            catch (SocketException exception)
-            {
-                DELogger.Error(
-                    LogTag,
-                    "Receive failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + exception + ".");
-                Disconnect();
-            }
-            catch (ObjectDisposedException)
-            {
-                Disconnect();
-            }
+            _DispatchPendingSessionEvents();
         }
 
         public void TickOutgoing()
         {
-            if (_State != KcpSessionState.Registered || _Kcp == null)
-            {
-                return;
-            }
-
-            try
-            {
-                _Kcp.Update((uint)_Stopwatch.ElapsedMilliseconds);
-            }
-            catch (SocketException exception)
-            {
-                DELogger.Error(
-                    LogTag,
-                    "TickOutgoing failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + exception + ".");
-                Disconnect();
-            }
-            catch (ObjectDisposedException)
-            {
-                Disconnect();
-            }
+            // Socket IO and KCP update run on the session worker thread.
         }
 
         public void Send(byte[] data)
         {
-            if (_State != KcpSessionState.Registered)
+            if (!IsRegistered)
             {
                 DELogger.Error(LogTag, "Send failed because session is not registered.");
                 return;
@@ -168,56 +145,203 @@ namespace Assets.Scripts.DE.Client.Network
                 return;
             }
 
-            if (_Kcp == null)
+            byte[] payload = new byte[data.Length];
+            Buffer.BlockCopy(data, 0, payload, 0, data.Length);
+            lock (_PendingSendPayloadsLock)
             {
-                DELogger.Error(LogTag, "Send failed because Kcp is not initialized.");
-                return;
+                _PendingSendPayloads.Enqueue(payload);
             }
 
-            try
-            {
-                var sendResult = _Kcp.Send(data, 0, data.Length);
-                if (sendResult < 0)
-                {
-                    DELogger.Error(
-                        LogTag,
-                        "Kcp send failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + sendResult + ", length=" + data.Length + ".");
-                }
-            }
-            catch (Exception exception)
-            {
-                DELogger.Error(
-                    LogTag,
-                    "Send failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + exception + ".");
-                Disconnect();
-            }
+            _WorkerWakeEvent.Set();
         }
 
         public void Disconnect()
         {
-            if (_State == KcpSessionState.Disconnected)
+            Thread workerThread = null;
+            if (!_TryBeginDisconnect(out workerThread))
             {
                 return;
             }
 
-            _State = KcpSessionState.Disconnected;
-            _Stopwatch.Reset();
-            _Kcp = null;
-            _DisposeSocket();
+            _WorkerWakeEvent.Set();
+            if (workerThread != null && workerThread != Thread.CurrentThread)
+            {
+                workerThread.Join(1000);
+            }
 
-            DELogger.Info(
-                LogTag,
-                "Session disconnected, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ".");
-            _Callback?.OnDisconnected?.Invoke();
+            _Stopwatch.Reset();
+            _DisposeSocket();
+            _Kcp = null;
+            _WorkerThread = null;
+
+            if (_TryMarkDisconnectLogged())
+            {
+                DELogger.Info(
+                    LogTag,
+                    "Session disconnected, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ".");
+            }
+
+            _EnqueueDisconnectedEventOnce();
         }
 
-        private void _DispatchReceivedMessages()
+        private void _WorkerLoop()
+        {
+            while (_ShouldWorkerContinue())
+            {
+                bool didWork = false;
+
+                try
+                {
+                    didWork |= _ProcessIncomingPacketsOnWorker();
+                    if (!_ShouldWorkerContinue())
+                    {
+                        break;
+                    }
+
+                    didWork |= _DispatchReceivedMessagesOnWorker();
+                    if (!_ShouldWorkerContinue())
+                    {
+                        break;
+                    }
+
+                    didWork |= _FlushSendQueueOnWorker();
+                    if (!_ShouldWorkerContinue())
+                    {
+                        break;
+                    }
+
+                    _Kcp.Update((uint)_Stopwatch.ElapsedMilliseconds);
+                }
+                catch (SocketException exception)
+                {
+                    DELogger.Error(
+                        LogTag,
+                        "Worker thread failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + exception + ".");
+                    _DisconnectFromWorker();
+                    return;
+                }
+                catch (ObjectDisposedException)
+                {
+                    _DisconnectFromWorker();
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    DELogger.Error(
+                        LogTag,
+                        "Worker thread failed unexpectedly, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + exception + ".");
+                    _DisconnectFromWorker();
+                    return;
+                }
+
+                if (!didWork)
+                {
+                    _WorkerWakeEvent.WaitOne(WorkerIdleWaitMilliseconds);
+                }
+            }
+
+            _DisposeSocket();
+            _Kcp = null;
+            _WorkerThread = null;
+        }
+
+        private bool _ProcessIncomingPacketsOnWorker()
+        {
+            if (_Socket == null || _Kcp == null || _RawReceiveBuffer == null)
+            {
+                return false;
+            }
+
+            bool didWork = false;
+            ArraySegment<byte> segment;
+            while (_Socket.ReceiveNonBlocking(_RawReceiveBuffer, out segment))
+            {
+                didWork = true;
+                if (segment.Count <= 0)
+                {
+                    continue;
+                }
+
+                var inputResult = _Kcp.Input(segment.Array, segment.Offset, segment.Count);
+                if (inputResult < 0)
+                {
+                    DELogger.Error(
+                        LogTag,
+                        "Kcp input failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + inputResult + ".");
+                    _DisconnectFromWorker();
+                    return false;
+                }
+            }
+
+            return didWork;
+        }
+
+        private bool _FlushSendQueueOnWorker()
         {
             if (_Kcp == null)
             {
+                return false;
+            }
+
+            bool didWork = false;
+            while (true)
+            {
+                byte[] payload = null;
+                lock (_PendingSendPayloadsLock)
+                {
+                    if (_PendingSendPayloads.Count > 0)
+                    {
+                        payload = _PendingSendPayloads.Dequeue();
+                    }
+                }
+
+                if (payload == null)
+                {
+                    break;
+                }
+
+                didWork = true;
+                var sendResult = _Kcp.Send(payload, 0, payload.Length);
+                if (sendResult < 0)
+                {
+                    DELogger.Error(
+                        LogTag,
+                        "Kcp send failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + sendResult + ", length=" + payload.Length + ".");
+                }
+            }
+
+            return didWork;
+        }
+
+        private void _DisconnectFromWorker()
+        {
+            if (!_TryBeginDisconnect(out _))
+            {
                 return;
             }
 
+            _DisposeSocket();
+            _Kcp = null;
+            _WorkerThread = null;
+
+            if (_TryMarkDisconnectLogged())
+            {
+                DELogger.Info(
+                    LogTag,
+                    "Session disconnected, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ".");
+            }
+
+            _EnqueueDisconnectedEventOnce();
+        }
+
+        private bool _DispatchReceivedMessagesOnWorker()
+        {
+            if (_Kcp == null)
+            {
+                return false;
+            }
+
+            bool didWork = false;
             while (true)
             {
                 var nextMessageSize = _Kcp.PeekSize();
@@ -234,17 +358,115 @@ namespace Assets.Scripts.DE.Client.Network
                     DELogger.Error(
                         LogTag,
                         "Kcp receive failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + receiveCount + ".");
-                    Disconnect();
-                    return;
+                    _DisconnectFromWorker();
+                    return false;
                 }
 
+                didWork = true;
                 var payload = new byte[receiveCount];
                 Buffer.BlockCopy(_ReceiveMessageBuffer, 0, payload, 0, receiveCount);
-                _Callback?.OnReceive?.Invoke(payload);
-                if (_State != KcpSessionState.Registered || _Kcp == null)
+                _EnqueueSessionEvent(SessionEventType.Receive, payload);
+                if (!_ShouldWorkerContinue() || _Kcp == null)
                 {
-                    return;
+                    return didWork;
                 }
+            }
+
+            return didWork;
+        }
+
+        private void _DispatchPendingSessionEvents()
+        {
+            while (true)
+            {
+                SessionEvent sessionEvent;
+                lock (_PendingSessionEventsLock)
+                {
+                    if (_PendingSessionEvents.Count == 0)
+                    {
+                        break;
+                    }
+
+                    sessionEvent = _PendingSessionEvents.Dequeue();
+                }
+
+                switch (sessionEvent.Type)
+                {
+                    case SessionEventType.Registered:
+                        _Callback?.OnRegistered?.Invoke();
+                        break;
+                    case SessionEventType.Receive:
+                        _Callback?.OnReceive?.Invoke(sessionEvent.Payload);
+                        break;
+                    case SessionEventType.Disconnected:
+                        _Callback?.OnDisconnected?.Invoke();
+                        break;
+                }
+            }
+        }
+
+        private void _EnqueueSessionEvent(SessionEventType sessionEventType, byte[] payload)
+        {
+            lock (_PendingSessionEventsLock)
+            {
+                _PendingSessionEvents.Enqueue(new SessionEvent(sessionEventType, payload));
+            }
+        }
+
+        private void _EnqueueDisconnectedEventOnce()
+        {
+            bool shouldEnqueue = false;
+            lock (_LifecycleLock)
+            {
+                if (!_DisconnectedEventQueued)
+                {
+                    _DisconnectedEventQueued = true;
+                    shouldEnqueue = true;
+                }
+            }
+
+            if (shouldEnqueue)
+            {
+                _EnqueueSessionEvent(SessionEventType.Disconnected, null);
+            }
+        }
+
+        private bool _TryBeginDisconnect(out Thread workerThread)
+        {
+            workerThread = null;
+            lock (_LifecycleLock)
+            {
+                if (_State == KcpSessionState.Disconnected)
+                {
+                    return false;
+                }
+
+                _State = KcpSessionState.Disconnected;
+                _WorkerStopRequested = true;
+                workerThread = _WorkerThread;
+                return true;
+            }
+        }
+
+        private bool _TryMarkDisconnectLogged()
+        {
+            lock (_LifecycleLock)
+            {
+                if (_DisconnectLogged)
+                {
+                    return false;
+                }
+
+                _DisconnectLogged = true;
+                return true;
+            }
+        }
+
+        private bool _ShouldWorkerContinue()
+        {
+            lock (_LifecycleLock)
+            {
+                return _State == KcpSessionState.Registered && !_WorkerStopRequested;
             }
         }
 
@@ -312,6 +534,35 @@ namespace Assets.Scripts.DE.Client.Network
         private byte[] _RawReceiveBuffer;
         private byte[] _ReceiveMessageBuffer;
         private readonly Stopwatch _Stopwatch = new Stopwatch();
+        private readonly object _LifecycleLock = new object();
+        private readonly object _PendingSendPayloadsLock = new object();
+        private readonly object _PendingSessionEventsLock = new object();
+        private readonly Queue<byte[]> _PendingSendPayloads = new Queue<byte[]>();
+        private readonly Queue<SessionEvent> _PendingSessionEvents = new Queue<SessionEvent>();
+        private readonly AutoResetEvent _WorkerWakeEvent = new AutoResetEvent(false);
+        private Thread _WorkerThread;
+        private bool _WorkerStopRequested;
+        private bool _DisconnectedEventQueued;
+        private bool _DisconnectLogged;
+
+        private sealed class SessionEvent
+        {
+            public SessionEvent(SessionEventType sessionEventType, byte[] payload)
+            {
+                Type = sessionEventType;
+                Payload = payload;
+            }
+
+            public SessionEventType Type;
+            public byte[] Payload;
+        }
+
+        private enum SessionEventType
+        {
+            Registered = 0,
+            Receive = 1,
+            Disconnected = 2,
+        }
     }
 
 }

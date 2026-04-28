@@ -158,9 +158,9 @@ namespace de::server::engine
 
 	void ServerBase::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
-		switch (static_cast<network::MessageID>(messageId))
+		switch (static_cast<network::MessageID::SS>(messageId))
 		{
-		case network::MessageID::HeartBeatWithDataNtf:
+		case network::MessageID::SS::HeartBeatWithDataNtf:
 			Logger::Debug("ServerBase", "Received heartbeat from " + serverId + ".");
 			return;
 

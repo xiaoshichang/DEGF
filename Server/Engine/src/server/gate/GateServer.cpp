@@ -97,9 +97,9 @@ namespace de::server::engine
 		(void)serverId;
 		(void)data;
 
-		switch (static_cast<network::MessageID>(messageId))
+		switch (static_cast<network::MessageID::SS>(messageId))
 		{
-		case network::MessageID::OpenGateNtf:
+		case network::MessageID::SS::OpenGateNtf:
 			openGateReceived_ = true;
 			InitClientNetwork();
 			Logger::Info("GateServer", "Received OpenGateNtf and opened client network.");
@@ -156,9 +156,18 @@ namespace de::server::engine
 			return;
 		}
 
+		std::vector<std::string> gateServerIds;
+		gateServerIds.reserve(GetClusterConfig().gate.size());
+		for (const auto& [serverId, gateConfig] : GetClusterConfig().gate)
+		{
+			(void)gateConfig;
+			gateServerIds.push_back(serverId);
+		}
+
 		httpHandler_ = std::make_unique<GateHttpHandler>(
 			GetServerId(),
 			config_.clientNetwork.listenEndpoint.port,
+			std::move(gateServerIds),
 			[this]()
 			{
 				return openGateReceived_ && clientNetwork_ != nullptr;
@@ -281,7 +290,7 @@ namespace de::server::engine
 
 		if (!innerNetwork.Send(
 			gmServerId,
-			static_cast<std::uint32_t>(network::MessageID::HeartBeatWithDataNtf),
+			static_cast<std::uint32_t>(network::MessageID::SS::HeartBeatWithDataNtf),
 			[&]()
 			{
 				const network::HeartBeatWithDataNtfMessage heartBeatMessage

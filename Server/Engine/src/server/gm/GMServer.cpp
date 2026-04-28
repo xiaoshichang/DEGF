@@ -53,13 +53,13 @@ namespace de::server::engine
 
 	void GMServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
-		switch (static_cast<network::MessageID>(messageId))
+		switch (static_cast<network::MessageID::SS>(messageId))
 		{
-		case network::MessageID::HeartBeatWithDataNtf:
+		case network::MessageID::SS::HeartBeatWithDataNtf:
 			HandleHeartBeatWithDataNtf(serverId, data);
 			return;
 
-		case network::MessageID::GameReadyNtf:
+		case network::MessageID::SS::GameReadyNtf:
 			HandleGameReadyNtf(serverId);
 			return;
 
@@ -191,7 +191,7 @@ namespace de::server::engine
 		for (const auto& [serverId, gameConfig] : clusterConfig.game)
 		{
 			(void)gameConfig;
-			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::AllNodeReadyNtf), payload))
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::AllNodeReadyNtf), payload))
 			{
 				Logger::Warn("GMServer", "Failed to send AllNodeReadyNtf to " + serverId + ".");
 				return;
@@ -226,7 +226,7 @@ namespace de::server::engine
 		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
 		{
 			(void)gateConfig;
-			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::OpenGateNtf), {}))
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::OpenGateNtf), {}))
 			{
 				Logger::Warn("GMServer", "Failed to send OpenGateNtf to " + serverId + ".");
 				return;

@@ -107,9 +107,9 @@ namespace de::server::engine
 	{
 		(void)serverId;
 
-		switch (static_cast<network::MessageID>(messageId))
+		switch (static_cast<network::MessageID::SS>(messageId))
 		{
-		case network::MessageID::AllNodeReadyNtf:
+		case network::MessageID::SS::AllNodeReadyNtf:
 			allNodeReadyReceived_ = true;
 			managedStubsReady_ = false;
 
@@ -223,7 +223,7 @@ namespace de::server::engine
 			return;
 		}
 
-		if (!innerNetwork.Send(gmServerId, static_cast<std::uint32_t>(network::MessageID::GameReadyNtf), {}))
+		if (!innerNetwork.Send(gmServerId, static_cast<std::uint32_t>(network::MessageID::SS::GameReadyNtf), {}))
 		{
 			Logger::Warn("GameServer", "Failed to send GameReadyNtf to GM.");
 			return;
@@ -285,7 +285,7 @@ namespace de::server::engine
 
 		if (!innerNetwork.Send(
 			gmServerId,
-			static_cast<std::uint32_t>(network::MessageID::HeartBeatWithDataNtf),
+			static_cast<std::uint32_t>(network::MessageID::SS::HeartBeatWithDataNtf),
 			[&]()
 			{
 				const network::HeartBeatWithDataNtfMessage heartBeatMessage{

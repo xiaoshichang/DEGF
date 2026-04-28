@@ -339,6 +339,7 @@ void TestGateHttpHandlerAuth() {
     de::server::engine::GateHttpHandler handler(
         "Gate0",
         4000,
+        { "Gate0", "Gate1" },
         []() {
             return true;
         },
@@ -362,6 +363,20 @@ void TestGateHttpHandlerAuth() {
     Require(response.body.find("\"sessionId\":100") != std::string::npos, "Expected auth response to contain session id.");
     Require(response.body.find("\"conv\":9527") != std::string::npos, "Expected auth response to contain conv.");
     Require(response.body.find("\"clientPort\":4000") != std::string::npos, "Expected auth response to contain client port.");
+
+    allocateCalled = false;
+    const auto wrongGateResponse = handler.HandleRequest({
+        "POST",
+        "/auth",
+        "HTTP/1.1",
+        R"({"account":"test","password":"demo"})"
+    });
+    Require(!allocateCalled, "Expected mismatched gate auth request not to allocate client session.");
+    Require(wrongGateResponse.statusCode == 403, "Expected mismatched gate auth request to be rejected.");
+    Require(
+        wrongGateResponse.body.find("\"expectedServerId\":\"Gate1\"") != std::string::npos,
+        "Expected mismatched gate auth response to indicate the selected gate."
+    );
 }
 
 struct TestClientKcpOutputContext {
@@ -476,7 +491,7 @@ void TestClientNetworkHandshake() {
     };
     const auto handShakeBytes = handShakeMessage.Serialize();
     const auto handShakeHeader = de::server::engine::network::Header::CreateClient(
-        static_cast<std::uint32_t>(de::server::engine::network::MessageID::HandShakeReq),
+        static_cast<std::uint32_t>(de::server::engine::network::MessageID::CS::HandShakeReq),
         static_cast<std::uint32_t>(handShakeBytes.size())
     );
     const auto serializedHandShakeHeader = handShakeHeader.Serialize();

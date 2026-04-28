@@ -2,6 +2,10 @@
 
 #include <boost/json.hpp>
 
+#include <algorithm>
+#include <charconv>
+#include <cstdint>
+#include <string_view>
 #include <utility>
 
 namespace de::server::engine
@@ -17,19 +21,78 @@ namespace de::server::engine
 				boost::json::serialize(payload)
 			};
 		}
+
+		constexpr std::uint32_t kFnvOffsetBasis = 2166136261u;
+		constexpr std::uint32_t kFnvPrime = 16777619u;
+
+		bool TryParseGateIndex(std::string_view serverId, std::uint32_t& index)
+		{
+			static constexpr std::string_view kGatePrefix = "Gate";
+			if (serverId.size() <= kGatePrefix.size() || serverId.substr(0, kGatePrefix.size()) != kGatePrefix)
+			{
+				return false;
+			}
+
+			const auto suffix = serverId.substr(kGatePrefix.size());
+			std::uint32_t parsedIndex = 0;
+			const auto result = std::from_chars(suffix.data(), suffix.data() + suffix.size(), parsedIndex);
+			if (result.ec != std::errc{} || result.ptr != suffix.data() + suffix.size())
+			{
+				return false;
+			}
+
+			index = parsedIndex;
+			return true;
+		}
+
+		bool GateServerIdLess(std::string_view left, std::string_view right)
+		{
+			std::uint32_t leftIndex = 0;
+			std::uint32_t rightIndex = 0;
+			const bool hasLeftIndex = TryParseGateIndex(left, leftIndex);
+			const bool hasRightIndex = TryParseGateIndex(right, rightIndex);
+			if (hasLeftIndex && hasRightIndex && leftIndex != rightIndex)
+			{
+				return leftIndex < rightIndex;
+			}
+
+			return left < right;
+		}
+
+		std::uint32_t ComputeAccountGateHash(std::string_view account)
+		{
+			std::uint32_t hash = kFnvOffsetBasis;
+			for (const unsigned char byte : account)
+			{
+				hash ^= static_cast<std::uint32_t>(byte);
+				hash *= kFnvPrime;
+			}
+
+			return hash;
+		}
 	}
 
 	GateHttpHandler::GateHttpHandler(
 		std::string serverId,
 		std::uint16_t clientPort,
+		std::vector<std::string> gateServerIds,
 		IsGateOpenFn isGateOpen,
 		AllocateClientSessionFn allocateClientSession
 	)
 		: serverId_(std::move(serverId))
 		, clientPort_(clientPort)
+		, gateServerIds_(std::move(gateServerIds))
 		, isGateOpen_(std::move(isGateOpen))
 		, allocateClientSession_(std::move(allocateClientSession))
 	{
+		std::sort(
+			gateServerIds_.begin(),
+			gateServerIds_.end(),
+			[](const std::string& left, const std::string& right)
+			{
+				return GateServerIdLess(left, right);
+			}
+		);
 	}
 
 	HttpResponse GateHttpHandler::HandleRequest(const HttpRequest& request) const
@@ -120,6 +183,32 @@ namespace de::server::engine
 				"Unauthorized",
 				boost::json::object{
 					{ "error", "invalid account or password" }
+				}
+			);
+		}
+
+		if (gateServerIds_.empty())
+		{
+			return BuildJsonResponse(
+				503,
+				"Service Unavailable",
+				boost::json::object{
+					{ "error", "gate routing unavailable" }
+				}
+			);
+		}
+
+		const auto selectedGateIndex = static_cast<std::size_t>(ComputeAccountGateHash(account) % gateServerIds_.size());
+		const auto& selectedGateServerId = gateServerIds_[selectedGateIndex];
+		if (selectedGateServerId != serverId_)
+		{
+			return BuildJsonResponse(
+				403,
+				"Forbidden",
+				boost::json::object{
+					{ "error", "account routed to another gate" },
+					{ "expectedServerId", selectedGateServerId },
+					{ "serverId", serverId_ }
 				}
 			);
 		}

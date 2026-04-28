@@ -161,6 +161,12 @@ namespace de::server::engine::network
 
 	bool ClientNetwork::Send(SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
+		if (!MessageID::IsCS(messageId))
+		{
+			Logger::Warn("ClientNetwork", "Send rejected because messageId is not a CS message.");
+			return false;
+		}
+
 		auto* session = FindSession(sessionId);
 		if (session == nullptr)
 		{
@@ -422,9 +428,16 @@ namespace de::server::engine::network
 
 			buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(frameLength));
 
+			if (!MessageID::IsCS(header.messageId))
+			{
+				Logger::Warn("ClientNetwork", "Received non-CS message on client network.");
+				DestroySession(session.GetSessionId());
+				return;
+			}
+
 			if (session.GetSessionState() != ClientNetworkSessionState::Connected)
 			{
-				if (header.messageId != static_cast<std::uint32_t>(MessageID::HandShakeReq))
+				if (header.messageId != static_cast<std::uint32_t>(MessageID::CS::HandShakeReq))
 				{
 					Logger::Warn("ClientNetwork", "Received non-handshake payload before client session connected.");
 					DestroySession(session.GetSessionId());
@@ -437,7 +450,7 @@ namespace de::server::engine::network
 					return;
 				}
 			}
-			else if (header.messageId == static_cast<std::uint32_t>(MessageID::HandShakeReq))
+			else if (header.messageId == static_cast<std::uint32_t>(MessageID::CS::HandShakeReq))
 			{
 				Logger::Warn("ClientNetwork", "Received duplicate client handshake request.");
 			}
@@ -469,7 +482,7 @@ namespace de::server::engine::network
 			return;
 		}
 
-		if (!SendFrame(session, static_cast<std::uint32_t>(MessageID::HandShakeRsp), data, false))
+		if (!SendFrame(session, static_cast<std::uint32_t>(MessageID::CS::HandShakeRsp), data, false))
 		{
 			Logger::Warn("ClientNetwork", "Failed to send client handshake response.");
 			DestroySession(session.GetSessionId());
@@ -490,6 +503,12 @@ namespace de::server::engine::network
 
 	bool ClientNetwork::SendFrame(ClientNetworkSession& session, std::uint32_t messageId, const std::vector<std::byte>& data, bool requireConnected)
 	{
+		if (!MessageID::IsCS(messageId))
+		{
+			Logger::Warn("ClientNetwork", "SendFrame rejected because messageId is not a CS message.");
+			return false;
+		}
+
 		if (requireConnected && session.GetSessionState() != ClientNetworkSessionState::Connected)
 		{
 			return false;

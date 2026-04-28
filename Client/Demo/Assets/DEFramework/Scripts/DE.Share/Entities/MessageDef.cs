@@ -2,15 +2,38 @@ namespace Assets.Scripts.DE.Share
 {
     public static class MessageDef
     {
-        public enum MessageID : uint
+        public static class MessageID
         {
-            HandShakeReq = 1,
-            HandShakeRsp = 2,
-            HeartBeatWithDataNtf = 3,
-            HeartBeatNtf = 4,
-            AllNodeReadyNtf = 5,
-            GameReadyNtf = 6,
-            OpenGateNtf = 7,
+            public const uint CategoryMask = 0xffff0000u;
+            public const uint CSCategory = 0x00010000u;
+            public const uint SSCategory = 0x00020000u;
+
+            public enum CS : uint
+            {
+                HandShakeReq = 0x00010001u,
+                HandShakeRsp = 0x00010002u,
+                HeartBeatNtf = 0x00010003u,
+            }
+
+            public enum SS : uint
+            {
+                HandShakeReq = 0x00020001u,
+                HandShakeRsp = 0x00020002u,
+                HeartBeatWithDataNtf = 0x00020003u,
+                AllNodeReadyNtf = 0x00020004u,
+                GameReadyNtf = 0x00020005u,
+                OpenGateNtf = 0x00020006u,
+            }
+
+            public static bool IsCS(uint messageId)
+            {
+                return (messageId & CategoryMask) == CSCategory;
+            }
+
+            public static bool IsSS(uint messageId)
+            {
+                return (messageId & CategoryMask) == SSCategory;
+            }
         }
 
         public struct Header

@@ -293,7 +293,7 @@ namespace de::server::engine::network
 
 			if (!SendFrame(
 				*entry->Socket,
-				static_cast<std::uint32_t>(MessageID::HandShakeReq),
+				static_cast<std::uint32_t>(MessageID::SS::HandShakeReq),
 				SerializeHandShakePacket(ServerID_),
 				nullptr,
 				error
@@ -317,6 +317,12 @@ namespace de::server::engine::network
 
 	bool InnerNetwork::Send(const std::string& serverID, std::uint32_t messageID, const std::vector<std::byte>& data)
 	{
+		if (!MessageID::IsSS(messageID))
+		{
+			Logger::Warn("InnerNetwork", "Send rejected because messageID is not an SS message.");
+			return false;
+		}
+
 		const auto iterator = ServerIDToSession_.find(serverID);
 		if (iterator == ServerIDToSession_.end())
 		{
@@ -538,7 +544,13 @@ namespace de::server::engine::network
 		const std::vector<std::byte>& data
 	)
 	{
-		if (messageID == static_cast<std::uint32_t>(MessageID::HandShakeReq))
+		if (!MessageID::IsSS(messageID))
+		{
+			Logger::Warn("InnerNetwork", "Received non-SS message on inner network.");
+			return nullptr;
+		}
+
+		if (messageID == static_cast<std::uint32_t>(MessageID::SS::HandShakeReq))
 		{
 			std::string remoteServerID;
 			if (!TryDeserializeHandShakePacket(data, remoteServerID))
@@ -750,19 +762,26 @@ namespace de::server::engine::network
 			return;
 		}
 
+		if (!MessageID::IsSS(header.messageId))
+		{
+			Logger::Warn("InnerNetwork", "Received non-SS message on inner DEALER socket.");
+			DestroyConnectSession(sessionId);
+			return;
+		}
+
 		OnReceive(sessionId, header.messageId, payload);
 		StartConnectReceive(sessionId);
 	}
 
 	void InnerNetwork::OnReceive(SessionId sessionId, std::uint32_t messageID, const std::vector<std::byte>& data)
 	{
-		switch (static_cast<MessageID>(messageID))
+		switch (static_cast<MessageID::SS>(messageID))
 		{
-		case MessageID::HandShakeReq:
+		case MessageID::SS::HandShakeReq:
 			HandleHandShakeReq(sessionId, data);
 			return;
 
-		case MessageID::HandShakeRsp:
+		case MessageID::SS::HandShakeRsp:
 			HandleHandShakeRsp(sessionId, data);
 			return;
 
@@ -791,7 +810,7 @@ namespace de::server::engine::network
 		boost::system::error_code error;
 		if (!SendFrame(
 			*ListenSocket_,
-			static_cast<std::uint32_t>(MessageID::HandShakeRsp),
+			static_cast<std::uint32_t>(MessageID::SS::HandShakeRsp),
 			SerializeHandShakePacket(ServerID_),
 			&session->GetRoutingId(),
 			error

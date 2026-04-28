@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace de::server::engine
 {
@@ -18,6 +19,7 @@ namespace de::server::engine
 		GateHttpHandler(
 			std::string serverId,
 			std::uint16_t clientPort,
+			std::vector<std::string> gateServerIds,
 			IsGateOpenFn isGateOpen,
 			AllocateClientSessionFn allocateClientSession
 		);
@@ -29,6 +31,7 @@ namespace de::server::engine
 
 		std::string serverId_;
 		std::uint16_t clientPort_ = 0;
+		std::vector<std::string> gateServerIds_;
 		IsGateOpenFn isGateOpen_;
 		AllocateClientSessionFn allocateClientSession_;
 	};

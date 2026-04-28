@@ -198,6 +198,23 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
+            if (_PendingGateConfig == null)
+            {
+                _FailAuth("HTTP auth failed because pending gate config is missing.");
+                return;
+            }
+
+            if (!string.Equals(responseDto.serverId, _PendingGateConfig.ServerId, StringComparison.Ordinal))
+            {
+                _FailAuth(
+                    "HTTP auth failed because gate routing mismatched, expected="
+                    + _PendingGateConfig.ServerId
+                    + ", actual="
+                    + responseDto.serverId
+                    + ".");
+                return;
+            }
+
             var gateConfig = _FindGateConfig(responseDto.serverId);
             if (gateConfig == null)
             {
@@ -330,7 +347,13 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
-            if (header.MessageId != (uint)MessageDef.MessageID.HandShakeRsp)
+            if (!MessageDef.MessageID.IsCS(header.MessageId))
+            {
+                _FailAuth("Received non-CS message during client auth flow, messageId=" + header.MessageId + ".");
+                return;
+            }
+
+            if (header.MessageId != (uint)MessageDef.MessageID.CS.HandShakeRsp)
             {
                 DELogger.Warn(
                     LogTag,
@@ -376,7 +399,7 @@ namespace Assets.Scripts.DE.Client.Framework
             handShakeMessage.SessionId = sessionId;
 
             byte[] payload = handShakeMessage.Serialize();
-            byte[] header = MessageDef.Header.CreateClient((uint)MessageDef.MessageID.HandShakeReq, (uint)payload.Length).Serialize();
+            byte[] header = MessageDef.Header.CreateClient((uint)MessageDef.MessageID.CS.HandShakeReq, (uint)payload.Length).Serialize();
             byte[] frame = new byte[header.Length + payload.Length];
             Buffer.BlockCopy(header, 0, frame, 0, header.Length);
             Buffer.BlockCopy(payload, 0, frame, header.Length, payload.Length);
@@ -390,6 +413,14 @@ namespace Assets.Scripts.DE.Client.Framework
                 return null;
             }
 
+            uint hash = _ComputeAccountGateHash(account);
+            GateEndpointConfig[] orderedGateConfigs = _GetOrderedGateConfigs();
+            var gateIndex = (int)(hash % (uint)orderedGateConfigs.Length);
+            return orderedGateConfigs[gateIndex];
+        }
+
+        private uint _ComputeAccountGateHash(string account)
+        {
             uint hash = FnvOffsetBasis;
             byte[] accountBytes = Encoding.UTF8.GetBytes(account);
             for (int index = 0; index < accountBytes.Length; index++)
@@ -398,8 +429,42 @@ namespace Assets.Scripts.DE.Client.Framework
                 hash *= FnvPrime;
             }
 
-            var gateIndex = (int)(hash % (uint)s_DefaultGateConfigs.Length);
-            return s_DefaultGateConfigs[gateIndex];
+            return hash;
+        }
+
+        private GateEndpointConfig[] _GetOrderedGateConfigs()
+        {
+            GateEndpointConfig[] orderedGateConfigs = new GateEndpointConfig[s_DefaultGateConfigs.Length];
+            Array.Copy(s_DefaultGateConfigs, orderedGateConfigs, s_DefaultGateConfigs.Length);
+            Array.Sort(
+                orderedGateConfigs,
+                (left, right) => _CompareGateServerId(left.ServerId, right.ServerId));
+            return orderedGateConfigs;
+        }
+
+        private int _CompareGateServerId(string leftServerId, string rightServerId)
+        {
+            int leftIndex;
+            int rightIndex;
+            bool hasLeftIndex = _TryParseGateIndex(leftServerId, out leftIndex);
+            bool hasRightIndex = _TryParseGateIndex(rightServerId, out rightIndex);
+            if (hasLeftIndex && hasRightIndex && leftIndex != rightIndex)
+            {
+                return leftIndex.CompareTo(rightIndex);
+            }
+
+            return string.CompareOrdinal(leftServerId, rightServerId);
+        }
+
+        private bool _TryParseGateIndex(string serverId, out int gateIndex)
+        {
+            gateIndex = 0;
+            if (string.IsNullOrEmpty(serverId) || !serverId.StartsWith("Gate", StringComparison.Ordinal) || serverId.Length <= 4)
+            {
+                return false;
+            }
+
+            return int.TryParse(serverId.Substring(4), out gateIndex);
         }
 
         private GateEndpointConfig _FindGateConfig(string serverId)

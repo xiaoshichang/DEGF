@@ -4,6 +4,8 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
+using DE.Server.Auth;
 
 namespace DE.Server.NativeBridge
 {
@@ -31,6 +33,12 @@ namespace DE.Server.NativeBridge
     /// </summary>
     public static class ManagedAPI
     {
+        private static readonly JsonSerializerOptions s_jsonSerializerOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+        };
+
         private static void _LogManagedEntryException(string operation, Exception exception)
         {
             if (exception == null)
@@ -77,6 +85,31 @@ namespace DE.Server.NativeBridge
                 .Select(serverId => serverId.Trim())
                 .Where(serverId => !string.IsNullOrWhiteSpace(serverId))
                 .ToList();
+        }
+
+        private static int _WritePayloadToNative(byte[] payload, IntPtr outputBuffer, int outputBufferSizeBytes)
+        {
+            if (payload == null)
+            {
+                throw new ArgumentNullException(nameof(payload));
+            }
+
+            if (outputBuffer == IntPtr.Zero || outputBufferSizeBytes == 0)
+            {
+                return payload.Length;
+            }
+
+            if (outputBufferSizeBytes < payload.Length)
+            {
+                return -3;
+            }
+
+            if (payload.Length > 0)
+            {
+                Marshal.Copy(payload, 0, outputBuffer, payload.Length);
+            }
+
+            return payload.Length;
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -173,6 +206,39 @@ namespace DE.Server.NativeBridge
             catch (Exception exception)
             {
                 _LogManagedEntryException(nameof(HandleAllNodeReadyNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int ValidateGateAuthNative(IntPtr inputPayload, int inputSizeBytes, IntPtr outputBuffer, int outputBufferSizeBytes)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var requestPayload = _CopyPayloadFromNative(inputPayload, inputSizeBytes);
+                var request = JsonSerializer.Deserialize<GateAuthValidationRequest>(requestPayload, s_jsonSerializerOptions);
+                if (request == null)
+                {
+                    return -3;
+                }
+
+                var result = GateAuthValidator.Validate(
+                    ManagedRuntimeState.ServerId,
+                    request.Account,
+                    request.Password,
+                    request.GateServerIds ?? new List<string>()
+                );
+                var responsePayload = JsonSerializer.SerializeToUtf8Bytes(result, s_jsonSerializerOptions);
+                return _WritePayloadToNative(responsePayload, outputBuffer, outputBufferSizeBytes);
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(ValidateGateAuthNative), exception);
                 return -2;
             }
         }

@@ -339,9 +339,34 @@ void TestGateHttpHandlerAuth() {
     de::server::engine::GateHttpHandler handler(
         "Gate0",
         4000,
-        { "Gate0", "Gate1" },
         []() {
             return true;
+        },
+        [](const std::string& account, const std::string& password) {
+            if (account.empty() || password.empty()) {
+                return de::server::engine::GateAuthValidationResult{
+                    false,
+                    401,
+                    "invalid account or password",
+                    ""
+                };
+            }
+
+            if (account == "test") {
+                return de::server::engine::GateAuthValidationResult{
+                    false,
+                    403,
+                    "account routed to another gate",
+                    "Gate1"
+                };
+            }
+
+            return de::server::engine::GateAuthValidationResult{
+                true,
+                200,
+                "",
+                ""
+            };
         },
         [&]() -> std::optional<de::server::engine::network::AllocatedClientSession> {
             allocateCalled = true;

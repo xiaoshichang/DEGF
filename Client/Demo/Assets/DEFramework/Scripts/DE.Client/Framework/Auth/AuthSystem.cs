@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
-using System.Text;
 using Assets.Scripts.DE.Client.Core;
 using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Share;
+using DE.Share.Utils;
 using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.Framework
@@ -60,8 +60,6 @@ namespace Assets.Scripts.DE.Client.Framework
     {
         private const string LogTag = "AuthSystem";
         private const string AuthPath = "/auth";
-        private const uint FnvOffsetBasis = 2166136261u;
-        private const uint FnvPrime = 16777619u;
 
         public static AuthSystem Instance;
 
@@ -75,6 +73,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _IsInitialized = true;
             _State = AuthState.Idle;
             _ReceiveBuffer.Clear();
+            DELogger.Info(LogTag, "AuthSystem initialized.");
         }
 
         public void UnInit()
@@ -90,6 +89,7 @@ namespace Assets.Scripts.DE.Client.Framework
             {
                 NetworkManager.Instance.Disconnect();
             }
+            DELogger.Info(LogTag, "AuthSystem uninitialized.");
         }
 
         public void Login(string account, string password)
@@ -413,58 +413,19 @@ namespace Assets.Scripts.DE.Client.Framework
                 return null;
             }
 
-            uint hash = _ComputeAccountGateHash(account);
-            GateEndpointConfig[] orderedGateConfigs = _GetOrderedGateConfigs();
-            var gateIndex = (int)(hash % (uint)orderedGateConfigs.Length);
-            return orderedGateConfigs[gateIndex];
-        }
-
-        private uint _ComputeAccountGateHash(string account)
-        {
-            uint hash = FnvOffsetBasis;
-            byte[] accountBytes = Encoding.UTF8.GetBytes(account);
-            for (int index = 0; index < accountBytes.Length; index++)
+            string[] gateServerIds = new string[s_DefaultGateConfigs.Length];
+            for (int index = 0; index < s_DefaultGateConfigs.Length; index++)
             {
-                hash ^= accountBytes[index];
-                hash *= FnvPrime;
+                gateServerIds[index] = s_DefaultGateConfigs[index].ServerId;
             }
 
-            return hash;
-        }
-
-        private GateEndpointConfig[] _GetOrderedGateConfigs()
-        {
-            GateEndpointConfig[] orderedGateConfigs = new GateEndpointConfig[s_DefaultGateConfigs.Length];
-            Array.Copy(s_DefaultGateConfigs, orderedGateConfigs, s_DefaultGateConfigs.Length);
-            Array.Sort(
-                orderedGateConfigs,
-                (left, right) => _CompareGateServerId(left.ServerId, right.ServerId));
-            return orderedGateConfigs;
-        }
-
-        private int _CompareGateServerId(string leftServerId, string rightServerId)
-        {
-            int leftIndex;
-            int rightIndex;
-            bool hasLeftIndex = _TryParseGateIndex(leftServerId, out leftIndex);
-            bool hasRightIndex = _TryParseGateIndex(rightServerId, out rightIndex);
-            if (hasLeftIndex && hasRightIndex && leftIndex != rightIndex)
+            string targetGateServerId = GateSelector.SelectTargetGateServerId(account, gateServerIds);
+            if (string.IsNullOrEmpty(targetGateServerId))
             {
-                return leftIndex.CompareTo(rightIndex);
+                return null;
             }
 
-            return string.CompareOrdinal(leftServerId, rightServerId);
-        }
-
-        private bool _TryParseGateIndex(string serverId, out int gateIndex)
-        {
-            gateIndex = 0;
-            if (string.IsNullOrEmpty(serverId) || !serverId.StartsWith("Gate", StringComparison.Ordinal) || serverId.Length <= 4)
-            {
-                return false;
-            }
-
-            return int.TryParse(serverId.Substring(4), out gateIndex);
+            return _FindGateConfig(targetGateServerId);
         }
 
         private GateEndpointConfig _FindGateConfig(string serverId)

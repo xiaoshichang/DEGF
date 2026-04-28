@@ -1,5 +1,7 @@
 #include "managed/ManagedRuntimeService.h"
 
+#include <boost/json.hpp>
+
 #include "core/Logger.h"
 
 #include <coreclr_delegates.h>
@@ -38,6 +40,7 @@ namespace de::server::engine
 		constexpr const char_t* kInitializeMethodName = DE_HOST_CHAR_LITERAL("InitializeNative");
 		constexpr const char_t* kBuildStubDistributePayloadMethodName = DE_HOST_CHAR_LITERAL("BuildStubDistributePayloadNative");
 		constexpr const char_t* kHandleAllNodeReadyMethodName = DE_HOST_CHAR_LITERAL("HandleAllNodeReadyNative");
+		constexpr const char_t* kValidateGateAuthMethodName = DE_HOST_CHAR_LITERAL("ValidateGateAuthNative");
 		constexpr const char_t* kUninitializeMethodName = DE_HOST_CHAR_LITERAL("UninitializeNative");
 
 		std::filesystem::path ResolvePathFromConfig(const std::string& configPath, const std::string& value)
@@ -127,6 +130,86 @@ namespace de::server::engine
 			}
 
 			return payload;
+		}
+
+		std::string SerializeGateAuthRequest(
+			const std::string& account,
+			const std::string& password,
+			const std::vector<std::string>& gateServerIds
+		)
+		{
+			boost::json::array gateServerIdArray;
+			for (const auto& gateServerId : gateServerIds)
+			{
+				gateServerIdArray.emplace_back(gateServerId);
+			}
+
+			return boost::json::serialize(
+				boost::json::object{
+					{ "account", account },
+					{ "password", password },
+					{ "gateServerIds", std::move(gateServerIdArray) }
+				}
+			);
+		}
+
+		bool TryParseGateAuthValidationResultPayload(std::string_view payload, GateAuthValidationResult& result)
+		{
+			result = GateAuthValidationResult{};
+			if (payload.empty())
+			{
+				return false;
+			}
+
+			boost::json::error_code error;
+			const auto value = boost::json::parse(payload, error);
+			if (error || !value.is_object())
+			{
+				return false;
+			}
+
+			const auto& object = value.as_object();
+			if (const auto* successValue = object.if_contains("isSuccess");
+				successValue != nullptr && successValue->is_bool())
+			{
+				result.IsSuccess = successValue->as_bool();
+			}
+
+			if (const auto* statusCodeValue = object.if_contains("statusCode");
+				statusCodeValue != nullptr)
+			{
+				if (statusCodeValue->is_int64())
+				{
+					result.StatusCode = static_cast<int>(statusCodeValue->as_int64());
+				}
+				else if (statusCodeValue->is_uint64())
+				{
+					result.StatusCode = static_cast<int>(statusCodeValue->as_uint64());
+				}
+			}
+
+			if (const auto* errorValue = object.if_contains("error");
+				errorValue != nullptr && errorValue->is_string())
+			{
+				result.Error = boost::json::value_to<std::string>(*errorValue);
+			}
+
+			if (const auto* expectedServerIdValue = object.if_contains("expectedServerId");
+				expectedServerIdValue != nullptr && expectedServerIdValue->is_string())
+			{
+				result.ExpectedServerId = boost::json::value_to<std::string>(*expectedServerIdValue);
+			}
+
+			if (result.IsSuccess && result.StatusCode == 0)
+			{
+				result.StatusCode = 200;
+			}
+			else if (!result.IsSuccess && result.StatusCode == 0)
+			{
+				result.StatusCode = 503;
+			}
+
+			return true;
 		}
 
 		void DE_MANAGED_CALLTYPE NativeLog(void* context, std::int32_t level, const char* tag, const char* message)
@@ -397,6 +480,58 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::TryValidateGateAuth(
+		const std::string& account,
+		const std::string& password,
+		const std::vector<std::string>& gateServerIds,
+		GateAuthValidationResult& result
+	)
+	{
+		result = GateAuthValidationResult{};
+		if (!running_ || validateGateAuthFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const auto requestPayload = SerializeGateAuthRequest(account, password, gateServerIds);
+		const auto* requestPayloadData = requestPayload.empty() ? nullptr : requestPayload.data();
+		const auto requestPayloadSize = static_cast<std::int32_t>(requestPayload.size());
+
+		const int requiredSize = validateGateAuthFn_(requestPayloadData, requestPayloadSize, nullptr, 0);
+		if (requiredSize <= 0)
+		{
+			Logger::Warn(
+				"ManagedRuntimeService",
+				"ValidateGateAuthNative failed to query output size, code: " + std::to_string(requiredSize)
+			);
+			return false;
+		}
+
+		std::string responsePayload(static_cast<std::size_t>(requiredSize), '\0');
+		const int writtenSize = validateGateAuthFn_(
+			requestPayloadData,
+			requestPayloadSize,
+			responsePayload.data(),
+			requiredSize
+		);
+		if (writtenSize != requiredSize)
+		{
+			Logger::Warn(
+				"ManagedRuntimeService",
+				"ValidateGateAuthNative wrote unexpected size: " + std::to_string(writtenSize)
+			);
+			return false;
+		}
+
+		if (!TryParseGateAuthValidationResultPayload(responsePayload, result))
+		{
+			Logger::Warn("ManagedRuntimeService", "ValidateGateAuthNative returned invalid payload.");
+			return false;
+		}
+
+		return true;
+	}
+
 	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
 	{
 		gameServerReadyCallback_ = std::move(callback);
@@ -593,6 +728,10 @@ namespace de::server::engine
 		bindMethod(kHandleAllNodeReadyMethodName, &handleAllNodeReadyPointer);
 		handleAllNodeReadyFn_ = reinterpret_cast<managed::ManagedHandleAllNodeReadyFn>(handleAllNodeReadyPointer);
 
+		void* validateGateAuthPointer = nullptr;
+		bindMethod(kValidateGateAuthMethodName, &validateGateAuthPointer);
+		validateGateAuthFn_ = reinterpret_cast<managed::ManagedValidateGateAuthFn>(validateGateAuthPointer);
+
 		void* uninitializePointer = nullptr;
 		bindMethod(kUninitializeMethodName, &uninitializePointer);
 		uninitializeFn_ = reinterpret_cast<managed::ManagedUninitializeFn>(uninitializePointer);
@@ -603,6 +742,7 @@ namespace de::server::engine
 		if (initializeFn_ == nullptr
 			|| buildStubDistributePayloadFn_ == nullptr
 			|| handleAllNodeReadyFn_ == nullptr
+			|| validateGateAuthFn_ == nullptr
 			|| uninitializeFn_ == nullptr)
 		{
 			throw std::runtime_error("Managed runtime entrypoints are not bound.");
@@ -623,6 +763,7 @@ namespace de::server::engine
 		initializeFn_ = nullptr;
 		buildStubDistributePayloadFn_ = nullptr;
 		handleAllNodeReadyFn_ = nullptr;
+		validateGateAuthFn_ = nullptr;
 		uninitializeFn_ = nullptr;
 		gameServerReadyCallback_ = {};
 		managedTimerIds_.clear();

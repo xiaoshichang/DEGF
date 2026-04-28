@@ -23,12 +23,13 @@ namespace Assets.Scripts.Demo.Client.UI
             }
 
             _LoginButton.onClick.AddListener(_OnLoginButtonClicked);
-            DELogger.Info("LoginPanel", "Bind completed.");
         }
 
         protected override void OnShow(object arg)
         {
-            DELogger.Info("LoginPanel", "OnShow");
+            _AccountInputField.text = "xiao";
+            _PasswordInputField.text = "pass";
+
         }
 
         protected override void OnHide()

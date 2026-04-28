@@ -24,6 +24,7 @@ namespace Demo.Client.Application
         public override void UnInit()
         {
             base.UnInit();
+            DELogger.Info("DemoGameInstance uninitialized");
         }
     }
 }

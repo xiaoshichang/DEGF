@@ -17,12 +17,15 @@ namespace Assets.Scripts.DE.Client.Network
             Log.Info = message => DELogger.Info("KCP", message);
             Log.Warning = message => DELogger.Warn("KCP", message);
             Log.Error = message => DELogger.Error("KCP", message);
+            DELogger.Info("KCP", "KCP initialized.");
         }
 
         public void UnInit()
         {
-            _Callback = null;
             Disconnect();
+            _Callback = null;
+            _Session = null;
+            DELogger.Info("KCP", "KCP uninitialized.");
         }
 
         public void KcpConnectTo(EndPoint endPoint, uint conv, KcpSessionCallback callback)

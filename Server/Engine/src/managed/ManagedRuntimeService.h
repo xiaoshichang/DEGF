@@ -2,6 +2,7 @@
 
 #include "config/ClusterConfig.h"
 #include "managed/ManagedRuntimeBridge.h"
+#include "server/gate/GateAuthValidationResult.h"
 #include "timer/TimerManager.h"
 
 #include <chrono>
@@ -25,6 +26,12 @@ namespace de::server::engine
 		bool IsRunning() const;
 		bool TryBuildStubDistributePayload(const std::vector<std::string>& gameServerIds, std::vector<std::byte>& payload);
 		bool HandleAllNodeReady(const std::vector<std::byte>& payload);
+		bool TryValidateGateAuth(
+			const std::string& account,
+			const std::string& password,
+			const std::vector<std::string>& gateServerIds,
+			GateAuthValidationResult& result
+		);
 		void SetGameServerReadyCallback(std::function<void()> callback);
 
 	private:
@@ -62,6 +69,7 @@ namespace de::server::engine
 		managed::ManagedInitializeFn initializeFn_ = nullptr;
 		managed::ManagedBuildStubDistributePayloadFn buildStubDistributePayloadFn_ = nullptr;
 		managed::ManagedHandleAllNodeReadyFn handleAllNodeReadyFn_ = nullptr;
+		managed::ManagedValidateGateAuthFn validateGateAuthFn_ = nullptr;
 		managed::ManagedUninitializeFn uninitializeFn_ = nullptr;
 		std::function<void()> gameServerReadyCallback_;
 		std::unordered_set<TimerManager::TimerID> managedTimerIds_;

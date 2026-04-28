@@ -239,8 +239,8 @@ namespace Assets.Scripts.DE.Client.Framework
             _InitUIManager();
             _InitNetworkManager();
             _InitAuthSystem();
-            _InitGameInstance();
             _InitGMSystem();
+            _InitGameInstance();
         }
 
         // Use this for initialization
@@ -258,14 +258,14 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void OnDestroy()
         {
-            DELogger.Info("ApplicationRoot OnDestroy");
-
-            _UninitGMSystem();
             _UninitGameInstance();
+            _UninitGMSystem();
             _UninitAuthSystem();
             _UninitNetworkManager();
             _UninitUIManager();
             _UninitAssetManager();
+            
+            DELogger.Info("ApplicationRoot OnDestroy");
             _UninitLogger();
         }
 

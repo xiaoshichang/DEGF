@@ -53,6 +53,8 @@ namespace Assets.Scripts.DE.Client.Framework
             {
                 UIManager.Instance.GMCommandDispatched += OnGMCommandDispatched;
             }
+            
+            DELogger.Info("GMSystem", "GMSystem initialized."); 
         }
 
         public void UnInit()
@@ -63,6 +65,7 @@ namespace Assets.Scripts.DE.Client.Framework
             }
 
             _GMCommandMetadataByName.Clear();
+            DELogger.Info("GMSystem", "GMSystem uninitialized.");
         }
 
         private void _CollectGMCommandsByReflection(List<Assembly> assemblies)

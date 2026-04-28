@@ -1,4 +1,5 @@
 using System;
+using Assets.Scripts.DE.Client.Core;
 using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.UI
@@ -14,11 +15,13 @@ namespace Assets.Scripts.DE.Client.UI
         public void Init()
         {
             _InitUIFramework();
+            DELogger.Info("UIManager", "UIManager initialized.");
         }
 
         public void UnInit()
         {
             _UninitUIFramework();
+            DELogger.Info("UIManager", "UIManager uninitialized.");
         }
 
         public GameObject RootNode => _RootNode;

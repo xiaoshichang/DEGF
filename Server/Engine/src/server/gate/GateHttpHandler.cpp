@@ -2,10 +2,6 @@
 
 #include <boost/json.hpp>
 
-#include <algorithm>
-#include <charconv>
-#include <cstdint>
-#include <string_view>
 #include <utility>
 
 namespace de::server::engine
@@ -22,77 +18,60 @@ namespace de::server::engine
 			};
 		}
 
-		constexpr std::uint32_t kFnvOffsetBasis = 2166136261u;
-		constexpr std::uint32_t kFnvPrime = 16777619u;
-
-		bool TryParseGateIndex(std::string_view serverId, std::uint32_t& index)
+		std::string BuildHttpStatusText(int statusCode)
 		{
-			static constexpr std::string_view kGatePrefix = "Gate";
-			if (serverId.size() <= kGatePrefix.size() || serverId.substr(0, kGatePrefix.size()) != kGatePrefix)
+			switch (statusCode)
 			{
-				return false;
+			case 400:
+				return "Bad Request";
+			case 401:
+				return "Unauthorized";
+			case 403:
+				return "Forbidden";
+			case 405:
+				return "Method Not Allowed";
+			case 503:
+				return "Service Unavailable";
+			default:
+				return "Internal Server Error";
 			}
-
-			const auto suffix = serverId.substr(kGatePrefix.size());
-			std::uint32_t parsedIndex = 0;
-			const auto result = std::from_chars(suffix.data(), suffix.data() + suffix.size(), parsedIndex);
-			if (result.ec != std::errc{} || result.ptr != suffix.data() + suffix.size())
-			{
-				return false;
-			}
-
-			index = parsedIndex;
-			return true;
 		}
 
-		bool GateServerIdLess(std::string_view left, std::string_view right)
+		HttpResponse BuildAuthValidationFailureResponse(
+			const std::string& serverId,
+			const GateAuthValidationResult& validationResult
+		)
 		{
-			std::uint32_t leftIndex = 0;
-			std::uint32_t rightIndex = 0;
-			const bool hasLeftIndex = TryParseGateIndex(left, leftIndex);
-			const bool hasRightIndex = TryParseGateIndex(right, rightIndex);
-			if (hasLeftIndex && hasRightIndex && leftIndex != rightIndex)
+			boost::json::object payload{
+				{
+					"error",
+					validationResult.Error.empty() ? "auth validation failed" : validationResult.Error
+				},
+				{ "serverId", serverId }
+			};
+			if (!validationResult.ExpectedServerId.empty())
 			{
-				return leftIndex < rightIndex;
+				payload["expectedServerId"] = validationResult.ExpectedServerId;
 			}
 
-			return left < right;
-		}
-
-		std::uint32_t ComputeAccountGateHash(std::string_view account)
-		{
-			std::uint32_t hash = kFnvOffsetBasis;
-			for (const unsigned char byte : account)
-			{
-				hash ^= static_cast<std::uint32_t>(byte);
-				hash *= kFnvPrime;
-			}
-
-			return hash;
+			const int statusCode = validationResult.StatusCode > 0 ? validationResult.StatusCode : 503;
+			return BuildJsonResponse(statusCode, BuildHttpStatusText(statusCode), payload);
 		}
 	}
 
 	GateHttpHandler::GateHttpHandler(
 		std::string serverId,
 		std::uint16_t clientPort,
-		std::vector<std::string> gateServerIds,
 		IsGateOpenFn isGateOpen,
+		ValidateAuthFn validateAuth,
 		AllocateClientSessionFn allocateClientSession
 	)
 		: serverId_(std::move(serverId))
 		, clientPort_(clientPort)
-		, gateServerIds_(std::move(gateServerIds))
 		, isGateOpen_(std::move(isGateOpen))
+		, validateAuth_(std::move(validateAuth))
 		, allocateClientSession_(std::move(allocateClientSession))
 	{
-		std::sort(
-			gateServerIds_.begin(),
-			gateServerIds_.end(),
-			[](const std::string& left, const std::string& right)
-			{
-				return GateServerIdLess(left, right);
-			}
-		);
 	}
 
 	HttpResponse GateHttpHandler::HandleRequest(const HttpRequest& request) const
@@ -176,41 +155,21 @@ namespace de::server::engine
 
 		const auto account = boost::json::value_to<std::string>(*accountValue);
 		const auto password = boost::json::value_to<std::string>(*passwordValue);
-		if (account.empty() || password.empty())
-		{
-			return BuildJsonResponse(
-				401,
-				"Unauthorized",
-				boost::json::object{
-					{ "error", "invalid account or password" }
-				}
-			);
-		}
-
-		if (gateServerIds_.empty())
+		if (!validateAuth_)
 		{
 			return BuildJsonResponse(
 				503,
 				"Service Unavailable",
 				boost::json::object{
-					{ "error", "gate routing unavailable" }
+					{ "error", "auth validator unavailable" }
 				}
 			);
 		}
 
-		const auto selectedGateIndex = static_cast<std::size_t>(ComputeAccountGateHash(account) % gateServerIds_.size());
-		const auto& selectedGateServerId = gateServerIds_[selectedGateIndex];
-		if (selectedGateServerId != serverId_)
+		const auto validationResult = validateAuth_(account, password);
+		if (!validationResult.IsSuccess)
 		{
-			return BuildJsonResponse(
-				403,
-				"Forbidden",
-				boost::json::object{
-					{ "error", "account routed to another gate" },
-					{ "expectedServerId", selectedGateServerId },
-					{ "serverId", serverId_ }
-				}
-			);
+			return BuildAuthValidationFailureResponse(serverId_, validationResult);
 		}
 
 		if (!allocateClientSession_)

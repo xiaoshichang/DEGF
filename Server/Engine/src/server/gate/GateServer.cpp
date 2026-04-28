@@ -167,10 +167,22 @@ namespace de::server::engine
 		httpHandler_ = std::make_unique<GateHttpHandler>(
 			GetServerId(),
 			config_.clientNetwork.listenEndpoint.port,
-			std::move(gateServerIds),
 			[this]()
 			{
 				return openGateReceived_ && clientNetwork_ != nullptr;
+			},
+			[this, gateServerIds](const std::string& account, const std::string& password) -> GateAuthValidationResult
+			{
+				GateAuthValidationResult validationResult;
+				auto* managedRuntimeService = GetManagedRuntimeService();
+				if (managedRuntimeService == nullptr
+					|| !managedRuntimeService->TryValidateGateAuth(account, password, gateServerIds, validationResult))
+				{
+					validationResult.StatusCode = 503;
+					validationResult.Error = "auth validator unavailable";
+				}
+
+				return validationResult;
 			},
 			[this]() -> std::optional<network::AllocatedClientSession>
 			{

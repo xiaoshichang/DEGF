@@ -213,6 +213,8 @@ namespace Assets.Scripts.DE.Client.Asset
             {
                 providerToUninit.UnInit();
             }
+            
+            DELogger.Info("AssetManager", "Uninitialized.");
         }
 
         public AssetLoadHandle LoadAssetAsync<T>(

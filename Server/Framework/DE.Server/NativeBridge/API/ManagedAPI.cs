@@ -135,7 +135,7 @@ namespace DE.Server.NativeBridge
                 NativeAPI.Initialize(info.NativeApi);
                 
                 ManagedRuntimeState.Initialize(info);
-                DELogger.Info("ManagedAPI", $"Managed runtime initialized for {ManagedRuntimeState.ServerId}");
+                DELogger.Info("ManagedAPI", $"Managed runtime initialized for {ManagedRuntimeState.RequireCurrent().ServerId}");
                 return 0;
             }
             catch (Exception exception)
@@ -155,10 +155,10 @@ namespace DE.Server.NativeBridge
                     return -1;
                 }
 
+                var runtimeState = ManagedRuntimeState.RequireCurrent();
                 var allGameNode = _ParseGameServerIds(_CopyPayloadFromNative(inputPayload, inputSizeBytes));
-                var table = ServerStubDistributeTable.BuildTable(ManagedRuntimeState.StubTypes, allGameNode);
+                var table = ServerStubDistributeTable.BuildTable(runtimeState.StubTypes, allGameNode);
                 var payload = ServerStubDistributeTable.ConvertServerStubDistributeTableToPayload(table);
-                ManagedRuntimeState.StubDistributeTable = table;
 
                 if (outputBuffer == IntPtr.Zero || outputBufferSizeBytes == 0)
                 {
@@ -200,7 +200,7 @@ namespace DE.Server.NativeBridge
 
                 var managedPayload = _CopyPayloadFromNative(payload, sizeBytes);
                 var table = ServerStubDistributeTable.ConvertServerStubDistributeTableFromPayload(managedPayload);
-                GameServerRuntimeState.HandleAllNodeReady(table);
+                ManagedRuntimeState.RequireCurrentGameServerRuntimeState().HandleAllNodeReady(table);
                 return 0;
             }
             catch (Exception exception)
@@ -227,12 +227,7 @@ namespace DE.Server.NativeBridge
                     return -3;
                 }
 
-                var result = GateAuthValidator.Validate(
-                    ManagedRuntimeState.ServerId,
-                    request.Account,
-                    request.Password,
-                    request.GateServerIds ?? new List<string>()
-                );
+                var result = ManagedRuntimeState.RequireCurrentGateServerRuntimeState().ValidateAuth(request);
                 var responsePayload = JsonSerializer.SerializeToUtf8Bytes(result, s_jsonSerializerOptions);
                 return _WritePayloadToNative(responsePayload, outputBuffer, outputBufferSizeBytes);
             }
@@ -253,7 +248,7 @@ namespace DE.Server.NativeBridge
             {
                 if (ManagedRuntimeState.IsInitialized)
                 {
-                    DELogger.Info("ManagedAPI", $"Managed runtime uninitializing for {ManagedRuntimeState.ServerId}");
+                    DELogger.Info("ManagedAPI", $"Managed runtime uninitializing for {ManagedRuntimeState.RequireCurrent().ServerId}");
                 }
 
                 ManagedRuntimeState.Uninitialize();

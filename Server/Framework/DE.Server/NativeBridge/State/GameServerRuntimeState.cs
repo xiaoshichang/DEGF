@@ -6,26 +6,40 @@ using DE.Server.Entities;
 
 namespace DE.Server.NativeBridge
 {
-    public static class GameServerRuntimeState
+    public sealed class GameServerRuntimeState
     {
-        public static void HandleAllNodeReady(ServerStubDistributeTable table)
+        private readonly ManagedRuntimeState _managedRuntimeState;
+
+        public GameServerRuntimeState(ManagedRuntimeState managedRuntimeState)
+        {
+            _managedRuntimeState = managedRuntimeState ?? throw new ArgumentNullException(nameof(managedRuntimeState));
+            SearchImportEntityTypeFromGameplayDll();
+        }
+
+        public Dictionary<Type, DateTime> ReadyStubs { get; } = new Dictionary<Type, DateTime>();
+        public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new Dictionary<Type, ServerStubEntity>();
+        public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
+        public Type AvatarType { get; private set; }
+        public Type NpcType { get; private set; }
+        public Type SpaceType { get; private set; }
+
+        public void HandleAllNodeReady(ServerStubDistributeTable table)
         {
             if (table == null)
             {
                 throw new ArgumentNullException(nameof(table));
             }
 
-            SearchImportEntityTypeFromGameplayDll();
-            ManagedRuntimeState.StubDistributeTable = table;
+            StubDistributeTable = table;
 
             var assignedStubTypeKeys = table
-                .GetAssignedStubTypeKeys(ManagedRuntimeState.ServerId)
+                .GetAssignedStubTypeKeys(_managedRuntimeState.ServerId)
                 .Where(stubTypeKey => !string.IsNullOrWhiteSpace(stubTypeKey))
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(stubTypeKey => stubTypeKey, StringComparer.Ordinal)
                 .ToList();
 
-            DELogger.Info($"Server {ManagedRuntimeState.ServerId} assigned {assignedStubTypeKeys.Count} stub(s).");
+            DELogger.Info($"Server {_managedRuntimeState.ServerId} assigned {assignedStubTypeKeys.Count} stub(s).");
 
             foreach (var stubTypeKey in assignedStubTypeKeys)
             {
@@ -35,7 +49,7 @@ namespace DE.Server.NativeBridge
             NotifyIfAllAssignedStubsReady(assignedStubTypeKeys);
         }
 
-        public static void NotifyStubReady(ServerStubEntity stubEntity)
+        public void NotifyStubReady(ServerStubEntity stubEntity)
         {
             if (stubEntity == null)
             {
@@ -44,68 +58,74 @@ namespace DE.Server.NativeBridge
 
             var stubType = stubEntity.GetType();
             var stubTypeKey = ManagedRuntimeState.GetStubTypeKey(stubType);
-            var assignedStubTypeKeys = ManagedRuntimeState
-                .StubDistributeTable
-                .GetAssignedStubTypeKeys(ManagedRuntimeState.ServerId);
+            var assignedStubTypeKeys = StubDistributeTable.GetAssignedStubTypeKeys(_managedRuntimeState.ServerId);
 
             if (!assignedStubTypeKeys.Contains(stubTypeKey))
             {
-                DELogger.Warn($"Ignored ready notification for unassigned stub {stubType.FullName} on {ManagedRuntimeState.ServerId}."
+                DELogger.Warn(
+                    $"Ignored ready notification for unassigned stub {stubType.FullName} on {_managedRuntimeState.ServerId}."
                 );
                 return;
             }
 
-            if (ManagedRuntimeState.ReadyStubs.ContainsKey(stubType))
+            if (ReadyStubs.ContainsKey(stubType))
             {
                 return;
             }
 
-            ManagedRuntimeState.ReadyStubs[stubType] = DateTime.UtcNow;
+            ReadyStubs[stubType] = DateTime.UtcNow;
             NotifyIfAllAssignedStubsReady(assignedStubTypeKeys);
         }
 
-        private static void CreateStub(string stubTypeKey)
+        public void Uninitialize()
         {
-            if (!ManagedRuntimeState.TryResolveStubType(stubTypeKey, out var stubType))
+            ReadyStubs.Clear();
+            StubInstances.Clear();
+            StubDistributeTable = new ServerStubDistributeTable();
+            AvatarType = null;
+            NpcType = null;
+            SpaceType = null;
+        }
+
+        private void CreateStub(string stubTypeKey)
+        {
+            if (!_managedRuntimeState.TryResolveStubType(stubTypeKey, out var stubType))
             {
                 throw new InvalidOperationException($"Stub type not found: {stubTypeKey}");
             }
 
-            if (ManagedRuntimeState.StubInstances.TryGetValue(stubType, out var stubEntity))
+            if (StubInstances.TryGetValue(stubType, out var stubEntity))
             {
                 DELogger.Error(string.Empty, $"Stub instance already exists: {stubType.FullName}");
                 return;
             }
-            
+
             stubEntity = Activator.CreateInstance(stubType) as ServerStubEntity;
             if (stubEntity == null)
             {
                 throw new InvalidOperationException($"Failed to create stub entity: {stubTypeKey}");
             }
 
-            ManagedRuntimeState.StubInstances[stubType] = stubEntity;
+            StubInstances[stubType] = stubEntity;
             stubEntity.InitStub();
         }
 
-        private static void NotifyIfAllAssignedStubsReady(IReadOnlyCollection<string> assignedStubTypeKeys)
+        private void NotifyIfAllAssignedStubsReady(IReadOnlyCollection<string> assignedStubTypeKeys)
         {
             foreach (var stubTypeKey in assignedStubTypeKeys)
             {
-                if (!ManagedRuntimeState.TryResolveStubType(stubTypeKey, out var stubType)
-                    || !ManagedRuntimeState.ReadyStubs.ContainsKey(stubType))
+                if (!_managedRuntimeState.TryResolveStubType(stubTypeKey, out var stubType)
+                    || !ReadyStubs.ContainsKey(stubType))
                 {
                     return;
                 }
             }
-            DELogger.Info($"All assigned stubs are ready on {ManagedRuntimeState.ServerId}." );
+
+            DELogger.Info($"All assigned stubs are ready on {_managedRuntimeState.ServerId}.");
             NativeAPI.NotifyGameServerReady();
-            
         }
 
-        public static Type AvatarType;
-        public static Type NpcType;
-        public static Type SpaceType;
-        public static void SearchImportEntityTypeFromGameplayDll()
+        private void SearchImportEntityTypeFromGameplayDll()
         {
             AvatarType = SearchSingleImportEntityType(typeof(AvatarEntity));
             NpcType = SearchSingleImportEntityType(typeof(NpcEntity));
@@ -117,14 +137,14 @@ namespace DE.Server.NativeBridge
             );
         }
 
-        private static Type SearchSingleImportEntityType(Type baseEntityType)
+        private Type SearchSingleImportEntityType(Type baseEntityType)
         {
             if (baseEntityType == null)
             {
                 throw new ArgumentNullException(nameof(baseEntityType));
             }
 
-            var gameplayAssembly = ManagedRuntimeState.GameplayAssembly;
+            var gameplayAssembly = _managedRuntimeState.GameplayAssembly;
             if (gameplayAssembly == null)
             {
                 DELogger.Warn(

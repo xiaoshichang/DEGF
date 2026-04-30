@@ -9,112 +9,128 @@ using DE.Server.Entities;
 
 namespace DE.Server.NativeBridge
 {
+    public enum ManagedRuntimeServerType
+    {
+        Unknown,
+        Gm,
+        Gate,
+        Game,
+    }
+
     /// <summary>
     /// global state of the managed runtime
     /// </summary>
-    public static class ManagedRuntimeState
+    public sealed class ManagedRuntimeState
     {
-        private static AssemblyDependencyResolver s_gameplayAssemblyDependencyResolver;
-        private static string s_gameplayAssemblyDirectory = string.Empty;
-        private static string s_frameworkAssemblyDirectory = string.Empty;
-        private static bool s_gameplayAssemblyResolverRegistered;
-        private static bool s_unhandledExceptionHandlersRegistered;
+        private AssemblyDependencyResolver _gameplayAssemblyDependencyResolver;
+        private string _gameplayAssemblyDirectory = string.Empty;
+        private string _frameworkAssemblyDirectory = string.Empty;
+        private bool _gameplayAssemblyResolverRegistered;
+        private bool _unhandledExceptionHandlersRegistered;
 
-        public static bool IsInitialized { get; private set; }
-        public static string ServerId { get; private set; } = string.Empty;
-        public static string ConfigPath { get; private set; } = string.Empty;
-        public static string FrameworkDllPath { get; private set; } = string.Empty;
-        public static string GameplayDllPath { get; private set; } = string.Empty;
-        public static Assembly GameplayAssembly { get; private set; }
-        
-        /// <summary>
-        /// all stub types
-        /// </summary>
-        public static List<Type> StubTypes = new List<Type>();
-        
-        /// <summary>
-        /// key: stub type, value: last ready time
-        /// </summary>
-        public static Dictionary<Type, DateTime> ReadyStubs = new Dictionary<Type, DateTime>();
+        public static ManagedRuntimeState Current { get; private set; }
 
-        /// <summary>
-        /// key: stub type, value: stub instance
-        /// </summary>
-        public static Dictionary<Type, ServerStubEntity> StubInstances = new Dictionary<Type, ServerStubEntity>();
-        
-        /// <summary>
-        /// stub distribute table
-        /// </summary>
-        public static ServerStubDistributeTable StubDistributeTable = new ServerStubDistributeTable();
-
-        private static void _RegisterUnhandledExceptionHandlers()
+        public static bool IsInitialized
         {
-            if (s_unhandledExceptionHandlersRegistered)
+            get
+            {
+                return Current != null;
+            }
+        }
+
+        public string ServerId { get; private set; } = string.Empty;
+        public string ConfigPath { get; private set; } = string.Empty;
+        public string FrameworkDllPath { get; private set; } = string.Empty;
+        public string GameplayDllPath { get; private set; } = string.Empty;
+        public Assembly GameplayAssembly { get; private set; }
+        public List<Type> StubTypes { get; private set; } = new List<Type>();
+        public ManagedRuntimeServerType ServerType { get; private set; }
+        public GateServerRuntimeState GateServerRuntimeState { get; private set; }
+        public GameServerRuntimeState GameServerRuntimeState { get; private set; }
+
+        private ManagedRuntimeState()
+        {
+        }
+
+        public static void Initialize(ManagedRuntimeInitInfo info)
+        {
+            Uninitialize();
+
+            var runtimeState = new ManagedRuntimeState();
+            runtimeState.InitializeCore(info);
+            Current = runtimeState;
+        }
+
+        public static void Uninitialize()
+        {
+            if (Current == null)
             {
                 return;
             }
 
-            AppDomain.CurrentDomain.UnhandledException += _OnUnhandledException;
-            TaskScheduler.UnobservedTaskException += _OnUnobservedTaskException;
-            s_unhandledExceptionHandlersRegistered = true;
+            Current.UninitializeCore();
+            Current = null;
         }
 
-        private static void _UnregisterUnhandledExceptionHandlers()
+        public static ManagedRuntimeState RequireCurrent()
         {
-            if (!s_unhandledExceptionHandlersRegistered)
+            if (Current == null)
             {
-                return;
+                throw new InvalidOperationException("Managed runtime is not initialized.");
             }
 
-            AppDomain.CurrentDomain.UnhandledException -= _OnUnhandledException;
-            TaskScheduler.UnobservedTaskException -= _OnUnobservedTaskException;
-            s_unhandledExceptionHandlersRegistered = false;
+            return Current;
         }
 
-        private static void _OnUnhandledException(object sender, UnhandledExceptionEventArgs eventArgs)
+        public static GateServerRuntimeState RequireCurrentGateServerRuntimeState()
         {
-            _ = sender;
-
-            var exception = eventArgs?.ExceptionObject as Exception;
-            var exceptionText = exception?.ToString() ?? eventArgs?.ExceptionObject?.ToString() ?? "Unknown managed exception.";
-            var terminating = eventArgs != null && eventArgs.IsTerminating;
-
-            _TryReportManagedException(
-                "ManagedUnhandledException",
-                $"Unhandled managed exception on {ServerId}, terminating={terminating}: {exceptionText}"
-            );
-        }
-
-        private static void _OnUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs eventArgs)
-        {
-            _ = sender;
-
-            try
+            var runtimeState = RequireCurrent();
+            if (runtimeState.GateServerRuntimeState == null)
             {
-                var exceptionText = eventArgs?.Exception?.ToString() ?? "Unknown unobserved task exception.";
-                _TryReportManagedException(
-                    "ManagedUnhandledException",
-                    $"Unobserved task exception on {ServerId}: {exceptionText}"
+                throw new InvalidOperationException(
+                    $"Managed runtime for server {runtimeState.ServerId} does not own gate server runtime state."
                 );
-                eventArgs?.SetObserved();
             }
-            catch (Exception exception)
-            {
-                Console.Error.WriteLine(exception);
-            }
+
+            return runtimeState.GateServerRuntimeState;
         }
 
-        private static void _TryReportManagedException(string tag, string message)
+        public static GameServerRuntimeState RequireCurrentGameServerRuntimeState()
         {
-            try
+            var runtimeState = RequireCurrent();
+            if (runtimeState.GameServerRuntimeState == null)
             {
-                Console.Error.WriteLine(message);
-                DELogger.Error(tag, message);
+                throw new InvalidOperationException(
+                    $"Managed runtime for server {runtimeState.ServerId} does not own game server runtime state."
+                );
             }
-            catch (Exception exception)
+
+            return runtimeState.GameServerRuntimeState;
+        }
+
+        public static ManagedRuntimeServerType ResolveServerType(string serverId)
+        {
+            if (string.IsNullOrWhiteSpace(serverId))
             {
-                Console.Error.WriteLine(exception);
+                return ManagedRuntimeServerType.Unknown;
             }
+
+            if (string.Equals(serverId, "GM", StringComparison.OrdinalIgnoreCase))
+            {
+                return ManagedRuntimeServerType.Gm;
+            }
+
+            if (serverId.StartsWith("Gate", StringComparison.OrdinalIgnoreCase))
+            {
+                return ManagedRuntimeServerType.Gate;
+            }
+
+            if (serverId.StartsWith("Game", StringComparison.OrdinalIgnoreCase))
+            {
+                return ManagedRuntimeServerType.Game;
+            }
+
+            return ManagedRuntimeServerType.Unknown;
         }
 
         public static string GetStubTypeKey(Type stubType)
@@ -127,7 +143,7 @@ namespace DE.Server.NativeBridge
             return stubType.AssemblyQualifiedName ?? stubType.FullName ?? stubType.Name;
         }
 
-        public static bool TryResolveStubType(string stubTypeKey, out Type stubType)
+        public bool TryResolveStubType(string stubTypeKey, out Type stubType)
         {
             stubType = null;
             if (string.IsNullOrWhiteSpace(stubTypeKey))
@@ -160,45 +176,115 @@ namespace DE.Server.NativeBridge
             return false;
         }
 
-        private static void _RegisterGameplayAssemblyResolver(string gameplayDllPath)
+        private void RegisterUnhandledExceptionHandlers()
         {
-            if (s_gameplayAssemblyResolverRegistered)
+            if (_unhandledExceptionHandlersRegistered)
             {
                 return;
             }
 
-            s_gameplayAssemblyDependencyResolver = new AssemblyDependencyResolver(gameplayDllPath);
-            s_gameplayAssemblyDirectory = Path.GetDirectoryName(gameplayDllPath) ?? string.Empty;
-            s_frameworkAssemblyDirectory = string.IsNullOrWhiteSpace(FrameworkDllPath)
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            _unhandledExceptionHandlersRegistered = true;
+        }
+
+        private void UnregisterUnhandledExceptionHandlers()
+        {
+            if (!_unhandledExceptionHandlersRegistered)
+            {
+                return;
+            }
+
+            AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
+            TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+            _unhandledExceptionHandlersRegistered = false;
+        }
+
+        private void OnUnhandledException(object sender, UnhandledExceptionEventArgs eventArgs)
+        {
+            _ = sender;
+
+            var exception = eventArgs?.ExceptionObject as Exception;
+            var exceptionText = exception?.ToString() ?? eventArgs?.ExceptionObject?.ToString() ?? "Unknown managed exception.";
+            var terminating = eventArgs != null && eventArgs.IsTerminating;
+
+            TryReportManagedException(
+                "ManagedUnhandledException",
+                $"Unhandled managed exception on {ServerId}, terminating={terminating}: {exceptionText}"
+            );
+        }
+
+        private void OnUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs eventArgs)
+        {
+            _ = sender;
+
+            try
+            {
+                var exceptionText = eventArgs?.Exception?.ToString() ?? "Unknown unobserved task exception.";
+                TryReportManagedException(
+                    "ManagedUnhandledException",
+                    $"Unobserved task exception on {ServerId}: {exceptionText}"
+                );
+                eventArgs?.SetObserved();
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception);
+            }
+        }
+
+        private void TryReportManagedException(string tag, string message)
+        {
+            try
+            {
+                Console.Error.WriteLine(message);
+                DELogger.Error(tag, message);
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception);
+            }
+        }
+
+        private void RegisterGameplayAssemblyResolver(string gameplayDllPath)
+        {
+            if (_gameplayAssemblyResolverRegistered)
+            {
+                return;
+            }
+
+            _gameplayAssemblyDependencyResolver = new AssemblyDependencyResolver(gameplayDllPath);
+            _gameplayAssemblyDirectory = Path.GetDirectoryName(gameplayDllPath) ?? string.Empty;
+            _frameworkAssemblyDirectory = string.IsNullOrWhiteSpace(FrameworkDllPath)
                 ? string.Empty
                 : Path.GetDirectoryName(Path.GetFullPath(FrameworkDllPath)) ?? string.Empty;
 
-            AssemblyLoadContext.Default.Resolving += _ResolveGameplayAssembly;
-            AssemblyLoadContext.Default.ResolvingUnmanagedDll += _ResolveGameplayUnmanagedDll;
-            s_gameplayAssemblyResolverRegistered = true;
+            AssemblyLoadContext.Default.Resolving += ResolveGameplayAssembly;
+            AssemblyLoadContext.Default.ResolvingUnmanagedDll += ResolveGameplayUnmanagedDll;
+            _gameplayAssemblyResolverRegistered = true;
 
             DELogger.Info(
-                "ManagedRuntimeState",
+                nameof(ManagedRuntimeState),
                 $"Registered gameplay assembly resolver for {gameplayDllPath}."
             );
         }
 
-        private static void _UnregisterGameplayAssemblyResolver()
+        private void UnregisterGameplayAssemblyResolver()
         {
-            if (!s_gameplayAssemblyResolverRegistered)
+            if (!_gameplayAssemblyResolverRegistered)
             {
                 return;
             }
 
-            AssemblyLoadContext.Default.Resolving -= _ResolveGameplayAssembly;
-            AssemblyLoadContext.Default.ResolvingUnmanagedDll -= _ResolveGameplayUnmanagedDll;
-            s_gameplayAssemblyDependencyResolver = null;
-            s_gameplayAssemblyDirectory = string.Empty;
-            s_frameworkAssemblyDirectory = string.Empty;
-            s_gameplayAssemblyResolverRegistered = false;
+            AssemblyLoadContext.Default.Resolving -= ResolveGameplayAssembly;
+            AssemblyLoadContext.Default.ResolvingUnmanagedDll -= ResolveGameplayUnmanagedDll;
+            _gameplayAssemblyDependencyResolver = null;
+            _gameplayAssemblyDirectory = string.Empty;
+            _frameworkAssemblyDirectory = string.Empty;
+            _gameplayAssemblyResolverRegistered = false;
         }
 
-        private static Assembly _ResolveGameplayAssembly(AssemblyLoadContext loadContext, AssemblyName assemblyName)
+        private Assembly ResolveGameplayAssembly(AssemblyLoadContext loadContext, AssemblyName assemblyName)
         {
             foreach (var loadedAssembly in AppDomain.CurrentDomain.GetAssemblies())
             {
@@ -208,10 +294,10 @@ namespace DE.Server.NativeBridge
                 }
             }
 
-            var resolvedAssemblyPath = s_gameplayAssemblyDependencyResolver?.ResolveAssemblyToPath(assemblyName);
+            var resolvedAssemblyPath = _gameplayAssemblyDependencyResolver?.ResolveAssemblyToPath(assemblyName);
             if (string.IsNullOrWhiteSpace(resolvedAssemblyPath))
             {
-                resolvedAssemblyPath = _ResolveAssemblyPathFromKnownDirectories(assemblyName);
+                resolvedAssemblyPath = ResolveAssemblyPathFromKnownDirectories(assemblyName);
             }
 
             if (string.IsNullOrWhiteSpace(resolvedAssemblyPath) || !File.Exists(resolvedAssemblyPath))
@@ -220,13 +306,13 @@ namespace DE.Server.NativeBridge
             }
 
             DELogger.Info(
-                "ManagedRuntimeState",
+                nameof(ManagedRuntimeState),
                 $"Resolved gameplay dependency {assemblyName.FullName} -> {resolvedAssemblyPath}."
             );
             return loadContext.LoadFromAssemblyPath(resolvedAssemblyPath);
         }
 
-        private static string _ResolveAssemblyPathFromKnownDirectories(AssemblyName assemblyName)
+        private string ResolveAssemblyPathFromKnownDirectories(AssemblyName assemblyName)
         {
             var simpleAssemblyName = assemblyName?.Name;
             if (string.IsNullOrWhiteSpace(simpleAssemblyName))
@@ -235,18 +321,18 @@ namespace DE.Server.NativeBridge
             }
 
             var candidateFileName = simpleAssemblyName + ".dll";
-            if (!string.IsNullOrWhiteSpace(s_gameplayAssemblyDirectory))
+            if (!string.IsNullOrWhiteSpace(_gameplayAssemblyDirectory))
             {
-                var gameplayCandidatePath = Path.Combine(s_gameplayAssemblyDirectory, candidateFileName);
+                var gameplayCandidatePath = Path.Combine(_gameplayAssemblyDirectory, candidateFileName);
                 if (File.Exists(gameplayCandidatePath))
                 {
                     return gameplayCandidatePath;
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(s_frameworkAssemblyDirectory))
+            if (!string.IsNullOrWhiteSpace(_frameworkAssemblyDirectory))
             {
-                var frameworkCandidatePath = Path.Combine(s_frameworkAssemblyDirectory, candidateFileName);
+                var frameworkCandidatePath = Path.Combine(_frameworkAssemblyDirectory, candidateFileName);
                 if (File.Exists(frameworkCandidatePath))
                 {
                     return frameworkCandidatePath;
@@ -256,7 +342,7 @@ namespace DE.Server.NativeBridge
             return null;
         }
 
-        private static IntPtr _ResolveGameplayUnmanagedDll(Assembly assembly, string unmanagedDllName)
+        private IntPtr ResolveGameplayUnmanagedDll(Assembly assembly, string unmanagedDllName)
         {
             _ = assembly;
 
@@ -265,67 +351,83 @@ namespace DE.Server.NativeBridge
                 return IntPtr.Zero;
             }
 
-            var resolvedUnmanagedDllPath = s_gameplayAssemblyDependencyResolver?.ResolveUnmanagedDllToPath(unmanagedDllName);
+            var resolvedUnmanagedDllPath = _gameplayAssemblyDependencyResolver?.ResolveUnmanagedDllToPath(unmanagedDllName);
             if (string.IsNullOrWhiteSpace(resolvedUnmanagedDllPath) || !File.Exists(resolvedUnmanagedDllPath))
             {
                 return IntPtr.Zero;
             }
 
             DELogger.Info(
-                "ManagedRuntimeState",
+                nameof(ManagedRuntimeState),
                 $"Resolved gameplay native dependency {unmanagedDllName} -> {resolvedUnmanagedDllPath}."
             );
             return NativeLibrary.Load(resolvedUnmanagedDllPath);
         }
-        
-        private static void _LoadGameplayAssemblies()
+
+        private void LoadGameplayAssemblies()
         {
-            if (!string.IsNullOrEmpty(GameplayDllPath))
+            if (string.IsNullOrEmpty(GameplayDllPath))
             {
-                var gameplayDllPath = Path.GetFullPath(GameplayDllPath);
-                if (File.Exists(gameplayDllPath))
-                {
-                    _RegisterGameplayAssemblyResolver(gameplayDllPath);
-                    GameplayAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(gameplayDllPath);
-                }
-                else
-                {
-                    DELogger.Warn("ManagedAPI", $"Gameplay dll not found: {gameplayDllPath}");
-                }
+                return;
             }
+
+            var gameplayDllPath = Path.GetFullPath(GameplayDllPath);
+            if (!File.Exists(gameplayDllPath))
+            {
+                DELogger.Warn(nameof(ManagedRuntimeState), $"Gameplay dll not found: {gameplayDllPath}");
+                return;
+            }
+
+            RegisterGameplayAssemblyResolver(gameplayDllPath);
+            GameplayAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(gameplayDllPath);
         }
 
-        public static void Initialize(ManagedRuntimeInitInfo info)
+        private void InitializeCore(ManagedRuntimeInitInfo info)
         {
             ServerId = info.ServerId ?? string.Empty;
             ConfigPath = info.ConfigPath ?? string.Empty;
             FrameworkDllPath = info.FrameworkDllPath ?? string.Empty;
             GameplayDllPath = info.GameplayDllPath ?? string.Empty;
-            _RegisterUnhandledExceptionHandlers();
-            ReadyStubs.Clear();
-            StubInstances.Clear();
-            StubDistributeTable = new ServerStubDistributeTable();
-            _LoadGameplayAssemblies();
+            ServerType = ResolveServerType(ServerId);
+
+            RegisterUnhandledExceptionHandlers();
+            LoadGameplayAssemblies();
+
             var assemblies = new[] { GameplayAssembly, Assembly.GetExecutingAssembly() };
             StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies);
-            GameServerRuntimeState.SearchImportEntityTypeFromGameplayDll();
-            IsInitialized = true;
+
+            if (ServerType == ManagedRuntimeServerType.Gate)
+            {
+                GateServerRuntimeState = new GateServerRuntimeState(this);
+            }
+            else if (ServerType == ManagedRuntimeServerType.Game)
+            {
+                GameServerRuntimeState = new GameServerRuntimeState(this);
+            }
+
+            DELogger.Info(
+                nameof(ManagedRuntimeState),
+                $"Managed runtime initialized for {ServerId} with server type {ServerType}."
+            );
         }
 
-        public static void Uninitialize()
+        private void UninitializeCore()
         {
-            _UnregisterUnhandledExceptionHandlers();
-            IsInitialized = false;
+            GateServerRuntimeState?.Uninitialize();
+            GameServerRuntimeState?.Uninitialize();
+
+            UnregisterUnhandledExceptionHandlers();
+            UnregisterGameplayAssemblyResolver();
+
+            GateServerRuntimeState = null;
+            GameServerRuntimeState = null;
+            StubTypes = new List<Type>();
+            GameplayAssembly = null;
+            ServerType = ManagedRuntimeServerType.Unknown;
             ServerId = string.Empty;
             ConfigPath = string.Empty;
             FrameworkDllPath = string.Empty;
             GameplayDllPath = string.Empty;
-            GameplayAssembly = null;
-            _UnregisterGameplayAssemblyResolver();
-            StubTypes = new List<Type>();
-            ReadyStubs.Clear();
-            StubInstances.Clear();
-            StubDistributeTable = new ServerStubDistributeTable();
         }
     }
 }

@@ -20,6 +20,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public int AuthPort;
         public string ClientHost;
         public int ClientPort;
+        public Guid AvatarId;
     }
 
     public enum AuthState
@@ -28,7 +29,8 @@ namespace Assets.Scripts.DE.Client.Framework
         HttpAuthenticating = 1,
         KcpConnecting = 2,
         HandShaking = 3,
-        Authenticated = 4,
+        LoggingIn = 4,
+        Authenticated = 5,
     }
 
     internal sealed class GateEndpointConfig
@@ -64,7 +66,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public static AuthSystem Instance;
 
         public AuthState State => _State;
-        public bool IsBusy => _State == AuthState.HttpAuthenticating || _State == AuthState.KcpConnecting || _State == AuthState.HandShaking;
+        public bool IsBusy => _State == AuthState.HttpAuthenticating || _State == AuthState.KcpConnecting || _State == AuthState.HandShaking || _State == AuthState.LoggingIn;
         public bool IsAuthenticated => _State == AuthState.Authenticated;
         public AuthAccountInfo CurrentAccountInfo => _CurrentAccountInfo;
 
@@ -353,17 +355,35 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
-            if (header.MessageId != (uint)MessageDef.MessageID.CS.HandShakeRsp)
+            if (header.MessageId == (uint)MessageDef.MessageID.CS.HandShakeRsp)
             {
-                DELogger.Warn(
-                    LogTag,
-                    "Ignore unexpected message during auth flow, messageId=" + header.MessageId + ", state=" + _State + ".");
+                _HandleHandShakeRsp(payload);
+                return;
+            }
+
+            if (header.MessageId == (uint)MessageDef.MessageID.CS.LoginRsp)
+            {
+                _HandleLoginRsp(payload);
+                return;
+            }
+
+            DELogger.Warn(
+                LogTag,
+                "Ignore unexpected message during auth flow, messageId=" + header.MessageId + ", state=" + _State + ".");
+        }
+
+        private void _HandleHandShakeRsp(byte[] payload)
+        {
+            if (_CurrentAccountInfo == null)
+            {
                 return;
             }
 
             if (_State != AuthState.HandShaking)
             {
-                DELogger.Warn(LogTag, "Ignore handshake response because auth system is not in handshaking state.");
+                DELogger.Warn(
+                    LogTag,
+                    "Ignore handshake response because auth system is not in handshaking state, state=" + _State + ".");
                 return;
             }
 
@@ -385,10 +405,50 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
+            _State = AuthState.LoggingIn;
+            DELogger.Info(
+                LogTag,
+                "Auth handshake succeeded, sending LoginReq, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ".");
+            NetworkManager.Instance.Send(_BuildLoginReqFrame(_CurrentAccountInfo.Account));
+        }
+
+        private void _HandleLoginRsp(byte[] payload)
+        {
+            if (_CurrentAccountInfo == null)
+            {
+                return;
+            }
+
+            if (_State != AuthState.LoggingIn && _State != AuthState.Authenticated)
+            {
+                DELogger.Warn(LogTag, "Ignore login response because auth system is not logging in, state=" + _State + ".");
+                return;
+            }
+
+            MessageDef.LoginRsp loginRsp;
+            if (!MessageDef.LoginRsp.TryDeserialize(payload, 0, payload.Length, out loginRsp))
+            {
+                _FailAuth("Received invalid login response payload.");
+                return;
+            }
+
+            if (!loginRsp.IsSuccess)
+            {
+                _FailAuth("Login failed, statusCode=" + loginRsp.StatusCode + ", error=" + loginRsp.Error + ".");
+                return;
+            }
+
+            if (loginRsp.AvatarId == Guid.Empty)
+            {
+                _FailAuth("Login failed because avatar id is empty.");
+                return;
+            }
+
+            _CurrentAccountInfo.AvatarId = loginRsp.AvatarId;
             _State = AuthState.Authenticated;
             DELogger.Info(
                 LogTag,
-                "Auth handshake succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ".");
+                "Login succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ", avatarId=" + _CurrentAccountInfo.AvatarId + ".");
         }
 
         private byte[] _BuildClientHandShakeFrame(ulong sessionId)
@@ -400,6 +460,21 @@ namespace Assets.Scripts.DE.Client.Framework
 
             byte[] payload = handShakeMessage.Serialize();
             byte[] header = MessageDef.Header.CreateClient((uint)MessageDef.MessageID.CS.HandShakeReq, (uint)payload.Length).Serialize();
+            byte[] frame = new byte[header.Length + payload.Length];
+            Buffer.BlockCopy(header, 0, frame, 0, header.Length);
+            Buffer.BlockCopy(payload, 0, frame, header.Length, payload.Length);
+            return frame;
+        }
+
+        private byte[] _BuildLoginReqFrame(string account)
+        {
+            MessageDef.LoginReq loginReq = new MessageDef.LoginReq();
+            loginReq.Version = MessageDef.LoginReq.CurrentVersion;
+            loginReq.Reserved = 0;
+            loginReq.Account = account ?? string.Empty;
+
+            byte[] payload = loginReq.Serialize();
+            byte[] header = MessageDef.Header.CreateClient((uint)MessageDef.MessageID.CS.LoginReq, (uint)payload.Length).Serialize();
             byte[] frame = new byte[header.Length + payload.Length];
             Buffer.BlockCopy(header, 0, frame, 0, header.Length);
             Buffer.BlockCopy(payload, 0, frame, header.Length, payload.Length);

@@ -53,6 +53,32 @@ namespace de::server::engine
 	void GateServer::Init()
 	{
 		ServerBase::Init();
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService != nullptr)
+		{
+			managedRuntimeService->SetCreateAvatarReqSender(
+				[this](const std::string& targetServerId, const network::GuidBytes& avatarId)
+				{
+					network::CreateAvatarReqMessage message;
+					message.avatarId = avatarId;
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::CreateAvatarReq),
+						message.Serialize()
+					);
+				}
+			);
+			managedRuntimeService->SetAvatarLoginRspSender(
+				[this](std::uint64_t clientSessionId, const network::LoginRspMessage& message)
+				{
+					return SendLoginRspToClient(
+						static_cast<network::ClientNetworkSession::SessionId>(clientSessionId),
+						message.Serialize()
+					);
+				}
+			);
+		}
+
 		InitHttp();
 		ConnectToGm();
 		StartHeartbeatTimer();
@@ -66,6 +92,14 @@ namespace de::server::engine
 		gmSessionId_.reset();
 		openGateReceived_ = false;
 		UninitClientNetwork();
+
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService != nullptr)
+		{
+			managedRuntimeService->SetCreateAvatarReqSender({});
+			managedRuntimeService->SetAvatarLoginRspSender({});
+		}
+
 		UninitHttp();
 		ServerBase::Uninit();
 	}
@@ -94,15 +128,16 @@ namespace de::server::engine
 
 	void GateServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
-		(void)serverId;
-		(void)data;
-
 		switch (static_cast<network::MessageID::SS>(messageId))
 		{
 		case network::MessageID::SS::OpenGateNtf:
 			openGateReceived_ = true;
 			InitClientNetwork();
 			Logger::Info("GateServer", "Received OpenGateNtf and opened client network.");
+			return;
+
+		case network::MessageID::SS::CreateAvatarRsp:
+			HandleCreateAvatarRsp(serverId, data);
 			return;
 
 		default:
@@ -231,11 +266,83 @@ namespace de::server::engine
 			+ ", messageId=" + std::to_string(messageId)
 			+ ", payload=" + std::to_string(data.size())
 		);
+
+		if (messageId != static_cast<std::uint32_t>(network::MessageID::CS::LoginReq))
+		{
+			Logger::Warn("GateServer", "Unhandled client messageId=" + std::to_string(messageId) + ".");
+			return;
+		}
+
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService == nullptr)
+		{
+			Logger::Warn("GateServer", "Managed runtime is not available for client message.");
+			return;
+		}
+
+		network::LoginReqMessage loginReq;
+		if (!network::LoginReqMessage::TryDeserialize(data.data(), data.size(), loginReq))
+		{
+			Logger::Warn("GateServer", "Received invalid LoginReq payload.");
+			return;
+		}
+
+		if (!managedRuntimeService->HandleAvatarLoginReq(sessionId, loginReq.account))
+		{
+			Logger::Warn("GateServer", "Failed to handle AvatarLoginReq in managed runtime.");
+			return;
+		}
 	}
 
 	void GateServer::OnClientDisconnect(network::ClientNetworkSession::SessionId sessionId)
 	{
 		Logger::Info("GateServer", "Client session disconnected: " + std::to_string(sessionId));
+	}
+
+	void GateServer::HandleCreateAvatarRsp(const std::string& serverId, const std::vector<std::byte>& data)
+	{
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService == nullptr)
+		{
+			Logger::Warn("GateServer", "Managed runtime is not available for CreateAvatarRsp.");
+			return;
+		}
+
+		network::CreateAvatarRspMessage createAvatarRsp;
+		if (!network::CreateAvatarRspMessage::TryDeserialize(data.data(), data.size(), createAvatarRsp))
+		{
+			Logger::Warn("GateServer", "Received invalid CreateAvatarRsp payload.");
+			return;
+		}
+
+		if (!managedRuntimeService->HandleCreateAvatarRsp(
+			serverId,
+			createAvatarRsp.avatarId,
+			createAvatarRsp.isSuccess,
+			createAvatarRsp.statusCode,
+			createAvatarRsp.error
+		))
+		{
+			Logger::Warn("GateServer", "Failed to handle CreateAvatarRsp in managed runtime.");
+			return;
+		}
+	}
+
+	bool GateServer::SendLoginRspToClient(network::ClientNetworkSession::SessionId sessionId, const std::vector<std::byte>& payload)
+	{
+		if (clientNetwork_ == nullptr)
+		{
+			Logger::Warn("GateServer", "Cannot send LoginRsp because client network is not available.");
+			return false;
+		}
+
+		if (!clientNetwork_->Send(sessionId, static_cast<std::uint32_t>(network::MessageID::CS::LoginRsp), payload))
+		{
+			Logger::Warn("GateServer", "Failed to send LoginRsp to client session " + std::to_string(sessionId) + ".");
+			return false;
+		}
+
+		return true;
 	}
 
 	void GateServer::ConnectToGm()

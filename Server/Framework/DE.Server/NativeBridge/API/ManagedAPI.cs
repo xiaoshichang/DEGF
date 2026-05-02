@@ -87,6 +87,18 @@ namespace DE.Server.NativeBridge
                 .ToList();
         }
 
+        private static Guid _ReadGuidFromNative(IntPtr value)
+        {
+            if (value == IntPtr.Zero)
+            {
+                return Guid.Empty;
+            }
+
+            var bytes = new byte[16];
+            Marshal.Copy(value, bytes, 0, bytes.Length);
+            return new Guid(bytes);
+        }
+
         private static int _WritePayloadToNative(byte[] payload, IntPtr outputBuffer, int outputBufferSizeBytes)
         {
             if (payload == null)
@@ -234,6 +246,95 @@ namespace DE.Server.NativeBridge
             catch (Exception exception)
             {
                 _LogManagedEntryException(nameof(ValidateGateAuthNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleAvatarLoginReqNative(
+            ulong clientSessionId,
+            IntPtr account
+        )
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var accountText = account == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(account) ?? string.Empty;
+                return ManagedRuntimeState
+                    .RequireCurrentGateServerRuntimeState()
+                    .HandleAvatarLoginReq(clientSessionId, accountText) ? 0 : -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleAvatarLoginReqNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleCreateAvatarReqNative(
+            IntPtr sourceServerId,
+            IntPtr avatarId
+        )
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var sourceServerIdText = sourceServerId == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(sourceServerId) ?? string.Empty;
+                var avatarGuid = _ReadGuidFromNative(avatarId);
+                return ManagedRuntimeState
+                    .RequireCurrentGameServerRuntimeState()
+                    .HandleCreateAvatarReq(sourceServerIdText, avatarGuid) ? 0 : -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleCreateAvatarReqNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleCreateAvatarRspNative(
+            IntPtr sourceServerId,
+            IntPtr avatarId,
+            int isSuccess,
+            int statusCode,
+            IntPtr error
+        )
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var sourceServerIdText = sourceServerId == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(sourceServerId) ?? string.Empty;
+                var avatarGuid = _ReadGuidFromNative(avatarId);
+                var errorText = error == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(error) ?? string.Empty;
+                return ManagedRuntimeState
+                    .RequireCurrentGateServerRuntimeState()
+                    .HandleCreateAvatarRsp(sourceServerIdText, avatarGuid, isSuccess != 0, statusCode, errorText) ? 0 : -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleCreateAvatarRspNative), exception);
                 return -2;
             }
         }

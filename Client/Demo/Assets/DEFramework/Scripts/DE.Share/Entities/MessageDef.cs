@@ -1,5 +1,8 @@
 namespace Assets.Scripts.DE.Share
 {
+    using System;
+    using System.Text;
+
     public static class MessageDef
     {
         public static class MessageID
@@ -13,6 +16,8 @@ namespace Assets.Scripts.DE.Share
                 HandShakeReq = 0x00010001u,
                 HandShakeRsp = 0x00010002u,
                 HeartBeatNtf = 0x00010003u,
+                LoginReq = 0x00010004u,
+                LoginRsp = 0x00010005u,
             }
 
             public enum SS : uint
@@ -23,6 +28,8 @@ namespace Assets.Scripts.DE.Share
                 AllNodeReadyNtf = 0x00020004u,
                 GameReadyNtf = 0x00020005u,
                 OpenGateNtf = 0x00020006u,
+                CreateAvatarReq = 0x00020007u,
+                CreateAvatarRsp = 0x00020008u,
             }
 
             public static bool IsCS(uint messageId)
@@ -158,6 +165,235 @@ namespace Assets.Scripts.DE.Share
                     return false;
                 }
 
+                message = parsed;
+                return true;
+            }
+        }
+
+        public struct LoginReq
+        {
+            public const ushort CurrentVersion = 1;
+            public const int FixedWireSize = 6;
+
+            public ushort Version;
+            public ushort Reserved;
+            public string Account;
+
+            public byte[] Serialize()
+            {
+                byte[] accountBytes = string.IsNullOrEmpty(Account) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(Account);
+                if (accountBytes.Length > ushort.MaxValue)
+                {
+                    throw new InvalidOperationException("LoginReq account is too long.");
+                }
+
+                byte[] bytes = new byte[FixedWireSize + accountBytes.Length];
+                WriteUInt16BigEndian(bytes, 0, Version);
+                WriteUInt16BigEndian(bytes, 2, Reserved);
+                WriteUInt16BigEndian(bytes, 4, (ushort)accountBytes.Length);
+                if (accountBytes.Length > 0)
+                {
+                    Buffer.BlockCopy(accountBytes, 0, bytes, FixedWireSize, accountBytes.Length);
+                }
+
+                return bytes;
+            }
+
+            public static bool TryDeserialize(byte[] data, int offset, int dataSize, out LoginReq message)
+            {
+                message = default(LoginReq);
+                if (data == null || offset < 0 || dataSize < FixedWireSize || data.Length - offset < dataSize)
+                {
+                    return false;
+                }
+
+                LoginReq parsed = default(LoginReq);
+                parsed.Version = ReadUInt16BigEndian(data, offset);
+                parsed.Reserved = ReadUInt16BigEndian(data, offset + 2);
+                int accountLength = ReadUInt16BigEndian(data, offset + 4);
+                if (parsed.Version != CurrentVersion || dataSize != FixedWireSize + accountLength)
+                {
+                    return false;
+                }
+
+                parsed.Account = accountLength == 0
+                    ? string.Empty
+                    : Encoding.UTF8.GetString(data, offset + FixedWireSize, accountLength);
+                message = parsed;
+                return true;
+            }
+        }
+
+        public struct LoginRsp
+        {
+            public const ushort CurrentVersion = 1;
+            public const int FixedWireSize = 26;
+
+            public ushort Version;
+            public bool IsSuccess;
+            public byte Reserved;
+            public int StatusCode;
+            public Guid AvatarId;
+            public string Error;
+
+            public byte[] Serialize()
+            {
+                byte[] errorBytes = string.IsNullOrEmpty(Error) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(Error);
+                if (errorBytes.Length > ushort.MaxValue)
+                {
+                    throw new InvalidOperationException("LoginRsp error is too long.");
+                }
+
+                byte[] bytes = new byte[FixedWireSize + errorBytes.Length];
+                WriteUInt16BigEndian(bytes, 0, Version);
+                bytes[2] = IsSuccess ? (byte)1 : (byte)0;
+                bytes[3] = Reserved;
+                WriteUInt32BigEndian(bytes, 4, unchecked((uint)StatusCode));
+                byte[] avatarBytes = AvatarId.ToByteArray();
+                Buffer.BlockCopy(avatarBytes, 0, bytes, 8, avatarBytes.Length);
+                WriteUInt16BigEndian(bytes, 24, (ushort)errorBytes.Length);
+                if (errorBytes.Length > 0)
+                {
+                    Buffer.BlockCopy(errorBytes, 0, bytes, FixedWireSize, errorBytes.Length);
+                }
+
+                return bytes;
+            }
+
+            public static bool TryDeserialize(byte[] data, int offset, int dataSize, out LoginRsp message)
+            {
+                message = default(LoginRsp);
+                if (data == null || offset < 0 || dataSize < FixedWireSize || data.Length - offset < dataSize)
+                {
+                    return false;
+                }
+
+                LoginRsp parsed = default(LoginRsp);
+                parsed.Version = ReadUInt16BigEndian(data, offset);
+                parsed.IsSuccess = data[offset + 2] != 0;
+                parsed.Reserved = data[offset + 3];
+                parsed.StatusCode = unchecked((int)ReadUInt32BigEndian(data, offset + 4));
+                byte[] avatarBytes = new byte[16];
+                Buffer.BlockCopy(data, offset + 8, avatarBytes, 0, avatarBytes.Length);
+                parsed.AvatarId = new Guid(avatarBytes);
+                int errorLength = ReadUInt16BigEndian(data, offset + 24);
+                if (parsed.Version != CurrentVersion || dataSize != FixedWireSize + errorLength)
+                {
+                    return false;
+                }
+
+                parsed.Error = errorLength == 0
+                    ? string.Empty
+                    : Encoding.UTF8.GetString(data, offset + FixedWireSize, errorLength);
+                message = parsed;
+                return true;
+            }
+        }
+
+        public struct CreateAvatarReq
+        {
+            public const ushort CurrentVersion = 1;
+            public const int WireSize = 20;
+
+            public ushort Version;
+            public ushort Reserved;
+            public Guid AvatarId;
+
+            public byte[] Serialize()
+            {
+                byte[] bytes = new byte[WireSize];
+                WriteUInt16BigEndian(bytes, 0, Version);
+                WriteUInt16BigEndian(bytes, 2, Reserved);
+                byte[] avatarBytes = AvatarId.ToByteArray();
+                Buffer.BlockCopy(avatarBytes, 0, bytes, 4, avatarBytes.Length);
+                return bytes;
+            }
+
+            public static bool TryDeserialize(byte[] data, int offset, int dataSize, out CreateAvatarReq message)
+            {
+                message = default(CreateAvatarReq);
+                if (data == null || offset < 0 || dataSize != WireSize || data.Length - offset < WireSize)
+                {
+                    return false;
+                }
+
+                CreateAvatarReq parsed = default(CreateAvatarReq);
+                parsed.Version = ReadUInt16BigEndian(data, offset);
+                parsed.Reserved = ReadUInt16BigEndian(data, offset + 2);
+                byte[] avatarBytes = new byte[16];
+                Buffer.BlockCopy(data, offset + 4, avatarBytes, 0, avatarBytes.Length);
+                parsed.AvatarId = new Guid(avatarBytes);
+                if (parsed.Version != CurrentVersion || parsed.AvatarId == Guid.Empty)
+                {
+                    return false;
+                }
+
+                message = parsed;
+                return true;
+            }
+        }
+
+        public struct CreateAvatarRsp
+        {
+            public const ushort CurrentVersion = 1;
+            public const int FixedWireSize = 26;
+
+            public ushort Version;
+            public bool IsSuccess;
+            public byte Reserved;
+            public int StatusCode;
+            public Guid AvatarId;
+            public string Error;
+
+            public byte[] Serialize()
+            {
+                byte[] errorBytes = string.IsNullOrEmpty(Error) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(Error);
+                if (errorBytes.Length > ushort.MaxValue)
+                {
+                    throw new InvalidOperationException("CreateAvatarRsp error is too long.");
+                }
+
+                byte[] bytes = new byte[FixedWireSize + errorBytes.Length];
+                WriteUInt16BigEndian(bytes, 0, Version);
+                bytes[2] = IsSuccess ? (byte)1 : (byte)0;
+                bytes[3] = Reserved;
+                WriteUInt32BigEndian(bytes, 4, unchecked((uint)StatusCode));
+                byte[] avatarBytes = AvatarId.ToByteArray();
+                Buffer.BlockCopy(avatarBytes, 0, bytes, 8, avatarBytes.Length);
+                WriteUInt16BigEndian(bytes, 24, (ushort)errorBytes.Length);
+                if (errorBytes.Length > 0)
+                {
+                    Buffer.BlockCopy(errorBytes, 0, bytes, FixedWireSize, errorBytes.Length);
+                }
+
+                return bytes;
+            }
+
+            public static bool TryDeserialize(byte[] data, int offset, int dataSize, out CreateAvatarRsp message)
+            {
+                message = default(CreateAvatarRsp);
+                if (data == null || offset < 0 || dataSize < FixedWireSize || data.Length - offset < dataSize)
+                {
+                    return false;
+                }
+
+                CreateAvatarRsp parsed = default(CreateAvatarRsp);
+                parsed.Version = ReadUInt16BigEndian(data, offset);
+                parsed.IsSuccess = data[offset + 2] != 0;
+                parsed.Reserved = data[offset + 3];
+                parsed.StatusCode = unchecked((int)ReadUInt32BigEndian(data, offset + 4));
+                byte[] avatarBytes = new byte[16];
+                Buffer.BlockCopy(data, offset + 8, avatarBytes, 0, avatarBytes.Length);
+                parsed.AvatarId = new Guid(avatarBytes);
+                int errorLength = ReadUInt16BigEndian(data, offset + 24);
+                if (parsed.Version != CurrentVersion || dataSize != FixedWireSize + errorLength)
+                {
+                    return false;
+                }
+
+                parsed.Error = errorLength == 0
+                    ? string.Empty
+                    : Encoding.UTF8.GetString(data, offset + FixedWireSize, errorLength);
                 message = parsed;
                 return true;
             }

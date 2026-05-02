@@ -22,6 +22,7 @@ namespace DE.Server.NativeBridge
         public Type AvatarType { get; private set; }
         public Type NpcType { get; private set; }
         public Type SpaceType { get; private set; }
+        public Dictionary<Guid, AvatarEntity> Avatars { get; } = new Dictionary<Guid, AvatarEntity>();
 
         public void HandleAllNodeReady(ServerStubDistributeTable table)
         {
@@ -81,10 +82,39 @@ namespace DE.Server.NativeBridge
         {
             ReadyStubs.Clear();
             StubInstances.Clear();
+            Avatars.Clear();
             StubDistributeTable = new ServerStubDistributeTable();
             AvatarType = null;
             NpcType = null;
             SpaceType = null;
+        }
+
+        public bool HandleCreateAvatarReq(string sourceServerId, Guid avatarId)
+        {
+            var result = CreateAvatarLocal(avatarId);
+            return NativeAPI.SendCreateAvatarRsp(
+                sourceServerId,
+                avatarId,
+                result.IsSuccess,
+                result.StatusCode,
+                result.Error
+            );
+        }
+
+        public bool CreateAvatarRemote(Guid avatarId)
+        {
+            var gameServerId = _managedRuntimeState.SelectGameServerId(avatarId);
+            if (string.IsNullOrWhiteSpace(gameServerId))
+            {
+                return false;
+            }
+
+            if (string.Equals(gameServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
+            {
+                return CreateAvatarLocal(avatarId).IsSuccess;
+            }
+
+            return NativeAPI.SendCreateAvatarReq(gameServerId, avatarId);
         }
 
         private void CreateStub(string stubTypeKey)
@@ -108,6 +138,43 @@ namespace DE.Server.NativeBridge
 
             StubInstances[stubType] = stubEntity;
             stubEntity.InitStub();
+        }
+
+        private CreateAvatarResult CreateAvatarLocal(Guid avatarId)
+        {
+            if (Avatars.ContainsKey(avatarId))
+            {
+                return new CreateAvatarResult(true, 200, string.Empty);
+            }
+
+            var avatar = Activator.CreateInstance(AvatarType) as AvatarEntity;
+            if (avatar == null)
+            {
+                return new CreateAvatarResult(false, 500, "failed to create avatar entity");
+            }
+
+            avatar.Guid = avatarId;
+            Avatars[avatarId] = avatar;
+
+            DELogger.Info(
+                nameof(GameServerRuntimeState),
+                $"Created avatar entity, avatarId={avatarId}, avatarType={AvatarType.FullName}."
+            );
+            return new CreateAvatarResult(true, 200, string.Empty);
+        }
+
+        private readonly struct CreateAvatarResult
+        {
+            public CreateAvatarResult(bool isSuccess, int statusCode, string error)
+            {
+                IsSuccess = isSuccess;
+                StatusCode = statusCode;
+                Error = error ?? string.Empty;
+            }
+
+            public bool IsSuccess { get; }
+            public int StatusCode { get; }
+            public string Error { get; }
         }
 
         private void NotifyIfAllAssignedStubsReady(IReadOnlyCollection<string> assignedStubTypeKeys)

@@ -60,6 +60,28 @@ namespace de::server::engine
 					OnManagedGameServerReady();
 				}
 			);
+			managedRuntimeService->SetCreateAvatarReqSender(
+				[this](const std::string& targetServerId, const network::GuidBytes& avatarId)
+				{
+					network::CreateAvatarReqMessage message;
+					message.avatarId = avatarId;
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::CreateAvatarReq),
+						message.Serialize()
+					);
+				}
+			);
+			managedRuntimeService->SetCreateAvatarRspSender(
+				[this](const std::string& targetServerId, const network::CreateAvatarRspMessage& message)
+				{
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::CreateAvatarRsp),
+						message.Serialize()
+					);
+				}
+			);
 		}
 
 		ConnectToGm();
@@ -77,6 +99,8 @@ namespace de::server::engine
 		if (managedRuntimeService != nullptr)
 		{
 			managedRuntimeService->SetGameServerReadyCallback({});
+			managedRuntimeService->SetCreateAvatarReqSender({});
+			managedRuntimeService->SetCreateAvatarRspSender({});
 		}
 
 		ServerBase::Uninit();
@@ -105,8 +129,6 @@ namespace de::server::engine
 
 	void GameServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
 	{
-		(void)serverId;
-
 		switch (static_cast<network::MessageID::SS>(messageId))
 		{
 		case network::MessageID::SS::AllNodeReadyNtf:
@@ -120,6 +142,10 @@ namespace de::server::engine
 			}
 
 			ConnectToAllGates();
+			return;
+
+		case network::MessageID::SS::CreateAvatarReq:
+			HandleCreateAvatarReq(serverId, data);
 			return;
 
 		default:
@@ -238,6 +264,29 @@ namespace de::server::engine
 		managedStubsReady_ = true;
 		Logger::Info("GameServer", "Managed stubs are ready.");
 		TryNotifyGameReady();
+	}
+
+	void GameServer::HandleCreateAvatarReq(const std::string& serverId, const std::vector<std::byte>& data)
+	{
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService == nullptr)
+		{
+			Logger::Warn("GameServer", "Managed runtime is not available for CreateAvatarReq.");
+			return;
+		}
+
+		network::CreateAvatarReqMessage createAvatarReq;
+		if (!network::CreateAvatarReqMessage::TryDeserialize(data.data(), data.size(), createAvatarReq))
+		{
+			Logger::Warn("GameServer", "Received invalid CreateAvatarReq payload.");
+			return;
+		}
+
+		if (!managedRuntimeService->HandleCreateAvatarReq(serverId, createAvatarReq.avatarId))
+		{
+			Logger::Warn("GameServer", "Failed to handle CreateAvatarReq in managed runtime.");
+			return;
+		}
 	}
 
 	void GameServer::StartHeartbeatTimer()

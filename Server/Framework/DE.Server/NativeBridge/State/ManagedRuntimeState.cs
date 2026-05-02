@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Text.Json;
 using System.Threading.Tasks;
 using DE.Server.Entities;
 
@@ -141,6 +142,58 @@ namespace DE.Server.NativeBridge
             }
 
             return stubType.AssemblyQualifiedName ?? stubType.FullName ?? stubType.Name;
+        }
+
+        public string SelectGameServerId(Guid avatarId)
+        {
+            var gameServerIds = GetGameServerIds();
+            if (gameServerIds.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var index = (avatarId.GetHashCode() & int.MaxValue) % gameServerIds.Count;
+            return gameServerIds[index];
+        }
+
+        public IReadOnlyList<string> GetGameServerIds()
+        {
+            var gameServerIds = new List<string>();
+            if (string.IsNullOrWhiteSpace(ConfigPath) || !File.Exists(ConfigPath))
+            {
+                return gameServerIds;
+            }
+
+            try
+            {
+                using (var stream = File.OpenRead(ConfigPath))
+                using (var document = JsonDocument.Parse(stream))
+                {
+                    if (!document.RootElement.TryGetProperty("game", out var gameElement)
+                        || gameElement.ValueKind != JsonValueKind.Object)
+                    {
+                        return gameServerIds;
+                    }
+
+                    foreach (var property in gameElement.EnumerateObject())
+                    {
+                        if (!string.IsNullOrWhiteSpace(property.Name))
+                        {
+                            gameServerIds.Add(property.Name);
+                        }
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                DELogger.Warn(
+                    nameof(ManagedRuntimeState),
+                    $"Failed to read game server ids from config {ConfigPath}: {exception.Message}"
+                );
+            }
+
+            gameServerIds.Sort(StringComparer.Ordinal);
+            return gameServerIds;
         }
 
         public bool TryResolveStubType(string stubTypeKey, out Type stubType)

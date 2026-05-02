@@ -9,6 +9,7 @@
 #include <nethost.h>
 
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -41,6 +42,9 @@ namespace de::server::engine
 		constexpr const char_t* kBuildStubDistributePayloadMethodName = DE_HOST_CHAR_LITERAL("BuildStubDistributePayloadNative");
 		constexpr const char_t* kHandleAllNodeReadyMethodName = DE_HOST_CHAR_LITERAL("HandleAllNodeReadyNative");
 		constexpr const char_t* kValidateGateAuthMethodName = DE_HOST_CHAR_LITERAL("ValidateGateAuthNative");
+		constexpr const char_t* kHandleAvatarLoginReqMethodName = DE_HOST_CHAR_LITERAL("HandleAvatarLoginReqNative");
+		constexpr const char_t* kHandleCreateAvatarReqMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarReqNative");
+		constexpr const char_t* kHandleCreateAvatarRspMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarRspNative");
 		constexpr const char_t* kUninitializeMethodName = DE_HOST_CHAR_LITERAL("UninitializeNative");
 
 		std::filesystem::path ResolvePathFromConfig(const std::string& configPath, const std::string& value)
@@ -265,6 +269,108 @@ namespace de::server::engine
 		service->OnManagedGameServerReady();
 	}
 
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendCreateAvatarReq(
+		void* context,
+		const char* targetServerId,
+		const std::uint8_t* avatarId
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || targetServerId == nullptr || avatarId == nullptr || !service->createAvatarReqSender_)
+		{
+			return 0;
+		}
+
+		try
+		{
+			network::GuidBytes guidBytes;
+			std::memcpy(guidBytes.bytes.data(), avatarId, guidBytes.bytes.size());
+			return service->createAvatarReqSender_(targetServerId, guidBytes) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendCreateAvatarReq failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendCreateAvatarReq failed with unknown exception.");
+			return 0;
+		}
+	}
+
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendCreateAvatarRsp(
+		void* context,
+		const char* targetServerId,
+		const std::uint8_t* avatarId,
+		std::int32_t isSuccess,
+		std::int32_t statusCode,
+		const char* error
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || targetServerId == nullptr || avatarId == nullptr || !service->createAvatarRspSender_)
+		{
+			return 0;
+		}
+
+		try
+		{
+			network::CreateAvatarRspMessage message;
+			std::memcpy(message.avatarId.bytes.data(), avatarId, message.avatarId.bytes.size());
+			message.isSuccess = isSuccess != 0;
+			message.statusCode = statusCode;
+			message.error = error == nullptr ? std::string{} : std::string(error);
+			return service->createAvatarRspSender_(targetServerId, message) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendCreateAvatarRsp failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendCreateAvatarRsp failed with unknown exception.");
+			return 0;
+		}
+	}
+
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendAvatarLoginRsp(
+		void* context,
+		std::uint64_t clientSessionId,
+		const std::uint8_t* avatarId,
+		std::int32_t isSuccess,
+		std::int32_t statusCode,
+		const char* error
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || avatarId == nullptr || !service->avatarLoginRspSender_)
+		{
+			return 0;
+		}
+
+		try
+		{
+			network::LoginRspMessage message;
+			std::memcpy(message.avatarId.bytes.data(), avatarId, message.avatarId.bytes.size());
+			message.isSuccess = isSuccess != 0;
+			message.statusCode = statusCode;
+			message.error = error == nullptr ? std::string{} : std::string(error);
+			return service->avatarLoginRspSender_(clientSessionId, message) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendAvatarLoginRsp failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendAvatarLoginRsp failed with unknown exception.");
+			return 0;
+		}
+	}
+
 	std::uint64_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeAddTimer(
 		void* context,
 		std::int64_t delayMilliseconds,
@@ -370,6 +476,9 @@ namespace de::server::engine
 				this,
 				&NativeLog,
 				&ManagedRuntimeService::NativeNotifyGameServerReady,
+				&ManagedRuntimeService::NativeSendCreateAvatarReq,
+				&ManagedRuntimeService::NativeSendCreateAvatarRsp,
+				&ManagedRuntimeService::NativeSendAvatarLoginRsp,
 				&ManagedRuntimeService::NativeAddTimer,
 				&ManagedRuntimeService::NativeCancelTimer
 			}
@@ -532,9 +641,94 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::HandleAvatarLoginReq(std::uint64_t clientSessionId, const std::string& account)
+	{
+		if (!running_ || handleAvatarLoginReqFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleAvatarLoginReqFn_(clientSessionId, account.c_str());
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleAvatarLoginReqNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::HandleCreateAvatarReq(const std::string& sourceServerId, const network::GuidBytes& avatarId)
+	{
+		if (!running_ || handleCreateAvatarReqFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleCreateAvatarReqFn_(
+			sourceServerId.c_str(),
+			avatarId.bytes.data()
+		);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleCreateAvatarReqNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::HandleCreateAvatarRsp(
+		const std::string& sourceServerId,
+		const network::GuidBytes& avatarId,
+		bool isSuccess,
+		std::int32_t statusCode,
+		const std::string& error
+	)
+	{
+		if (!running_ || handleCreateAvatarRspFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleCreateAvatarRspFn_(
+			sourceServerId.c_str(),
+			avatarId.bytes.data(),
+			isSuccess ? 1 : 0,
+			statusCode,
+			error.c_str()
+		);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleCreateAvatarRspNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
 	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
 	{
 		gameServerReadyCallback_ = std::move(callback);
+	}
+
+	void ManagedRuntimeService::SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&)> sender)
+	{
+		createAvatarReqSender_ = std::move(sender);
+	}
+
+	void ManagedRuntimeService::SetCreateAvatarRspSender(
+		std::function<bool(const std::string&, const network::CreateAvatarRspMessage&)> sender
+	)
+	{
+		createAvatarRspSender_ = std::move(sender);
+	}
+
+	void ManagedRuntimeService::SetAvatarLoginRspSender(
+		std::function<bool(std::uint64_t, const network::LoginRspMessage&)> sender
+	)
+	{
+		avatarLoginRspSender_ = std::move(sender);
 	}
 
 	std::uint64_t ManagedRuntimeService::AddManagedTimer(
@@ -732,6 +926,18 @@ namespace de::server::engine
 		bindMethod(kValidateGateAuthMethodName, &validateGateAuthPointer);
 		validateGateAuthFn_ = reinterpret_cast<managed::ManagedValidateGateAuthFn>(validateGateAuthPointer);
 
+		void* handleAvatarLoginReqPointer = nullptr;
+		bindMethod(kHandleAvatarLoginReqMethodName, &handleAvatarLoginReqPointer);
+		handleAvatarLoginReqFn_ = reinterpret_cast<managed::ManagedHandleAvatarLoginReqFn>(handleAvatarLoginReqPointer);
+
+		void* handleCreateAvatarReqPointer = nullptr;
+		bindMethod(kHandleCreateAvatarReqMethodName, &handleCreateAvatarReqPointer);
+		handleCreateAvatarReqFn_ = reinterpret_cast<managed::ManagedHandleCreateAvatarReqFn>(handleCreateAvatarReqPointer);
+
+		void* handleCreateAvatarRspPointer = nullptr;
+		bindMethod(kHandleCreateAvatarRspMethodName, &handleCreateAvatarRspPointer);
+		handleCreateAvatarRspFn_ = reinterpret_cast<managed::ManagedHandleCreateAvatarRspFn>(handleCreateAvatarRspPointer);
+
 		void* uninitializePointer = nullptr;
 		bindMethod(kUninitializeMethodName, &uninitializePointer);
 		uninitializeFn_ = reinterpret_cast<managed::ManagedUninitializeFn>(uninitializePointer);
@@ -743,6 +949,9 @@ namespace de::server::engine
 			|| buildStubDistributePayloadFn_ == nullptr
 			|| handleAllNodeReadyFn_ == nullptr
 			|| validateGateAuthFn_ == nullptr
+			|| handleAvatarLoginReqFn_ == nullptr
+			|| handleCreateAvatarReqFn_ == nullptr
+			|| handleCreateAvatarRspFn_ == nullptr
 			|| uninitializeFn_ == nullptr)
 		{
 			throw std::runtime_error("Managed runtime entrypoints are not bound.");
@@ -764,8 +973,14 @@ namespace de::server::engine
 		buildStubDistributePayloadFn_ = nullptr;
 		handleAllNodeReadyFn_ = nullptr;
 		validateGateAuthFn_ = nullptr;
+		handleAvatarLoginReqFn_ = nullptr;
+		handleCreateAvatarReqFn_ = nullptr;
+		handleCreateAvatarRspFn_ = nullptr;
 		uninitializeFn_ = nullptr;
 		gameServerReadyCallback_ = {};
+		createAvatarReqSender_ = {};
+		createAvatarRspSender_ = {};
+		avatarLoginRspSender_ = {};
 		managedTimerIds_.clear();
 		CloseDynamicLibrary(hostfxrLibraryHandle_);
 		hostfxrLibraryHandle_ = nullptr;

@@ -38,6 +38,8 @@ public:
 		void OnClientConnect(network::ClientNetworkSession::SessionId sessionId);
 		void OnClientReceive(network::ClientNetworkSession::SessionId sessionId, std::uint32_t messageId, const std::vector<std::byte>& data);
 		void OnClientDisconnect(network::ClientNetworkSession::SessionId sessionId);
+		void HandleCreateAvatarRsp(const std::string& serverId, const std::vector<std::byte>& data);
+		bool SendLoginRspToClient(network::ClientNetworkSession::SessionId sessionId, const std::vector<std::byte>& payload);
 		void ConnectToGm();
 		void StartHeartbeatTimer();
 		void StopHeartbeatTimer();

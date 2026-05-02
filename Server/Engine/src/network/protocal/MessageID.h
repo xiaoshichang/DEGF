@@ -15,6 +15,8 @@ namespace de::server::engine::network
 			HandShakeReq = 0x00010001u,
 			HandShakeRsp = 0x00010002u,
 			HeartBeatNtf = 0x00010003u,
+			LoginReq = 0x00010004u,
+			LoginRsp = 0x00010005u,
 		};
 
 		enum class SS : std::uint32_t
@@ -25,6 +27,8 @@ namespace de::server::engine::network
 			AllNodeReadyNtf = 0x00020004u,
 			GameReadyNtf = 0x00020005u,
 			OpenGateNtf = 0x00020006u,
+			CreateAvatarReq = 0x00020007u,
+			CreateAvatarRsp = 0x00020008u,
 		};
 
 		constexpr bool IsCS(std::uint32_t messageId)

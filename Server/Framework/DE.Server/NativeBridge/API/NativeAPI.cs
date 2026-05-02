@@ -12,6 +12,9 @@ namespace DE.Server.NativeBridge
         public IntPtr Context;
         public IntPtr Log;
         public IntPtr NotifyGameServerReady;
+        public IntPtr SendCreateAvatarReq;
+        public IntPtr SendCreateAvatarRsp;
+        public IntPtr SendAvatarLoginRsp;
         public IntPtr AddTimer;
         public IntPtr CancelTimer;
     }
@@ -22,6 +25,33 @@ namespace DE.Server.NativeBridge
     {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void NativeNotifyGameServerReadyDelegate(IntPtr context);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeSendCreateAvatarReqDelegate(
+            IntPtr context,
+            IntPtr targetServerId,
+            IntPtr avatarId
+        );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeSendCreateAvatarRspDelegate(
+            IntPtr context,
+            IntPtr targetServerId,
+            IntPtr avatarId,
+            int isSuccess,
+            int statusCode,
+            IntPtr error
+        );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeSendAvatarLoginRspDelegate(
+            IntPtr context,
+            ulong clientSessionId,
+            IntPtr avatarId,
+            int isSuccess,
+            int statusCode,
+            IntPtr error
+        );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate ulong NativeAddTimerDelegate(
@@ -37,6 +67,9 @@ namespace DE.Server.NativeBridge
 
         private static IntPtr s_context;
         private static NativeNotifyGameServerReadyDelegate s_notifyGameServerReady;
+        private static NativeSendCreateAvatarReqDelegate s_sendCreateAvatarReq;
+        private static NativeSendCreateAvatarRspDelegate s_sendCreateAvatarRsp;
+        private static NativeSendAvatarLoginRspDelegate s_sendAvatarLoginRsp;
         private static NativeAddTimerDelegate s_addTimer;
         private static NativeCancelTimerDelegate s_cancelTimer;
 
@@ -74,6 +107,39 @@ namespace DE.Server.NativeBridge
             {
                 s_cancelTimer = Marshal.GetDelegateForFunctionPointer<NativeCancelTimerDelegate>(nativeApi.CancelTimer);
             }
+
+            if (nativeApi.SendCreateAvatarReq == IntPtr.Zero)
+            {
+                s_sendCreateAvatarReq = null;
+            }
+            else
+            {
+                s_sendCreateAvatarReq = Marshal.GetDelegateForFunctionPointer<NativeSendCreateAvatarReqDelegate>(
+                    nativeApi.SendCreateAvatarReq
+                );
+            }
+
+            if (nativeApi.SendCreateAvatarRsp == IntPtr.Zero)
+            {
+                s_sendCreateAvatarRsp = null;
+            }
+            else
+            {
+                s_sendCreateAvatarRsp = Marshal.GetDelegateForFunctionPointer<NativeSendCreateAvatarRspDelegate>(
+                    nativeApi.SendCreateAvatarRsp
+                );
+            }
+
+            if (nativeApi.SendAvatarLoginRsp == IntPtr.Zero)
+            {
+                s_sendAvatarLoginRsp = null;
+            }
+            else
+            {
+                s_sendAvatarLoginRsp = Marshal.GetDelegateForFunctionPointer<NativeSendAvatarLoginRspDelegate>(
+                    nativeApi.SendAvatarLoginRsp
+                );
+            }
         }
 
         public static void Reset()
@@ -81,6 +147,9 @@ namespace DE.Server.NativeBridge
             DETimer.Reset();
             s_context = IntPtr.Zero;
             s_notifyGameServerReady = null;
+            s_sendCreateAvatarReq = null;
+            s_sendCreateAvatarRsp = null;
+            s_sendAvatarLoginRsp = null;
             s_addTimer = null;
             s_cancelTimer = null;
             DELogger.Reset();
@@ -94,6 +163,105 @@ namespace DE.Server.NativeBridge
             }
 
             s_notifyGameServerReady(s_context);
+        }
+
+        public static bool SendCreateAvatarReq(string targetServerId, Guid avatarId)
+        {
+            if (s_sendCreateAvatarReq == null || string.IsNullOrWhiteSpace(targetServerId))
+            {
+                return false;
+            }
+
+            IntPtr targetServerIdPtr = IntPtr.Zero;
+            IntPtr avatarIdPtr = IntPtr.Zero;
+            try
+            {
+                targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
+                avatarIdPtr = CopyGuidToNative(avatarId);
+                return s_sendCreateAvatarReq(s_context, targetServerIdPtr, avatarIdPtr) != 0;
+            }
+            finally
+            {
+                FreeNative(targetServerIdPtr);
+                FreeNative(avatarIdPtr);
+            }
+        }
+
+        public static bool SendCreateAvatarRsp(string targetServerId, Guid avatarId, bool isSuccess, int statusCode, string error)
+        {
+            if (s_sendCreateAvatarRsp == null || string.IsNullOrWhiteSpace(targetServerId))
+            {
+                return false;
+            }
+
+            IntPtr targetServerIdPtr = IntPtr.Zero;
+            IntPtr avatarIdPtr = IntPtr.Zero;
+            IntPtr errorPtr = IntPtr.Zero;
+            try
+            {
+                targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
+                avatarIdPtr = CopyGuidToNative(avatarId);
+                errorPtr = Marshal.StringToCoTaskMemUTF8(error ?? string.Empty);
+                return s_sendCreateAvatarRsp(
+                    s_context,
+                    targetServerIdPtr,
+                    avatarIdPtr,
+                    isSuccess ? 1 : 0,
+                    statusCode,
+                    errorPtr
+                ) != 0;
+            }
+            finally
+            {
+                FreeNative(targetServerIdPtr);
+                FreeNative(avatarIdPtr);
+                FreeNative(errorPtr);
+            }
+        }
+
+        public static bool SendAvatarLoginRsp(ulong clientSessionId, Guid avatarId, bool isSuccess, int statusCode, string error)
+        {
+            if (s_sendAvatarLoginRsp == null)
+            {
+                return false;
+            }
+
+            IntPtr avatarIdPtr = IntPtr.Zero;
+            IntPtr errorPtr = IntPtr.Zero;
+            try
+            {
+                avatarIdPtr = CopyGuidToNative(avatarId);
+                errorPtr = Marshal.StringToCoTaskMemUTF8(error ?? string.Empty);
+                return s_sendAvatarLoginRsp(
+                    s_context,
+                    clientSessionId,
+                    avatarIdPtr,
+                    isSuccess ? 1 : 0,
+                    statusCode,
+                    errorPtr
+                ) != 0;
+            }
+            finally
+            {
+                FreeNative(avatarIdPtr);
+                FreeNative(errorPtr);
+            }
+        }
+
+        private static IntPtr CopyGuidToNative(Guid guid)
+        {
+            var bytes = guid.ToByteArray();
+            var ptr = Marshal.AllocCoTaskMem(bytes.Length);
+            Marshal.Copy(bytes, 0, ptr, bytes.Length);
+            return ptr;
+        }
+
+        private static void FreeNative(IntPtr ptr)
+        {
+            if (ptr != IntPtr.Zero)
+            {
+                Marshal.FreeCoTaskMem(ptr);
+            }
         }
 
         internal static ulong AddTimer(long delayMilliseconds, bool repeat, IntPtr callback, IntPtr state)

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
+import shutil
 from pathlib import Path
 
 
@@ -18,6 +20,12 @@ DEFAULT_EXE_CANDIDATES = (
 )
 DEFAULT_PROCESS_KEYWORD = "DEServer"
 GM_SERVER_ID = "GM"
+WINDOW_LAYOUT_ROWS = 2
+WINDOW_LAYOUT_COLUMNS = 3
+
+
+def make_window_title(server_id: str) -> str:
+    return f"DEGF-{server_id}"
 
 
 def resolve_default_exe_path() -> Path:
@@ -51,6 +59,115 @@ def load_server_ids(config_path: Path) -> list[str]:
     server_ids.extend(data.get("gate", {}).keys())
     server_ids.extend(data.get("game", {}).keys())
     return server_ids
+
+
+def arrange_windows_with_powershell(server_ids: list[str]) -> None:
+    if sys.platform != "win32":
+        return
+
+    script = r"""
+Add-Type @"
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class Win32WindowTools {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll")]
+    public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int nIndex);
+
+    public static string GetTitle(IntPtr hWnd) {
+        int length = GetWindowTextLength(hWnd);
+        if (length <= 0) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder(length + 1);
+        GetWindowText(hWnd, builder, builder.Capacity);
+        return builder.ToString();
+    }
+
+    public static IntPtr FindWindowByTitle(string title) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam) {
+            if (!IsWindowVisible(hWnd)) {
+                return true;
+            }
+
+            string windowTitle = GetTitle(hWnd);
+            if (windowTitle.Equals(title, StringComparison.OrdinalIgnoreCase) || windowTitle.Contains(title)) {
+                found = hWnd;
+                return false;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+}
+"@
+$layout = $env:DEGF_WINDOW_LAYOUT | ConvertFrom-Json
+$rows = [int]$env:DEGF_WINDOW_ROWS
+$columns = [int]$env:DEGF_WINDOW_COLUMNS
+$screenWidth = [Win32WindowTools]::GetSystemMetrics(0)
+$screenHeight = [Win32WindowTools]::GetSystemMetrics(1)
+$cellWidth = [Math]::Max(320, [Math]::Floor($screenWidth / $columns))
+$cellHeight = [Math]::Max(240, [Math]::Floor($screenHeight / $rows))
+foreach ($entry in $layout) {
+    $hWnd = [IntPtr]::Zero
+    for ($attempt = 0; $attempt -lt 80; $attempt++) {
+        $hWnd = [Win32WindowTools]::FindWindowByTitle($entry.title)
+        if ($hWnd -ne [IntPtr]::Zero) {
+            break
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    if ($hWnd -eq [IntPtr]::Zero) {
+        Write-Warning ("Failed to find window for {0}: {1}" -f $entry.serverId, $entry.title)
+        continue
+    }
+
+    $row = [Math]::Floor($entry.index / $columns)
+    $column = $entry.index % $columns
+    [Win32WindowTools]::MoveWindow(
+        $hWnd,
+        [int]($column * $cellWidth),
+        [int]($row * $cellHeight),
+        [int]$cellWidth,
+        [int]$cellHeight,
+        $true
+    ) | Out-Null
+}
+"""
+    env = dict(**os.environ)
+    env["DEGF_WINDOW_LAYOUT"] = json.dumps(
+        [
+            {"serverId": server_id, "title": make_window_title(server_id), "index": index}
+            for index, server_id in enumerate(server_ids)
+        ]
+    )
+    env["DEGF_WINDOW_ROWS"] = str(WINDOW_LAYOUT_ROWS)
+    env["DEGF_WINDOW_COLUMNS"] = str(WINDOW_LAYOUT_COLUMNS)
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
 
 
 def list_matching_processes(keyword: str) -> list[dict[str, str | int]]:
@@ -146,14 +263,31 @@ def start_cluster(config_path: Path, exe_path: Path) -> None:
     started_processes: list[subprocess.Popen[str]] = []
     try:
         for server_id in server_ids:
-            popen_kwargs: dict[str, object] = {
-                "args": [str(exe_path), str(config_path), server_id],
-                "cwd": str(ENGINE_DIR),
-            }
+            title = make_window_title(server_id)
+            popen_kwargs: dict[str, object] = {"cwd": str(ENGINE_DIR)}
 
             if sys.platform == "win32":
-                detached_flags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
-                popen_kwargs["creationflags"] = detached_flags
+                command = f'title {title} & "{exe_path}" "{config_path}" "{server_id}"'
+                wt_path = shutil.which("wt.exe")
+                if wt_path:
+                    popen_kwargs["args"] = [
+                        wt_path,
+                        "--window",
+                        "new",
+                        "new-tab",
+                        "--title",
+                        title,
+                        "--startingDirectory",
+                        str(ENGINE_DIR),
+                        "cmd.exe",
+                        "/k",
+                        command,
+                    ]
+                else:
+                    popen_kwargs["args"] = ["cmd.exe", "/k", command]
+                    popen_kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+            else:
+                popen_kwargs["args"] = [str(exe_path), str(config_path), server_id]
                 popen_kwargs["stdin"] = subprocess.DEVNULL
                 popen_kwargs["stdout"] = subprocess.DEVNULL
                 popen_kwargs["stderr"] = subprocess.DEVNULL
@@ -162,8 +296,10 @@ def start_cluster(config_path: Path, exe_path: Path) -> None:
                 **popen_kwargs,
             )
             started_processes.append(process)
-            print(f"Started {server_id} with PID {process.pid}")
+            print(f"Started {server_id} in window {title}")
             time.sleep(0.2)
+
+        arrange_windows_with_powershell(server_ids)
     except Exception:
         for process in started_processes:
             subprocess.run(

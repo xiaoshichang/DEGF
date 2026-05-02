@@ -28,6 +28,27 @@ namespace de::server::engine::config
 			return object.at(key).as_bool();
 		}
 
+		bool GetBoolOrDefault(const json::object& object, std::string_view key, bool defaultValue)
+		{
+			const json::value* value = object.if_contains(key);
+			if (value == nullptr)
+			{
+				return defaultValue;
+			}
+
+			return value->as_bool();
+		}
+
+		bool GetLoggingEnableFile(const json::object& object)
+		{
+			if (const json::value* value = object.if_contains("EnableFile"))
+			{
+				return value->as_bool();
+			}
+
+			return GetBoolOrDefault(object, "enableFile", true);
+		}
+
 		std::uint16_t GetUInt16(const json::object& object, std::string_view key)
 		{
 			return static_cast<std::uint16_t>(json::value_to<std::uint64_t>(object.at(key)));
@@ -124,7 +145,7 @@ namespace de::server::engine::config
 			GetString(root.at("logging").as_object(), "rootDir"),
 			GetString(root.at("logging").as_object(), "minLevel"),
 			GetInt(root.at("logging").as_object(), "flushIntervalMs"),
-			GetBool(root.at("logging").as_object(), "enableConsole"),
+			GetLoggingEnableFile(root.at("logging").as_object()),
 			GetBool(root.at("logging").as_object(), "rotateDaily"),
 			GetInt(root.at("logging").as_object(), "maxFileSizeMB"),
 			GetInt(root.at("logging").as_object(), "maxRetainedFiles")

@@ -170,16 +170,13 @@ namespace de::server::engine
 		logging::add_common_attributes();
 		logging::core::get()->set_filter(logging::trivial::severity >= ParseLogLevel(loggingConfig.minLevel));
 
-		if (loggingConfig.enableConsole)
-		{
-			logging::add_console_log(
-				std::clog,
-				keywords::format = formatter,
-				keywords::auto_flush = true
-			);
-		}
+		logging::add_console_log(
+			std::clog,
+			keywords::format = formatter,
+			keywords::auto_flush = true
+		);
 
-		if (loggingConfig.rotateDaily)
+		if (loggingConfig.enableFile && loggingConfig.rotateDaily)
 		{
 			logging::add_file_log(
 				keywords::file_name = logFile,
@@ -192,7 +189,7 @@ namespace de::server::engine
 				keywords::format = formatter
 			);
 		}
-		else
+		else if (loggingConfig.enableFile)
 		{
 			const auto maxFileSizeBytes = static_cast<std::size_t>(loggingConfig.maxFileSizeMB) * 1024ull * 1024ull;
 			logging::add_file_log(

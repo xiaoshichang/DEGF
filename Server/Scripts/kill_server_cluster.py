@@ -1,10 +1,82 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import time
 
 PROCESS_KEYWORD = "DEServer"
+WINDOW_TITLE_PREFIX = "DEGF-"
+
+
+def close_cluster_windows() -> None:
+    if sys.platform != "win32":
+        return
+
+    powershell = r"""
+Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class Win32WindowTools {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    public static string GetTitle(IntPtr hWnd) {
+        int length = GetWindowTextLength(hWnd);
+        if (length <= 0) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder(length + 1);
+        GetWindowText(hWnd, builder, builder.Capacity);
+        return builder.ToString();
+    }
+}
+"@
+$prefix = $env:DEGF_WINDOW_TITLE_PREFIX
+$script:closed = 0
+[Win32WindowTools]::EnumWindows({
+    param([IntPtr]$hWnd, [IntPtr]$lParam)
+    if (-not [Win32WindowTools]::IsWindowVisible($hWnd)) {
+        return $true
+    }
+
+    $title = [Win32WindowTools]::GetTitle($hWnd)
+    if ($title.Contains($prefix)) {
+        [Win32WindowTools]::PostMessage($hWnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        $script:closed += 1
+    }
+
+    return $true
+}, [IntPtr]::Zero) | Out-Null
+Write-Output $script:closed
+"""
+    completed = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", powershell],
+        env={**os.environ, "DEGF_WINDOW_TITLE_PREFIX": WINDOW_TITLE_PREFIX},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        combined_output = f"{completed.stdout}\n{completed.stderr}".strip()
+        raise RuntimeError(f"Failed to close cluster windows: {combined_output}")
+
+    output = completed.stdout.strip()
+    if output:
+        print(f"Closed {output} cluster window(s)")
+
 
 def list_matching_processes(keyword: str) -> list[dict[str, str | int]]:
     excluded_names = {"powershell.exe", "python.exe", "py.exe", "cmd.exe"}
@@ -98,12 +170,16 @@ def kill_cluster() -> None:
     processes = list_matching_processes(PROCESS_KEYWORD)
     if not processes:
         print(f"No running processes matched keyword: {PROCESS_KEYWORD}")
+        close_cluster_windows()
         return
 
     for entry in processes:
         pid = int(entry["pid"])
         print(f'Stopping {entry["name"]} (PID {pid})')
         kill_pid(pid)
+
+    time.sleep(0.2)
+    close_cluster_windows()
 
 
 def main() -> int:

@@ -76,7 +76,7 @@ void TestBoostLog() {
     loggingConfig.rootDir = logRoot.string();
     loggingConfig.minLevel = "Info";
     loggingConfig.flushIntervalMs = 1000;
-    loggingConfig.enableConsole = false;
+    loggingConfig.enableFile = false;
     loggingConfig.rotateDaily = false;
     loggingConfig.maxFileSizeMB = 8;
     loggingConfig.maxRetainedFiles = 4;
@@ -131,7 +131,7 @@ void TestClusterConfigTelnet() {
     "rootDir": "logs",
     "minLevel": "Info",
     "flushIntervalMs": 1000,
-    "enableConsole": true,
+    "EnableFile": true,
     "rotateDaily": true,
     "maxFileSizeMB": 64,
     "maxRetainedFiles": 10

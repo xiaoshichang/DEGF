@@ -40,7 +40,7 @@ namespace de::server::engine::config
 		std::string rootDir;
 		std::string minLevel;
 		int flushIntervalMs = 0;
-		bool enableConsole = true;
+		bool enableFile = true;
 		bool rotateDaily = false;
 		int maxFileSizeMB = 0;
 		int maxRetainedFiles = 0;

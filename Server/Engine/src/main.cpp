@@ -9,8 +9,22 @@
 #include <memory>
 #include <string>
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 namespace
 {
+	void SetConsoleTitleForServer(const std::string& serverId)
+	{
+#ifdef _WIN32
+		const auto title = "DEGF-" + serverId;
+		::SetConsoleTitleA(title.c_str());
+#else
+		(void)serverId;
+#endif
+	}
+
 	std::unique_ptr<de::server::engine::ServerBase> CreateServer(
 		const de::server::engine::config::ClusterConfig& clusterConfig,
 		const std::string& configPath,
@@ -56,6 +70,7 @@ int main(int argc, char* argv[])
 		{
 			serverId = std::string(de::server::engine::config::GetCanonicalGmServerId());
 		}
+		SetConsoleTitleForServer(serverId);
 
 		const auto clusterConfig = de::server::engine::config::LoadClusterConfig(configPath);
 		de::server::engine::Logger::Init(serverId, clusterConfig.logging);

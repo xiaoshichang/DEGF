@@ -7,7 +7,7 @@
     "rootDir": "../Scripts/logs",
     "minLevel": "Info",
     "flushIntervalMs": 1000,
-    "enableConsole": true,
+    "EnableFile": true,
     "rotateDaily": true,
     "maxFileSizeMB": 64,
     "maxRetainedFiles": 10

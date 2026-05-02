@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>DE.Share.EntityPropertySG</AssemblyName>
@@ -7,8 +7,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <Deterministic>true</Deterministic>
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <NoWarn>$(NoWarn);RS2008</NoWarn>
   </PropertyGroup>
 
@@ -16,16 +14,4 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="3.8.0" PrivateAssets="all" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <UnityPluginOutputDir>$(MSBuildThisFileDirectory)..\..\..\Client\Demo\Assets\Plugins\</UnityPluginOutputDir>
-  </PropertyGroup>
-
-  <Target Name="CopyToUnityPlugins" AfterTargets="Build">
-    <MakeDir Directories="$(UnityPluginOutputDir)" />
-    <Copy
-      SourceFiles="$(TargetPath)"
-      DestinationFiles="$(UnityPluginOutputDir)$(TargetFileName)"
-      SkipUnchangedFiles="true"
-    />
-  </Target>
 </Project>

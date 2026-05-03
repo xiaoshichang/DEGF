@@ -9,7 +9,8 @@ namespace DE.Share.Entities
         ServerOnly = 1 << 0,
         ClientOnly = 1 << 1,
         ClientServer = 1 << 2,
-        Persistent = 1 << 3,
+        AllClients = 1 << 3,
+        Persistent = 1 << 4,
     }
 
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false, Inherited = false)]
@@ -21,6 +22,8 @@ namespace DE.Share.Entities
         }
 
         private readonly EntityPropertyFlag _Flags;
+
+        public EntityPropertyFlag Flags => _Flags;
 
         public bool HasFlag(EntityPropertyFlag flag)
         {

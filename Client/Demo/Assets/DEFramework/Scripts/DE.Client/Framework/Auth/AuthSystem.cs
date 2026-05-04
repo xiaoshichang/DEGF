@@ -76,7 +76,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public void Init()
         {
             _IsInitialized = true;
-            _State = AuthState.Idle;
+            _SetState(AuthState.Idle);
             _ReceiveBuffer.Clear();
             DELogger.Info(LogTag, "AuthSystem initialized.");
         }
@@ -88,7 +88,8 @@ namespace Assets.Scripts.DE.Client.Framework
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
             _CurrentAccountInfo = null;
-            _State = AuthState.Idle;
+            _SetState(AuthState.Idle);
+            _ClearLoginCallbacks();
 
             if (NetworkManager.Instance != null)
             {
@@ -97,23 +98,28 @@ namespace Assets.Scripts.DE.Client.Framework
             DELogger.Info(LogTag, "AuthSystem uninitialized.");
         }
 
-        public void Login(string account, string password)
+        public void Login(
+            string account,
+            string password,
+            Action<AuthState> onStateChanged = null,
+            Action<AuthAccountInfo> onSucceeded = null,
+            Action<string> onFailed = null)
         {
             if (!_IsInitialized)
             {
-                DELogger.Error(LogTag, "Login failed because AuthSystem is not initialized.");
+                _NotifyLoginFailedImmediately(onFailed, "Login failed because AuthSystem is not initialized.");
                 return;
             }
 
             if (NetworkManager.Instance == null)
             {
-                DELogger.Error(LogTag, "Login failed because NetworkManager is not initialized.");
+                _NotifyLoginFailedImmediately(onFailed, "Login failed because NetworkManager is not initialized.");
                 return;
             }
 
             if (IsBusy)
             {
-                DELogger.Warn(LogTag, "Login ignored because auth flow is already in progress.");
+                _NotifyLoginFailedImmediately(onFailed, "Login ignored because auth flow is already in progress.");
                 return;
             }
 
@@ -121,9 +127,13 @@ namespace Assets.Scripts.DE.Client.Framework
             var normalizedPassword = password == null ? string.Empty : password.Trim();
             if (string.IsNullOrEmpty(normalizedAccount) || string.IsNullOrEmpty(normalizedPassword))
             {
-                DELogger.Error(LogTag, "Login failed because account or password is empty.");
+                _NotifyLoginFailedImmediately(onFailed, "Login failed because account or password is empty.");
                 return;
             }
+
+            _PendingStateChangedCallback = onStateChanged;
+            _PendingSucceededCallback = onSucceeded;
+            _PendingFailedCallback = onFailed;
 
             NetworkManager.Instance.Disconnect();
 
@@ -133,12 +143,11 @@ namespace Assets.Scripts.DE.Client.Framework
             _PendingGateConfig = _SelectGateConfig(normalizedAccount);
             if (_PendingGateConfig == null)
             {
-                DELogger.Error(LogTag, "Login failed because no gate config is available.");
-                _State = AuthState.Idle;
+                _FailAuth("Login failed because no gate config is available.");
                 return;
             }
 
-            _State = AuthState.HttpAuthenticating;
+            _SetState(AuthState.HttpAuthenticating);
 
             var requestBody = JsonUtility.ToJson(new AuthHttpRequestDto
             {
@@ -243,7 +252,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 LogTag,
                 "HTTP auth succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ", clientPort=" + _CurrentAccountInfo.ClientPort + ".");
 
-            _State = AuthState.KcpConnecting;
+            _SetState(AuthState.KcpConnecting);
 
             KcpSessionCallback sessionCallback = new KcpSessionCallback();
             sessionCallback.OnRegistered = _OnKcpSessionRegistered;
@@ -263,7 +272,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
-            _State = AuthState.HandShaking;
+            _SetState(AuthState.HandShaking);
 
             byte[] handShakeFrame = _BuildClientHandShakeFrame(_CurrentAccountInfo.SessionId);
             DELogger.Info(
@@ -308,7 +317,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 _CurrentAccountInfo = null;
             }
 
-            _State = AuthState.Idle;
+            _SetState(AuthState.Idle);
         }
 
         private void _TryHandleReceivedFrames()
@@ -408,7 +417,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
-            _State = AuthState.LoggingIn;
+            _SetState(AuthState.LoggingIn);
             DELogger.Info(
                 LogTag,
                 "Auth handshake succeeded, sending LoginReq, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ".");
@@ -468,10 +477,11 @@ namespace Assets.Scripts.DE.Client.Framework
 
             _CurrentAccountInfo.AvatarId = loginRsp.AvatarId;
             _CurrentAccountInfo.Avatar = avatar;
-            _State = AuthState.Authenticated;
+            _SetState(AuthState.Authenticated);
             DELogger.Info(
                 LogTag,
                 "Login succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ", avatarId=" + _CurrentAccountInfo.AvatarId + ".");
+            _NotifyLoginSucceeded(_CurrentAccountInfo);
         }
 
         private byte[] _BuildClientHandShakeFrame(ulong sessionId)
@@ -557,12 +567,101 @@ namespace Assets.Scripts.DE.Client.Framework
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
             _CurrentAccountInfo = null;
-            _State = AuthState.Idle;
+            _SetState(AuthState.Idle);
 
             if (NetworkManager.Instance != null)
             {
                 NetworkManager.Instance.Disconnect();
             }
+
+            _NotifyLoginFailed(message);
+        }
+
+        private void _SetState(AuthState state)
+        {
+            if (_State == state)
+            {
+                return;
+            }
+
+            _State = state;
+            var callback = _PendingStateChangedCallback;
+            if (callback == null)
+            {
+                return;
+            }
+
+            try
+            {
+                callback(state);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        private void _NotifyLoginSucceeded(AuthAccountInfo accountInfo)
+        {
+            var callback = _PendingSucceededCallback;
+            _ClearLoginCallbacks();
+            if (callback == null)
+            {
+                return;
+            }
+
+            try
+            {
+                callback(accountInfo);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        private void _NotifyLoginFailed(string message)
+        {
+            var callback = _PendingFailedCallback;
+            _ClearLoginCallbacks();
+            if (callback == null)
+            {
+                return;
+            }
+
+            try
+            {
+                callback(message);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        private void _NotifyLoginFailedImmediately(Action<string> callback, string message)
+        {
+            DELogger.Error(LogTag, message);
+            if (callback == null)
+            {
+                return;
+            }
+
+            try
+            {
+                callback(message);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        private void _ClearLoginCallbacks()
+        {
+            _PendingStateChangedCallback = null;
+            _PendingSucceededCallback = null;
+            _PendingFailedCallback = null;
         }
 
         private static readonly GateEndpointConfig[] s_DefaultGateConfigs =
@@ -588,6 +687,9 @@ namespace Assets.Scripts.DE.Client.Framework
         private string _PendingAccount = string.Empty;
         private GateEndpointConfig _PendingGateConfig;
         private AuthAccountInfo _CurrentAccountInfo;
+        private Action<AuthState> _PendingStateChangedCallback;
+        private Action<AuthAccountInfo> _PendingSucceededCallback;
+        private Action<string> _PendingFailedCallback;
         private readonly List<byte> _ReceiveBuffer = new List<byte>();
     }
 }

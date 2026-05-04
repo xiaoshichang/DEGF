@@ -60,7 +60,7 @@ namespace de::server::engine::network
 	struct LoginRspMessage
 	{
 		static constexpr std::uint16_t kCurrentVersion = 1;
-		static constexpr std::size_t kFixedWireSize = 26;
+		static constexpr std::size_t kFixedWireSize = 30;
 
 		std::uint16_t version = kCurrentVersion;
 		bool isSuccess = false;
@@ -89,7 +89,7 @@ namespace de::server::engine::network
 	struct CreateAvatarRspMessage
 	{
 		static constexpr std::uint16_t kCurrentVersion = 1;
-		static constexpr std::size_t kFixedWireSize = 26;
+		static constexpr std::size_t kFixedWireSize = 30;
 
 		std::uint16_t version = kCurrentVersion;
 		bool isSuccess = false;

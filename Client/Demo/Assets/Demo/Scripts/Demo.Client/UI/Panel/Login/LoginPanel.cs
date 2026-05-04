@@ -12,9 +12,9 @@ namespace Assets.Scripts.Demo.Client.UI
     {
         protected override void Bind()
         {
-            _AccountInputField = _FindChildComponent<TMP_InputField>(transform, "AccountInputField");
-            _PasswordInputField = _FindChildComponent<TMP_InputField>(transform, "PasswordInputField");
-            _LoginButton = _FindChildComponent<Button>(transform, "Button");
+            _AccountInputField = UIUtils.FindChildComponent<TMP_InputField>(transform, "AccountInputField");
+            _PasswordInputField = UIUtils.FindChildComponent<TMP_InputField>(transform, "PasswordInputField");
+            _LoginButton = UIUtils.FindChildComponent<Button>(transform, "Button");
 
             if (_AccountInputField == null || _PasswordInputField == null || _LoginButton == null)
             {
@@ -29,6 +29,7 @@ namespace Assets.Scripts.Demo.Client.UI
         {
             _AccountInputField.text = "xiao";
             _PasswordInputField.text = "pass";
+            _RefreshLoginButton();
 
         }
 
@@ -46,38 +47,36 @@ namespace Assets.Scripts.Demo.Client.UI
 
             var account = _AccountInputField == null ? string.Empty : _AccountInputField.text;
             var password = _PasswordInputField == null ? string.Empty : _PasswordInputField.text;
-            AuthSystem.Instance.Login(account, password);
+            AuthSystem.Instance.Login(account, password, _OnLoginStateChanged, _OnLoginSucceeded, _OnLoginFailed);
         }
 
-        private T _FindChildComponent<T>(Transform parentNode, string childName) where T : Component
+        private void _RefreshLoginButton()
         {
-            var childNode = _FindChildRecursive(parentNode, childName);
-            return childNode == null ? null : childNode.GetComponent<T>();
+            if (_LoginButton == null || AuthSystem.Instance == null)
+            {
+                return;
+            }
+
+            _LoginButton.interactable = !AuthSystem.Instance.IsBusy;
         }
 
-        private Transform _FindChildRecursive(Transform parentNode, string childName)
+        private void _OnLoginStateChanged(AuthState state)
         {
-            if (parentNode == null || string.IsNullOrEmpty(childName))
-            {
-                return null;
-            }
-
-            if (parentNode.name == childName)
-            {
-                return parentNode;
-            }
-
-            for (int index = 0; index < parentNode.childCount; index++)
-            {
-                var childNode = _FindChildRecursive(parentNode.GetChild(index), childName);
-                if (childNode != null)
-                {
-                    return childNode;
-                }
-            }
-
-            return null;
+            _RefreshLoginButton();
         }
+
+        private void _OnLoginSucceeded(AuthAccountInfo accountInfo)
+        {
+            _RefreshLoginButton();
+            UIManager.Instance.PushPanel<MainPanel>(accountInfo);
+        }
+
+        private void _OnLoginFailed(string message)
+        {
+            _RefreshLoginButton();
+            DELogger.Error("LoginPanel", message);
+        }
+
 
         private TMP_InputField _AccountInputField;
         private TMP_InputField _PasswordInputField;

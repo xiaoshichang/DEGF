@@ -591,13 +591,31 @@ namespace Assets.Scripts.DE.Client.Framework
                 return false;
             }
 
-            var methodInfo = avatar.GetType().GetMethod("__DEGF_RPC_InvokeClientRpc", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (_InvokeGeneratedClientRpcOnTarget(avatar, methodId, argsPayload))
+            {
+                return true;
+            }
+
+            foreach (EntityComponent component in avatar.Components)
+            {
+                if (_InvokeGeneratedClientRpcOnTarget(component, methodId, argsPayload))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool _InvokeGeneratedClientRpcOnTarget(object target, uint methodId, byte[] argsPayload)
+        {
+            var methodInfo = target.GetType().GetMethod("__DEGF_RPC_InvokeClientRpc", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
             if (methodInfo == null)
             {
                 return false;
             }
 
-            return (bool)methodInfo.Invoke(null, new object[] { avatar, methodId, new RpcBinaryReader(argsPayload) });
+            return (bool)methodInfo.Invoke(null, new object[] { target, methodId, new RpcBinaryReader(argsPayload) });
         }
 
         private byte[] _BuildClientHandShakeFrame(ulong sessionId)

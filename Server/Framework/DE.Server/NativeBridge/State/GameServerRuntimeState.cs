@@ -233,13 +233,31 @@ namespace DE.Server.NativeBridge
 
         private static bool InvokeGeneratedServerRpc(AvatarEntity avatar, uint methodId, byte[] argsPayload)
         {
-            var methodInfo = avatar.GetType().GetMethod("__DEGF_RPC_InvokeServerRpc", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (InvokeGeneratedServerRpcOnTarget(avatar, methodId, argsPayload))
+            {
+                return true;
+            }
+
+            foreach (EntityComponent component in avatar.Components)
+            {
+                if (InvokeGeneratedServerRpcOnTarget(component, methodId, argsPayload))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool InvokeGeneratedServerRpcOnTarget(object target, uint methodId, byte[] argsPayload)
+        {
+            var methodInfo = target.GetType().GetMethod("__DEGF_RPC_InvokeServerRpc", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
             if (methodInfo == null)
             {
                 return false;
             }
 
-            return (bool)methodInfo.Invoke(null, new object[] { avatar, methodId, new RpcBinaryReader(argsPayload) });
+            return (bool)methodInfo.Invoke(null, new object[] { target, methodId, new RpcBinaryReader(argsPayload) });
         }
 
         private readonly struct CreateAvatarResult

@@ -1,5 +1,4 @@
 using DE.Share.Entities;
-using DE.Share.Rpc;
 
 namespace Assets.Scripts.Demo.Client.Entities
 {
@@ -11,11 +10,5 @@ namespace Assets.Scripts.Demo.Client.Entities
         }
 
         public BasicInfoComponent BasicInfo { get; }
-
-        [ClientRpc]
-        public void NotifyHeadIconChanged(string headIcon)
-        {
-            BasicInfo.HeadIcon = headIcon ?? string.Empty;
-        }
     }
 }

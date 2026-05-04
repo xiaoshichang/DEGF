@@ -16,8 +16,8 @@ namespace DE.Share.Entities
     {
         private const ushort CurrentVersion = 1;
 
-        private static readonly Dictionary<Type, EntityPropertyAccessor[]> s_Accessors =
-            new Dictionary<Type, EntityPropertyAccessor[]>();
+        private static readonly Dictionary<Type, EntityPropertyMember[]> s_Members =
+            new Dictionary<Type, EntityPropertyMember[]>();
 
         public static byte[] Serialize(Entity entity, EntitySerializeReason reason)
         {
@@ -28,7 +28,7 @@ namespace DE.Share.Entities
 
             ValidateReason(reason);
 
-            EntityPropertyAccessor[] accessors = GetAccessors(entity.GetType());
+            EntityPropertyAccessor[] accessors = GetAccessors(entity);
             List<EntityPropertyAccessor> selectedAccessors = new List<EntityPropertyAccessor>(accessors.Length);
             int payloadSize = 0;
             for (int i = 0; i < accessors.Length; i++)
@@ -102,7 +102,7 @@ namespace DE.Share.Entities
                 return false;
             }
 
-            Dictionary<ushort, EntityPropertyAccessor> accessors = GetAccessorsById(entity.GetType());
+            Dictionary<ushort, EntityPropertyAccessor> accessors = GetAccessorsById(entity);
             for (int i = 0; i < propertyCount; i++)
             {
                 if (!TryReadUInt16(data, ref offset, endOffset, out ushort propertyId)
@@ -129,23 +129,34 @@ namespace DE.Share.Entities
             return offset == endOffset;
         }
 
-        private static EntityPropertyAccessor[] GetAccessors(Type entityType)
+        private static EntityPropertyAccessor[] GetAccessors(Entity entity)
         {
-            lock (s_Accessors)
+            List<EntityPropertyAccessor> accessors = new List<EntityPropertyAccessor>();
+            EntityPropertyMember[] entityMembers = GetMembers(entity.GetType(), string.Empty);
+            for (int i = 0; i < entityMembers.Length; i++)
             {
-                if (!s_Accessors.TryGetValue(entityType, out EntityPropertyAccessor[] accessors))
-                {
-                    accessors = BuildAccessors(entityType);
-                    s_Accessors.Add(entityType, accessors);
-                }
-
-                return accessors;
+                accessors.Add(entityMembers[i].CreateAccessor(entity));
             }
+
+            IReadOnlyList<EntityComponent> components = entity.Components;
+            for (int i = 0; i < components.Count; i++)
+            {
+                EntityComponent component = components[i];
+                EntityPropertyMember[] componentMembers = GetMembers(component.GetType(), GetComponentPropertyScope(component.GetType()));
+                for (int memberIndex = 0; memberIndex < componentMembers.Length; memberIndex++)
+                {
+                    accessors.Add(componentMembers[memberIndex].CreateAccessor(component));
+                }
+            }
+
+            accessors.Sort(CompareAccessor);
+            EnsureUniquePropertyIds(entity.GetType(), accessors);
+            return accessors.ToArray();
         }
 
-        private static Dictionary<ushort, EntityPropertyAccessor> GetAccessorsById(Type entityType)
+        private static Dictionary<ushort, EntityPropertyAccessor> GetAccessorsById(Entity entity)
         {
-            EntityPropertyAccessor[] accessors = GetAccessors(entityType);
+            EntityPropertyAccessor[] accessors = GetAccessors(entity);
             Dictionary<ushort, EntityPropertyAccessor> accessorsById = new Dictionary<ushort, EntityPropertyAccessor>(accessors.Length);
             for (int i = 0; i < accessors.Length; i++)
             {
@@ -155,12 +166,27 @@ namespace DE.Share.Entities
             return accessorsById;
         }
 
-        private static EntityPropertyAccessor[] BuildAccessors(Type entityType)
+        private static EntityPropertyMember[] GetMembers(Type ownerType, string propertyScope)
         {
-            List<EntityPropertyAccessor> accessors = new List<EntityPropertyAccessor>();
-            Dictionary<string, PropertyInfo> propertiesByName = GetEntityPropertiesByName(entityType);
-            Type currentType = entityType;
-            while (currentType != null && typeof(Entity).IsAssignableFrom(currentType))
+            lock (s_Members)
+            {
+                if (!s_Members.TryGetValue(ownerType, out EntityPropertyMember[] members))
+                {
+                    members = BuildMembers(ownerType, propertyScope);
+                    s_Members.Add(ownerType, members);
+                }
+
+                return members;
+            }
+        }
+
+        private static EntityPropertyMember[] BuildMembers(Type ownerType, string propertyScope)
+        {
+            List<EntityPropertyMember> members = new List<EntityPropertyMember>();
+            Dictionary<string, PropertyInfo> propertiesByName = GetEntityPropertiesByName(ownerType);
+            Type currentType = ownerType;
+            Type stopType = typeof(Entity).IsAssignableFrom(ownerType) ? typeof(Entity) : typeof(EntityComponent);
+            while (currentType != null && stopType.IsAssignableFrom(currentType))
             {
                 FieldInfo[] fields = currentType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly);
                 for (int i = 0; i < fields.Length; i++)
@@ -178,19 +204,18 @@ namespace DE.Share.Entities
                         && property.CanRead
                         && property.CanWrite)
                     {
-                        accessors.Add(new EntityPropertyAccessor(propertyName, property.PropertyType, attribute, property, null));
+                        members.Add(new EntityPropertyMember(propertyScope, propertyName, property.PropertyType, attribute, property, null));
                         continue;
                     }
 
-                    accessors.Add(new EntityPropertyAccessor(propertyName, field.FieldType, attribute, null, field));
+                    members.Add(new EntityPropertyMember(propertyScope, propertyName, field.FieldType, attribute, null, field));
                 }
 
                 currentType = currentType.BaseType;
             }
 
-            accessors.Sort(CompareAccessor);
-            EnsureUniquePropertyIds(entityType, accessors);
-            return accessors.ToArray();
+            members.Sort(CompareMember);
+            return members.ToArray();
         }
 
         private static Dictionary<string, PropertyInfo> GetEntityPropertiesByName(Type entityType)
@@ -219,9 +244,23 @@ namespace DE.Share.Entities
                 : field.Name;
         }
 
+        private static string GetComponentPropertyScope(Type componentType)
+        {
+            string typeName = componentType.Name;
+            const string Suffix = "Component";
+            return typeName.EndsWith(Suffix, StringComparison.Ordinal)
+                ? typeName.Substring(0, typeName.Length - Suffix.Length)
+                : typeName;
+        }
+
         private static int CompareAccessor(EntityPropertyAccessor left, EntityPropertyAccessor right)
         {
-            return string.Compare(left.PropertyName, right.PropertyName, StringComparison.Ordinal);
+            return string.Compare(left.PropertyKey, right.PropertyKey, StringComparison.Ordinal);
+        }
+
+        private static int CompareMember(EntityPropertyMember left, EntityPropertyMember right)
+        {
+            return string.Compare(left.PropertyKey, right.PropertyKey, StringComparison.Ordinal);
         }
 
         private static void EnsureUniquePropertyIds(Type entityType, List<EntityPropertyAccessor> accessors)
@@ -909,6 +948,55 @@ namespace DE.Share.Entities
         private sealed class EntityPropertyAccessor
         {
             public EntityPropertyAccessor(
+                string propertyKey,
+                string propertyName,
+                Type valueType,
+                EntityPropertyAttribute attribute,
+                PropertyInfo property,
+                FieldInfo field,
+                object target
+            )
+            {
+                PropertyKey = propertyKey;
+                PropertyName = propertyName;
+                PropertyId = GetStablePropertyId(propertyKey);
+                ValueType = valueType;
+                Attribute = attribute;
+                Property = property;
+                Field = field;
+                Target = target;
+            }
+
+            public string PropertyKey { get; }
+            public string PropertyName { get; }
+            public ushort PropertyId { get; }
+            public Type ValueType { get; }
+            public EntityPropertyAttribute Attribute { get; }
+            private PropertyInfo Property { get; }
+            private FieldInfo Field { get; }
+            private object Target { get; }
+
+            public object GetValue(Entity entity)
+            {
+                return Property != null ? Property.GetValue(Target, null) : Field.GetValue(Target);
+            }
+
+            public void SetValue(Entity entity, object value)
+            {
+                if (Property != null)
+                {
+                    Property.SetValue(Target, value, null);
+                    return;
+                }
+
+                Field.SetValue(Target, value);
+            }
+        }
+
+        private sealed class EntityPropertyMember
+        {
+            public EntityPropertyMember(
+                string propertyScope,
                 string propertyName,
                 Type valueType,
                 EntityPropertyAttribute attribute,
@@ -916,35 +1004,26 @@ namespace DE.Share.Entities
                 FieldInfo field
             )
             {
+                PropertyScope = propertyScope ?? string.Empty;
                 PropertyName = propertyName;
-                PropertyId = GetStablePropertyId(propertyName);
+                PropertyKey = string.IsNullOrEmpty(PropertyScope) ? propertyName : PropertyScope + "." + propertyName;
                 ValueType = valueType;
                 Attribute = attribute;
                 Property = property;
                 Field = field;
             }
 
+            public string PropertyScope { get; }
             public string PropertyName { get; }
-            public ushort PropertyId { get; }
+            public string PropertyKey { get; }
             public Type ValueType { get; }
             public EntityPropertyAttribute Attribute { get; }
             private PropertyInfo Property { get; }
             private FieldInfo Field { get; }
 
-            public object GetValue(Entity entity)
+            public EntityPropertyAccessor CreateAccessor(object target)
             {
-                return Property != null ? Property.GetValue(entity, null) : Field.GetValue(entity);
-            }
-
-            public void SetValue(Entity entity, object value)
-            {
-                if (Property != null)
-                {
-                    Property.SetValue(entity, value, null);
-                    return;
-                }
-
-                Field.SetValue(entity, value);
+                return new EntityPropertyAccessor(PropertyKey, PropertyName, ValueType, Attribute, Property, Field, target);
             }
         }
 

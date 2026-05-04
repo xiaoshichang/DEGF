@@ -17,10 +17,10 @@ namespace DE.Share.Tests
             EntitySerializer.Deserialize(target, EntitySerializeReason.OwnerSync, data);
 
             Assert.Equal(source.Guid, target.Guid);
-            Assert.Equal(source.ClientServerValue, target.ClientServerValue);
-            Assert.Equal(default(int), target.AllClientsValue);
-            Assert.Equal(default(int), target.ServerOnlyValue);
-            Assert.Equal(default(int), target.ClientOnlyValue);
+            Assert.Equal(source.BasicInfo.ClientServerValue, target.BasicInfo.ClientServerValue);
+            Assert.Equal(default(int), target.BasicInfo.AllClientsValue);
+            Assert.Equal(default(int), target.BasicInfo.ServerOnlyValue);
+            Assert.Equal(default(int), target.BasicInfo.ClientOnlyValue);
         }
 
         [Fact]
@@ -34,10 +34,10 @@ namespace DE.Share.Tests
             EntitySerializer.Deserialize(target, EntitySerializeReason.Broadcase, data);
 
             Assert.Equal(originalTargetGuid, target.Guid);
-            Assert.Equal(default(int), target.ClientServerValue);
-            Assert.Equal(source.AllClientsValue, target.AllClientsValue);
-            Assert.Equal(default(int), target.ServerOnlyValue);
-            Assert.Equal(default(int), target.ClientOnlyValue);
+            Assert.Equal(default(int), target.BasicInfo.ClientServerValue);
+            Assert.Equal(source.BasicInfo.AllClientsValue, target.BasicInfo.AllClientsValue);
+            Assert.Equal(default(int), target.BasicInfo.ServerOnlyValue);
+            Assert.Equal(default(int), target.BasicInfo.ClientOnlyValue);
         }
 
         [Fact]
@@ -50,10 +50,10 @@ namespace DE.Share.Tests
             EntitySerializer.Deserialize(target, EntitySerializeReason.Migrate, data);
 
             Assert.Equal(source.Guid, target.Guid);
-            Assert.Equal(source.ClientServerValue, target.ClientServerValue);
-            Assert.Equal(source.AllClientsValue, target.AllClientsValue);
-            Assert.Equal(source.ServerOnlyValue, target.ServerOnlyValue);
-            Assert.Equal(default(int), target.ClientOnlyValue);
+            Assert.Equal(source.BasicInfo.ClientServerValue, target.BasicInfo.ClientServerValue);
+            Assert.Equal(source.BasicInfo.AllClientsValue, target.BasicInfo.AllClientsValue);
+            Assert.Equal(source.BasicInfo.ServerOnlyValue, target.BasicInfo.ServerOnlyValue);
+            Assert.Equal(default(int), target.BasicInfo.ClientOnlyValue);
         }
 
         [Fact]
@@ -93,7 +93,7 @@ namespace DE.Share.Tests
             TestEntity target = new TestEntity();
             Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializeReason.OwnerSync, parsedMessage.AvatarData));
             Assert.Equal(source.Guid, target.Guid);
-            Assert.Equal(source.ClientServerValue, target.ClientServerValue);
+            Assert.Equal(source.BasicInfo.ClientServerValue, target.BasicInfo.ClientServerValue);
         }
 
         [Fact]
@@ -102,47 +102,68 @@ namespace DE.Share.Tests
             TestAvatarEntity source = new TestAvatarEntity
             {
                 Guid = new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-                HeadIcon = "HeadIcon_03",
-                Score = 6400,
             };
+            source.BasicInfo.HeadIcon = "HeadIcon_03";
+            source.BasicInfo.Score = 6400;
             TestAvatarEntity target = new TestAvatarEntity();
 
             byte[] avatarData = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
             Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializeReason.OwnerSync, avatarData));
 
             Assert.Equal(source.Guid, target.Guid);
-            Assert.Equal(source.HeadIcon, target.HeadIcon);
-            Assert.Equal(source.Score, target.Score);
+            Assert.Equal(source.BasicInfo.HeadIcon, target.BasicInfo.HeadIcon);
+            Assert.Equal(source.BasicInfo.Score, target.BasicInfo.Score);
         }
 
         private static TestEntity CreateSource()
         {
-            return new TestEntity
+            TestEntity entity = new TestEntity
             {
                 Guid = new Guid("11111111-2222-3333-4444-555555555555"),
-                ClientServerValue = 10,
-                AllClientsValue = 20,
-                ServerOnlyValue = 30,
-                ClientOnlyValue = 40,
             };
+            entity.BasicInfo.ClientServerValue = 10;
+            entity.BasicInfo.AllClientsValue = 20;
+            entity.BasicInfo.ServerOnlyValue = 30;
+            entity.BasicInfo.ClientOnlyValue = 40;
+            return entity;
         }
 
         private sealed partial class TestEntity : Entity
         {
+            public TestEntity()
+            {
+                BasicInfo = AddComponent(new TestBasicInfoComponent());
+            }
+
+            public TestBasicInfoComponent BasicInfo { get; }
+        }
+
+        private sealed partial class TestBasicInfoComponent : EntityComponent
+        {
             [EntityProperty(EntityPropertyFlag.ClientServer)]
             private int __ClientServerValue;
+
+            [EntityProperty(EntityPropertyFlag.ClientOnly)]
+            private int __ClientOnlyValue;
 
             [EntityProperty(EntityPropertyFlag.AllClients)]
             private int __AllClientsValue;
 
             [EntityProperty(EntityPropertyFlag.ServerOnly)]
             private int __ServerOnlyValue;
-
-            [EntityProperty(EntityPropertyFlag.ClientOnly)]
-            private int __ClientOnlyValue;
         }
 
         private sealed partial class TestAvatarEntity : Entity
+        {
+            public TestAvatarEntity()
+            {
+                BasicInfo = AddComponent(new TestAvatarBasicInfoComponent());
+            }
+
+            public TestAvatarBasicInfoComponent BasicInfo { get; }
+        }
+
+        private sealed partial class TestAvatarBasicInfoComponent : EntityComponent
         {
             [EntityProperty(EntityPropertyFlag.ClientServer)]
             private string __HeadIcon = "";

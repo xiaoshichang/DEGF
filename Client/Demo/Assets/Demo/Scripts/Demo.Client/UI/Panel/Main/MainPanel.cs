@@ -42,11 +42,11 @@ namespace Assets.Scripts.Demo.Client.UI
                 return;
             }
 
-            DemoAvatarEntity demoAvatar = accountInfo.Avatar as DemoAvatarEntity;
-            string headIcon = demoAvatar == null || string.IsNullOrEmpty(demoAvatar.HeadIcon)
+            BasicInfoComponent basicInfo = (accountInfo.Avatar as DemoAvatarEntity)?.BasicInfo;
+            string headIcon = basicInfo == null || string.IsNullOrEmpty(basicInfo.HeadIcon)
                 ? "--"
-                : demoAvatar.HeadIcon;
-            string score = demoAvatar == null ? "--" : demoAvatar.Score.ToString();
+                : basicInfo.HeadIcon;
+            string score = basicInfo == null ? "--" : basicInfo.Score.ToString();
 
             _AvatarInfoText.text =
                 "Avatar Guid: " + accountInfo.Avatar.Guid

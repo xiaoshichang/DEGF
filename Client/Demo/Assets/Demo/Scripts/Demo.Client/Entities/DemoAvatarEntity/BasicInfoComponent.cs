@@ -2,7 +2,7 @@ using DE.Share.Entities;
 
 namespace Assets.Scripts.Demo.Client.Entities
 {
-    public partial class DemoAvatarEntity : AvatarEntity
+    public partial class BasicInfoComponent : EntityComponent
     {
         [EntityProperty(EntityPropertyFlag.ClientServer)]
         private string __HeadIcon = "";

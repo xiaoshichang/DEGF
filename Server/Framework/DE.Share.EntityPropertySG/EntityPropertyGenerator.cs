@@ -14,11 +14,12 @@ namespace DE.Share.EntityPropertySG
     {
         private const string AttributeFullName = "DE.Share.Entities.EntityPropertyAttribute";
         private const string EntityFullName = "DE.Share.Entities.Entity";
+        private const string EntityComponentFullName = "DE.Share.Entities.EntityComponent";
 
         private static readonly DiagnosticDescriptor InvalidTargetTypeDescriptor = new DiagnosticDescriptor(
             id: "DEEP001",
             title: "EntityProperty target must derive from Entity",
-            messageFormat: "Field '{0}' must be declared inside a type deriving from DE.Share.Entities.Entity",
+            messageFormat: "Field '{0}' must be declared inside a type deriving from DE.Share.Entities.Entity or DE.Share.Entities.EntityComponent",
             category: "EntityProperty",
             DiagnosticSeverity.Error,
             isEnabledByDefault: true
@@ -82,8 +83,9 @@ namespace DE.Share.EntityPropertySG
             }
 
             var entitySymbol = context.Compilation.GetTypeByMetadataName(EntityFullName);
+            var entityComponentSymbol = context.Compilation.GetTypeByMetadataName(EntityComponentFullName);
             var attributeSymbol = context.Compilation.GetTypeByMetadataName(AttributeFullName);
-            if (entitySymbol == null || attributeSymbol == null)
+            if (entitySymbol == null || entityComponentSymbol == null || attributeSymbol == null)
             {
                 return;
             }
@@ -102,7 +104,7 @@ namespace DE.Share.EntityPropertySG
                     continue;
                 }
 
-                if (!TryValidateField(context, fieldSymbol, entitySymbol, out var propertyName))
+                if (!TryValidateField(context, fieldSymbol, entitySymbol, entityComponentSymbol, out var propertyName))
                 {
                     continue;
                 }
@@ -193,13 +195,14 @@ namespace DE.Share.EntityPropertySG
             GeneratorExecutionContext context,
             IFieldSymbol fieldSymbol,
             INamedTypeSymbol entitySymbol,
+            INamedTypeSymbol entityComponentSymbol,
             out string propertyName
         )
         {
             propertyName = string.Empty;
             var location = fieldSymbol.Locations.FirstOrDefault();
 
-            if (!InheritsFromEntity(fieldSymbol.ContainingType, entitySymbol))
+            if (!InheritsFrom(fieldSymbol.ContainingType, entitySymbol) && !InheritsFrom(fieldSymbol.ContainingType, entityComponentSymbol))
             {
                 context.ReportDiagnostic(Diagnostic.Create(InvalidTargetTypeDescriptor, location, fieldSymbol.Name));
                 return false;
@@ -240,11 +243,11 @@ namespace DE.Share.EntityPropertySG
             return true;
         }
 
-        private static bool InheritsFromEntity(INamedTypeSymbol typeSymbol, INamedTypeSymbol entitySymbol)
+        private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol baseTypeSymbol)
         {
             for (var current = typeSymbol; current != null; current = current.BaseType)
             {
-                if (SymbolEqualityComparer.Default.Equals(current, entitySymbol))
+                if (SymbolEqualityComparer.Default.Equals(current, baseTypeSymbol))
                 {
                     return true;
                 }

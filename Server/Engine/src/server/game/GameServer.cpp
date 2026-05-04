@@ -82,6 +82,16 @@ namespace de::server::engine
 					);
 				}
 			);
+			managedRuntimeService->SetAvatarRpcToGameSender(
+				[this](const std::string& targetServerId, const std::vector<std::byte>& payload)
+				{
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::AvatarRpcNtf),
+						payload
+					);
+				}
+			);
 		}
 
 		ConnectToGm();
@@ -101,6 +111,7 @@ namespace de::server::engine
 			managedRuntimeService->SetGameServerReadyCallback({});
 			managedRuntimeService->SetCreateAvatarReqSender({});
 			managedRuntimeService->SetCreateAvatarRspSender({});
+			managedRuntimeService->SetAvatarRpcToGameSender({});
 		}
 
 		ServerBase::Uninit();
@@ -146,6 +157,14 @@ namespace de::server::engine
 
 		case network::MessageID::SS::CreateAvatarReq:
 			HandleCreateAvatarReq(serverId, data);
+			return;
+
+		case network::MessageID::SS::AvatarRpcReq:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerAvatarRpc(serverId, data))
+			{
+				Logger::Warn("GameServer", "Failed to handle AvatarRpcReq in managed runtime.");
+			}
 			return;
 
 		default:

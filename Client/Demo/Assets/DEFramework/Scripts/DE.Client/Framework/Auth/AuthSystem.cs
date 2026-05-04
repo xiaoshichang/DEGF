@@ -6,6 +6,7 @@ using DE.Client.Entities;
 using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Share;
 using DE.Share.Entities;
+using DE.Share.Rpc;
 using DE.Share.Utils;
 using UnityEngine;
 
@@ -73,6 +74,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public bool IsAuthenticated => _State == AuthState.Authenticated;
         public AuthAccountInfo CurrentAccountInfo => _CurrentAccountInfo;
         public Type AvatarType => _AvatarType;
+        public event Action<AuthAccountInfo> AvatarUpdated;
 
         public void RegisterAvatarType<TAvatar>() where TAvatar : AvatarEntity, new()
         {
@@ -291,6 +293,36 @@ namespace Assets.Scripts.DE.Client.Framework
                 sessionCallback);
         }
 
+        public bool SendAvatarServerRpc(uint methodId, byte[] argsPayload)
+        {
+            if (!IsAuthenticated || _CurrentAccountInfo == null || _CurrentAccountInfo.Avatar == null)
+            {
+                DELogger.Warn(LogTag, "SendAvatarServerRpc ignored because auth is not completed.");
+                return false;
+            }
+
+            if (NetworkManager.Instance == null || !NetworkManager.Instance.IsConnected)
+            {
+                DELogger.Warn(LogTag, "SendAvatarServerRpc ignored because network is not connected.");
+                return false;
+            }
+
+            MessageDef.AvatarRpc rpc = new MessageDef.AvatarRpc();
+            rpc.Version = MessageDef.AvatarRpc.CurrentVersion;
+            rpc.Reserved = 0;
+            rpc.AvatarId = _CurrentAccountInfo.AvatarId;
+            rpc.MethodId = methodId;
+            rpc.ArgsPayload = argsPayload ?? Array.Empty<byte>();
+            byte[] payload = rpc.Serialize();
+            byte[] header = MessageDef.Header.CreateClient((uint)MessageDef.MessageID.CS.RpcNtf, (uint)payload.Length).Serialize();
+            byte[] frame = new byte[header.Length + payload.Length];
+            Buffer.BlockCopy(header, 0, frame, 0, header.Length);
+            Buffer.BlockCopy(payload, 0, frame, header.Length, payload.Length);
+            NetworkManager.Instance.Send(frame);
+            DELogger.Info(LogTag, "Sent avatar server RPC, avatarId=" + _CurrentAccountInfo.AvatarId + ", methodId=" + methodId + ".");
+            return true;
+        }
+
         private void _OnKcpSessionRegistered()
         {
             if (!_IsInitialized || _State != AuthState.KcpConnecting || _CurrentAccountInfo == null)
@@ -389,7 +421,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
             if (!MessageDef.MessageID.IsCS(header.MessageId))
             {
-                _FailAuth("Received non-CS message during client auth flow, messageId=" + header.MessageId + ".");
+                DELogger.Warn(LogTag, "Received non-CS message, messageId=" + header.MessageId + ".");
                 return;
             }
 
@@ -405,9 +437,46 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
+            if (header.MessageId == (uint)MessageDef.MessageID.CS.RpcNtf)
+            {
+                _HandleRpcNtf(payload);
+                return;
+            }
+
             DELogger.Warn(
                 LogTag,
                 "Ignore unexpected message during auth flow, messageId=" + header.MessageId + ", state=" + _State + ".");
+        }
+
+        private void _HandleRpcNtf(byte[] payload)
+        {
+            if (_State != AuthState.Authenticated || _CurrentAccountInfo == null || _CurrentAccountInfo.Avatar == null)
+            {
+                DELogger.Warn(LogTag, "Ignore RPC notification because auth is not completed.");
+                return;
+            }
+
+            MessageDef.AvatarRpc rpc;
+            if (!MessageDef.AvatarRpc.TryDeserialize(payload, 0, payload == null ? 0 : payload.Length, out rpc))
+            {
+                DELogger.Warn(LogTag, "Received invalid avatar RPC payload.");
+                return;
+            }
+
+            if (rpc.AvatarId != _CurrentAccountInfo.AvatarId)
+            {
+                DELogger.Warn(LogTag, "Ignore avatar RPC because avatar id mismatched, expected=" + _CurrentAccountInfo.AvatarId + ", actual=" + rpc.AvatarId + ".");
+                return;
+            }
+
+            if (!_InvokeGeneratedClientRpc(_CurrentAccountInfo.Avatar, rpc.MethodId, rpc.ArgsPayload))
+            {
+                DELogger.Warn(LogTag, "Failed to apply avatar RPC, avatarId=" + rpc.AvatarId + ", methodId=" + rpc.MethodId + ".");
+                return;
+            }
+
+            DELogger.Info(LogTag, "Applied avatar RPC, avatarId=" + rpc.AvatarId + ", methodId=" + rpc.MethodId + ".");
+            _NotifyAvatarUpdated(_CurrentAccountInfo);
         }
 
         private void _HandleHandShakeRsp(byte[] payload)
@@ -513,6 +582,22 @@ namespace Assets.Scripts.DE.Client.Framework
         private AvatarEntity _CreateAvatar()
         {
             return Activator.CreateInstance(_AvatarType) as AvatarEntity;
+        }
+
+        private bool _InvokeGeneratedClientRpc(AvatarEntity avatar, uint methodId, byte[] argsPayload)
+        {
+            if (avatar == null)
+            {
+                return false;
+            }
+
+            var methodInfo = avatar.GetType().GetMethod("__DEGF_RPC_InvokeClientRpc", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (methodInfo == null)
+            {
+                return false;
+            }
+
+            return (bool)methodInfo.Invoke(null, new object[] { avatar, methodId, new RpcBinaryReader(argsPayload) });
         }
 
         private byte[] _BuildClientHandShakeFrame(ulong sessionId)
@@ -636,6 +721,24 @@ namespace Assets.Scripts.DE.Client.Framework
         {
             var callback = _PendingSucceededCallback;
             _ClearLoginCallbacks();
+            if (callback == null)
+            {
+                return;
+            }
+
+            try
+            {
+                callback(accountInfo);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        private void _NotifyAvatarUpdated(AuthAccountInfo accountInfo)
+        {
+            var callback = AvatarUpdated;
             if (callback == null)
             {
                 return;

@@ -45,6 +45,18 @@ namespace de::server::engine::managed
 		const void* avatarData,
 		std::int32_t avatarDataSizeBytes
 	);
+	using NativeSendAvatarRpcToGameFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		const char* targetServerId,
+		const std::uint8_t* payload,
+		std::int32_t payloadSizeBytes
+	);
+	using NativeSendAvatarRpcToClientFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		std::uint64_t clientSessionId,
+		const std::uint8_t* payload,
+		std::int32_t payloadSizeBytes
+	);
 	using NativeManagedTimerCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId, void* state);
 	using NativeAddTimerFn = std::uint64_t (DE_MANAGED_CALLTYPE*)(
 		void* context,
@@ -63,6 +75,8 @@ namespace de::server::engine::managed
 		NativeSendCreateAvatarReqFn SendCreateAvatarReq = nullptr;
 		NativeSendCreateAvatarRspFn SendCreateAvatarRsp = nullptr;
 		NativeSendAvatarLoginRspFn SendAvatarLoginRsp = nullptr;
+		NativeSendAvatarRpcToGameFn SendAvatarRpcToGame = nullptr;
+		NativeSendAvatarRpcToClientFn SendAvatarRpcToClient = nullptr;
 		NativeAddTimerFn AddTimer = nullptr;
 		NativeCancelTimerFn CancelTimer = nullptr;
 	};
@@ -106,6 +120,16 @@ namespace de::server::engine::managed
 		const char* error,
 		const void* avatarData,
 		std::int32_t avatarDataSizeBytes
+	);
+	using ManagedHandleClientAvatarRpcFn = int (DE_MANAGED_CALLTYPE*)(
+		std::uint64_t clientSessionId,
+		const void* payload,
+		std::int32_t payloadSizeBytes
+	);
+	using ManagedHandleServerAvatarRpcFn = int (DE_MANAGED_CALLTYPE*)(
+		const char* sourceServerId,
+		const void* payload,
+		std::int32_t payloadSizeBytes
 	);
 	using ManagedUninitializeFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
 }

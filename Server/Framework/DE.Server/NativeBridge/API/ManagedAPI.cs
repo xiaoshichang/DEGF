@@ -343,6 +343,70 @@ namespace DE.Server.NativeBridge
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleClientAvatarRpcNative(
+            ulong clientSessionId,
+            IntPtr payload,
+            int payloadSizeBytes
+        )
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var managedPayload = _CopyPayloadFromNative(payload, payloadSizeBytes);
+                return ManagedRuntimeState
+                    .RequireCurrentGateServerRuntimeState()
+                    .HandleClientAvatarRpc(clientSessionId, managedPayload) ? 0 : -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleClientAvatarRpcNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleServerAvatarRpcNative(
+            IntPtr sourceServerId,
+            IntPtr payload,
+            int payloadSizeBytes
+        )
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var sourceServerIdText = sourceServerId == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(sourceServerId) ?? string.Empty;
+                var managedPayload = _CopyPayloadFromNative(payload, payloadSizeBytes);
+                var runtimeState = ManagedRuntimeState.RequireCurrent();
+                if (runtimeState.ServerType == ManagedRuntimeServerType.Gate)
+                {
+                    return runtimeState.GateServerRuntimeState.HandleServerAvatarRpc(sourceServerIdText, managedPayload) ? 0 : -3;
+                }
+
+                if (runtimeState.ServerType == ManagedRuntimeServerType.Game)
+                {
+                    return runtimeState.GameServerRuntimeState.HandleAvatarRpc(sourceServerIdText, managedPayload) ? 0 : -3;
+                }
+
+                return -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleServerAvatarRpcNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static int UninitializeNative(IntPtr arg, int sizeBytes)
         {
             _ = arg;

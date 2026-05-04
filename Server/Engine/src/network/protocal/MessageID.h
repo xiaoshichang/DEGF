@@ -17,6 +17,7 @@ namespace de::server::engine::network
 			HeartBeatNtf = 0x00010003u,
 			LoginReq = 0x00010004u,
 			LoginRsp = 0x00010005u,
+			RpcNtf = 0x00010006u,
 		};
 
 		enum class SS : std::uint32_t
@@ -29,6 +30,8 @@ namespace de::server::engine::network
 			OpenGateNtf = 0x00020006u,
 			CreateAvatarReq = 0x00020007u,
 			CreateAvatarRsp = 0x00020008u,
+			AvatarRpcReq = 0x00020009u,
+			AvatarRpcNtf = 0x0002000Au,
 		};
 
 		constexpr bool IsCS(std::uint32_t messageId)

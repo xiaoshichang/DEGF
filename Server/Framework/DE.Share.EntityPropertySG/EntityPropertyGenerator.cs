@@ -13,6 +13,8 @@ namespace DE.Share.EntityPropertySG
     public sealed class EntityPropertyGenerator : ISourceGenerator
     {
         private const string AttributeFullName = "DE.Share.Entities.EntityPropertyAttribute";
+        private const string ServerRpcAttributeFullName = "DE.Share.Rpc.ServerRpcAttribute";
+        private const string ClientRpcAttributeFullName = "DE.Share.Rpc.ClientRpcAttribute";
         private const string EntityFullName = "DE.Share.Entities.Entity";
         private const string EntityComponentFullName = "DE.Share.Entities.EntityComponent";
 
@@ -70,6 +72,24 @@ namespace DE.Share.EntityPropertySG
             isEnabledByDefault: true
         );
 
+        private static readonly DiagnosticDescriptor InvalidRpcReturnTypeDescriptor = new DiagnosticDescriptor(
+            id: "DERPC001",
+            title: "RPC method must return void",
+            messageFormat: "RPC method '{0}' must return void",
+            category: "ServerRpc",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true
+        );
+
+        private static readonly DiagnosticDescriptor UnsupportedRpcParameterDescriptor = new DiagnosticDescriptor(
+            id: "DERPC002",
+            title: "RPC parameter type is unsupported",
+            messageFormat: "RPC method '{0}' parameter '{1}' type '{2}' is not supported",
+            category: "ServerRpc",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true
+        );
+
         public void Initialize(GeneratorInitializationContext context)
         {
             context.RegisterForSyntaxNotifications(static () => new SyntaxReceiver());
@@ -85,12 +105,16 @@ namespace DE.Share.EntityPropertySG
             var entitySymbol = context.Compilation.GetTypeByMetadataName(EntityFullName);
             var entityComponentSymbol = context.Compilation.GetTypeByMetadataName(EntityComponentFullName);
             var attributeSymbol = context.Compilation.GetTypeByMetadataName(AttributeFullName);
+            var serverRpcAttributeSymbol = context.Compilation.GetTypeByMetadataName(ServerRpcAttributeFullName);
+            var clientRpcAttributeSymbol = context.Compilation.GetTypeByMetadataName(ClientRpcAttributeFullName);
+            var avatarRpcRuntimeSymbol = context.Compilation.GetTypeByMetadataName("DE.Server.NativeBridge.AvatarRpcRuntime");
             if (entitySymbol == null || entityComponentSymbol == null || attributeSymbol == null)
             {
                 return;
             }
 
             var fieldsByType = new Dictionary<INamedTypeSymbol, List<FieldGenerationInfo>>(SymbolEqualityComparer.Default);
+            var rpcMethodsByType = new Dictionary<INamedTypeSymbol, List<RpcMethodGenerationInfo>>(SymbolEqualityComparer.Default);
             foreach (var variableSyntax in syntaxReceiver.CandidateFields)
             {
                 var semanticModel = context.Compilation.GetSemanticModel(variableSyntax.SyntaxTree);
@@ -126,11 +150,58 @@ namespace DE.Share.EntityPropertySG
                 );
             }
 
-            foreach (var pair in fieldsByType.OrderBy(entry => entry.Key.ToDisplayString(), StringComparer.Ordinal))
+            if (serverRpcAttributeSymbol != null || clientRpcAttributeSymbol != null)
             {
-                var source = GenerateSource(pair.Key, pair.Value);
+                foreach (var methodSyntax in syntaxReceiver.CandidateMethods)
+                {
+                    var semanticModel = context.Compilation.GetSemanticModel(methodSyntax.SyntaxTree);
+                    if (!(semanticModel.GetDeclaredSymbol(methodSyntax) is IMethodSymbol methodSymbol))
+                    {
+                        continue;
+                    }
+
+                    var isServerRpc = serverRpcAttributeSymbol != null && HasAttribute(methodSymbol, serverRpcAttributeSymbol);
+                    var isClientRpc = clientRpcAttributeSymbol != null && HasAttribute(methodSymbol, clientRpcAttributeSymbol);
+                    if (!isServerRpc && !isClientRpc)
+                    {
+                        continue;
+                    }
+
+                    if (!TryValidateRpcMethod(context, methodSymbol))
+                    {
+                        continue;
+                    }
+
+                    var containingType = methodSymbol.ContainingType;
+                    if (!rpcMethodsByType.TryGetValue(containingType, out var rpcInfos))
+                    {
+                        rpcInfos = new List<RpcMethodGenerationInfo>();
+                        rpcMethodsByType.Add(containingType, rpcInfos);
+                    }
+
+                    rpcInfos.Add(new RpcMethodGenerationInfo(methodSymbol, isServerRpc, isClientRpc, ComputeRpcMethodId(methodSymbol)));
+                }
+            }
+
+            var allTypes = fieldsByType.Keys
+                .Concat(rpcMethodsByType.Keys)
+                .Distinct(SymbolEqualityComparer.Default)
+                .OfType<INamedTypeSymbol>()
+                .OrderBy(type => type.ToDisplayString(), StringComparer.Ordinal)
+                .ToList();
+
+            foreach (var typeSymbol in allTypes)
+            {
+                fieldsByType.TryGetValue(typeSymbol, out var fieldInfos);
+                rpcMethodsByType.TryGetValue(typeSymbol, out var rpcMethodInfos);
+                var source = GenerateSource(
+                    typeSymbol,
+                    fieldInfos ?? new List<FieldGenerationInfo>(),
+                    rpcMethodInfos ?? new List<RpcMethodGenerationInfo>(),
+                    avatarRpcRuntimeSymbol != null
+                );
                 context.AddSource(
-                    SanitizeHintName(pair.Key.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) + ".EntityProperty.g.cs",
+                    SanitizeHintName(typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) + ".EntityProperty.g.cs",
                     SourceText.From(source, Encoding.UTF8)
                 );
             }
@@ -146,6 +217,13 @@ namespace DE.Share.EntityPropertySG
                 .GetAttributes()
                 .FirstOrDefault(attribute => SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeSymbol));
             return attributeData != null;
+        }
+
+        private static bool HasAttribute(IMethodSymbol methodSymbol, INamedTypeSymbol attributeSymbol)
+        {
+            return methodSymbol
+                .GetAttributes()
+                .Any(attribute => SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeSymbol));
         }
 
         private static IReadOnlyList<string> BuildSerializationTraitExpressions(AttributeData attributeData)
@@ -243,6 +321,67 @@ namespace DE.Share.EntityPropertySG
             return true;
         }
 
+        private static bool TryValidateRpcMethod(GeneratorExecutionContext context, IMethodSymbol methodSymbol)
+        {
+            var location = methodSymbol.Locations.FirstOrDefault();
+            if (!methodSymbol.ReturnsVoid)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidRpcReturnTypeDescriptor, location, methodSymbol.Name));
+                return false;
+            }
+
+            foreach (var parameter in methodSymbol.Parameters)
+            {
+                if (!IsSupportedRpcParameterType(parameter.Type))
+                {
+                    context.ReportDiagnostic(
+                        Diagnostic.Create(
+                            UnsupportedRpcParameterDescriptor,
+                            parameter.Locations.FirstOrDefault() ?? location,
+                            methodSymbol.Name,
+                            parameter.Name,
+                            parameter.Type.ToDisplayString()
+                        )
+                    );
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsSupportedRpcParameterType(ITypeSymbol typeSymbol)
+        {
+            return typeSymbol.SpecialType == SpecialType.System_String
+                || typeSymbol.SpecialType == SpecialType.System_Int32;
+        }
+
+        private static string GetRpcReaderMethodName(ITypeSymbol typeSymbol)
+        {
+            switch (typeSymbol.SpecialType)
+            {
+            case SpecialType.System_String:
+                return "ReadString";
+            case SpecialType.System_Int32:
+                return "ReadInt32";
+            default:
+                throw new NotSupportedException("Unsupported RPC parameter type: " + typeSymbol.ToDisplayString());
+            }
+        }
+
+        private static string GetRpcWriterMethodName(ITypeSymbol typeSymbol)
+        {
+            switch (typeSymbol.SpecialType)
+            {
+            case SpecialType.System_String:
+                return "WriteString";
+            case SpecialType.System_Int32:
+                return "WriteInt32";
+            default:
+                throw new NotSupportedException("Unsupported RPC parameter type: " + typeSymbol.ToDisplayString());
+            }
+        }
+
         private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol baseTypeSymbol)
         {
             for (var current = typeSymbol; current != null; current = current.BaseType)
@@ -308,7 +447,12 @@ namespace DE.Share.EntityPropertySG
             return false;
         }
 
-        private static string GenerateSource(INamedTypeSymbol typeSymbol, IReadOnlyCollection<FieldGenerationInfo> fieldInfos)
+        private static string GenerateSource(
+            INamedTypeSymbol typeSymbol,
+            IReadOnlyCollection<FieldGenerationInfo> fieldInfos,
+            IReadOnlyCollection<RpcMethodGenerationInfo> rpcMethodInfos,
+            bool canGenerateServerClientRpcSendMethods
+        )
         {
             var builder = new StringBuilder();
             builder.AppendLine("// <auto-generated />");
@@ -417,6 +561,8 @@ namespace DE.Share.EntityPropertySG
                 builder.AppendLine();
             }
 
+            GenerateRpcSource(builder, indentLevel, rpcMethodInfos, canGenerateServerClientRpcSendMethods);
+
             while (indentLevel > 0)
             {
                 indentLevel--;
@@ -425,6 +571,196 @@ namespace DE.Share.EntityPropertySG
             }
 
             return builder.ToString();
+        }
+
+        private static void GenerateRpcSource(
+            StringBuilder builder,
+            int indentLevel,
+            IReadOnlyCollection<RpcMethodGenerationInfo> rpcMethodInfos,
+            bool canGenerateServerClientRpcSendMethods
+        )
+        {
+            var serverRpcMethods = rpcMethodInfos.Where(info => info.IsServerRpc).OrderBy(info => info.MethodSymbol.Name, StringComparer.Ordinal).ToList();
+            var clientRpcMethods = rpcMethodInfos.Where(info => info.IsClientRpc).OrderBy(info => info.MethodSymbol.Name, StringComparer.Ordinal).ToList();
+
+            if (serverRpcMethods.Count > 0)
+            {
+                builder.Append(new string(' ', indentLevel * 4));
+                builder.AppendLine("public static bool __DEGF_RPC_InvokeServerRpc(object target, uint methodId, global::DE.Share.Rpc.RpcBinaryReader reader)");
+                builder.Append(new string(' ', indentLevel * 4));
+                builder.AppendLine("{");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("var entity = (" + serverRpcMethods[0].MethodSymbol.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ")target;");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("switch (methodId)");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("{");
+                foreach (var methodInfo in serverRpcMethods)
+                {
+                    GenerateRpcInvokeCase(builder, indentLevel + 2, methodInfo);
+                }
+
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("}");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("return false;");
+                builder.Append(new string(' ', indentLevel * 4));
+                builder.AppendLine("}");
+                builder.AppendLine();
+            }
+
+            if (clientRpcMethods.Count > 0)
+            {
+                builder.Append(new string(' ', indentLevel * 4));
+                builder.AppendLine("public static bool __DEGF_RPC_InvokeClientRpc(object target, uint methodId, global::DE.Share.Rpc.RpcBinaryReader reader)");
+                builder.Append(new string(' ', indentLevel * 4));
+                builder.AppendLine("{");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("var entity = (" + clientRpcMethods[0].MethodSymbol.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ")target;");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("switch (methodId)");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("{");
+                foreach (var methodInfo in clientRpcMethods)
+                {
+                    GenerateRpcInvokeCase(builder, indentLevel + 2, methodInfo);
+                }
+
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("}");
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.AppendLine("return false;");
+                builder.Append(new string(' ', indentLevel * 4));
+                builder.AppendLine("}");
+                builder.AppendLine();
+
+                if (canGenerateServerClientRpcSendMethods)
+                {
+                    foreach (var methodInfo in clientRpcMethods)
+                    {
+                        GenerateClientRpcSendMethod(builder, indentLevel, methodInfo);
+                    }
+                }
+            }
+
+            if (!canGenerateServerClientRpcSendMethods)
+            {
+                foreach (var methodInfo in serverRpcMethods)
+                {
+                    GenerateClientServerRpcSendMethod(builder, indentLevel, methodInfo);
+                }
+            }
+        }
+
+        private static void GenerateRpcInvokeCase(StringBuilder builder, int indentLevel, RpcMethodGenerationInfo methodInfo)
+        {
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.Append("case ");
+            builder.Append(methodInfo.MethodId);
+            builder.AppendLine("u:");
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.AppendLine("{");
+            var argumentNames = new List<string>();
+            foreach (var parameter in methodInfo.MethodSymbol.Parameters)
+            {
+                var argumentName = "__rpc_arg_" + parameter.Ordinal;
+                argumentNames.Add(argumentName);
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.Append("var ");
+                builder.Append(argumentName);
+                builder.Append(" = reader.");
+                builder.Append(GetRpcReaderMethodName(parameter.Type));
+                builder.AppendLine("();");
+            }
+
+            builder.Append(new string(' ', (indentLevel + 1) * 4));
+            builder.Append("entity.");
+            builder.Append(methodInfo.MethodSymbol.Name);
+            builder.Append('(');
+            builder.Append(string.Join(", ", argumentNames));
+            builder.AppendLine(");");
+            builder.Append(new string(' ', (indentLevel + 1) * 4));
+            builder.AppendLine("return true;");
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.AppendLine("}");
+        }
+
+        private static void GenerateClientRpcSendMethod(StringBuilder builder, int indentLevel, RpcMethodGenerationInfo methodInfo)
+        {
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.Append("public void __DEGF_RPC_Send");
+            builder.Append(methodInfo.MethodSymbol.Name);
+            builder.Append('(');
+            builder.Append(string.Join(", ", methodInfo.MethodSymbol.Parameters.Select(parameter => parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + " " + parameter.Name)));
+            builder.AppendLine(")");
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.AppendLine("{");
+            builder.Append(new string(' ', (indentLevel + 1) * 4));
+            builder.AppendLine("var writer = new global::DE.Share.Rpc.RpcBinaryWriter();");
+            foreach (var parameter in methodInfo.MethodSymbol.Parameters)
+            {
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.Append("writer.");
+                builder.Append(GetRpcWriterMethodName(parameter.Type));
+                builder.Append('(');
+                builder.Append(parameter.Name);
+                builder.AppendLine(");");
+            }
+
+            builder.Append(new string(' ', (indentLevel + 1) * 4));
+            builder.Append("global::DE.Server.NativeBridge.AvatarRpcRuntime.SendClientAvatarRpc(this, ");
+            builder.Append(methodInfo.MethodId);
+            builder.AppendLine("u, writer.ToArray());");
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.AppendLine("}");
+            builder.AppendLine();
+        }
+
+        private static void GenerateClientServerRpcSendMethod(StringBuilder builder, int indentLevel, RpcMethodGenerationInfo methodInfo)
+        {
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.Append("public void __DEGF_RPC_Send");
+            builder.Append(methodInfo.MethodSymbol.Name);
+            builder.Append('(');
+            builder.Append(string.Join(", ", methodInfo.MethodSymbol.Parameters.Select(parameter => parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + " " + parameter.Name)));
+            builder.AppendLine(")");
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.AppendLine("{");
+            builder.Append(new string(' ', (indentLevel + 1) * 4));
+            builder.AppendLine("var writer = new global::DE.Share.Rpc.RpcBinaryWriter();");
+            foreach (var parameter in methodInfo.MethodSymbol.Parameters)
+            {
+                builder.Append(new string(' ', (indentLevel + 1) * 4));
+                builder.Append("writer.");
+                builder.Append(GetRpcWriterMethodName(parameter.Type));
+                builder.Append('(');
+                builder.Append(parameter.Name);
+                builder.AppendLine(");");
+            }
+
+            builder.Append(new string(' ', (indentLevel + 1) * 4));
+            builder.Append("global::Assets.Scripts.DE.Client.Framework.AuthSystem.Instance.SendAvatarServerRpc(");
+            builder.Append(methodInfo.MethodId);
+            builder.AppendLine("u, writer.ToArray());");
+            builder.Append(new string(' ', indentLevel * 4));
+            builder.AppendLine("}");
+            builder.AppendLine();
+        }
+
+        private static uint ComputeRpcMethodId(IMethodSymbol methodSymbol)
+        {
+            var signature = methodSymbol.Name + "("
+                + string.Join(",", methodSymbol.Parameters.Select(parameter => parameter.Type.ToDisplayString())) + ")";
+            const uint offsetBasis = 2166136261u;
+            const uint prime = 16777619u;
+            var hash = offsetBasis;
+            foreach (var character in signature)
+            {
+                hash ^= character;
+                hash *= prime;
+            }
+
+            return hash == 0 ? 1u : hash;
         }
 
         private static string GetAccessibilityKeyword(Accessibility accessibility)
@@ -480,12 +816,35 @@ namespace DE.Share.EntityPropertySG
             public IReadOnlyList<string> SerializationTraitExpressions { get; }
         }
 
+        private readonly struct RpcMethodGenerationInfo
+        {
+            public RpcMethodGenerationInfo(IMethodSymbol methodSymbol, bool isServerRpc, bool isClientRpc, uint methodId)
+            {
+                MethodSymbol = methodSymbol;
+                IsServerRpc = isServerRpc;
+                IsClientRpc = isClientRpc;
+                MethodId = methodId;
+            }
+
+            public IMethodSymbol MethodSymbol { get; }
+            public bool IsServerRpc { get; }
+            public bool IsClientRpc { get; }
+            public uint MethodId { get; }
+        }
+
         private sealed class SyntaxReceiver : ISyntaxReceiver
         {
             public List<VariableDeclaratorSyntax> CandidateFields { get; } = new List<VariableDeclaratorSyntax>();
+            public List<MethodDeclarationSyntax> CandidateMethods { get; } = new List<MethodDeclarationSyntax>();
 
             public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
             {
+                if (syntaxNode is MethodDeclarationSyntax methodDeclaration && methodDeclaration.AttributeLists.Count > 0)
+                {
+                    CandidateMethods.Add(methodDeclaration);
+                    return;
+                }
+
                 if (!(syntaxNode is FieldDeclarationSyntax fieldDeclaration) || fieldDeclaration.AttributeLists.Count == 0)
                 {
                     return;

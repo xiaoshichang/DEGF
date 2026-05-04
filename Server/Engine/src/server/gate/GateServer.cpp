@@ -77,6 +77,32 @@ namespace de::server::engine
 					);
 				}
 			);
+			managedRuntimeService->SetAvatarRpcToGameSender(
+				[this](const std::string& targetServerId, const std::vector<std::byte>& payload)
+				{
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::AvatarRpcReq),
+						payload
+					);
+				}
+			);
+			managedRuntimeService->SetAvatarRpcToClientSender(
+				[this](std::uint64_t clientSessionId, const std::vector<std::byte>& payload)
+				{
+					if (clientNetwork_ == nullptr)
+					{
+						Logger::Warn("GateServer", "Cannot send avatar RPC because client network is not available.");
+						return false;
+					}
+
+					return clientNetwork_->Send(
+						static_cast<network::ClientNetworkSession::SessionId>(clientSessionId),
+						static_cast<std::uint32_t>(network::MessageID::CS::RpcNtf),
+						payload
+					);
+				}
+			);
 		}
 
 		InitHttp();
@@ -98,6 +124,8 @@ namespace de::server::engine
 		{
 			managedRuntimeService->SetCreateAvatarReqSender({});
 			managedRuntimeService->SetAvatarLoginRspSender({});
+			managedRuntimeService->SetAvatarRpcToGameSender({});
+			managedRuntimeService->SetAvatarRpcToClientSender({});
 		}
 
 		UninitHttp();
@@ -138,6 +166,14 @@ namespace de::server::engine
 
 		case network::MessageID::SS::CreateAvatarRsp:
 			HandleCreateAvatarRsp(serverId, data);
+			return;
+
+		case network::MessageID::SS::AvatarRpcNtf:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerAvatarRpc(serverId, data))
+			{
+				Logger::Warn("GateServer", "Failed to handle AvatarRpcNtf in managed runtime.");
+			}
 			return;
 
 		default:
@@ -266,6 +302,17 @@ namespace de::server::engine
 			+ ", messageId=" + std::to_string(messageId)
 			+ ", payload=" + std::to_string(data.size())
 		);
+
+		if (messageId == static_cast<std::uint32_t>(network::MessageID::CS::RpcNtf))
+		{
+			auto* managedRuntimeService = GetManagedRuntimeService();
+			if (managedRuntimeService == nullptr || !managedRuntimeService->HandleClientAvatarRpc(sessionId, data))
+			{
+				Logger::Warn("GateServer", "Failed to handle client avatar RPC in managed runtime.");
+			}
+
+			return;
+		}
 
 		if (messageId != static_cast<std::uint32_t>(network::MessageID::CS::LoginReq))
 		{

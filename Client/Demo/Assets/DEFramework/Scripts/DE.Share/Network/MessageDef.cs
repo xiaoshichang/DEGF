@@ -18,6 +18,7 @@ namespace Assets.Scripts.DE.Share
                 HeartBeatNtf = 0x00010003u,
                 LoginReq = 0x00010004u,
                 LoginRsp = 0x00010005u,
+                RpcNtf = 0x00010006u,
             }
 
             public enum SS : uint
@@ -30,6 +31,8 @@ namespace Assets.Scripts.DE.Share
                 OpenGateNtf = 0x00020006u,
                 CreateAvatarReq = 0x00020007u,
                 CreateAvatarRsp = 0x00020008u,
+                AvatarRpcReq = 0x00020009u,
+                AvatarRpcNtf = 0x0002000Au,
             }
 
             public static bool IsCS(uint messageId)
@@ -426,6 +429,70 @@ namespace Assets.Scripts.DE.Share
                 if (avatarDataLength > 0)
                 {
                     Buffer.BlockCopy(data, offset + FixedWireSize + errorLength, parsed.AvatarData, 0, (int)avatarDataLength);
+                }
+
+                message = parsed;
+                return true;
+            }
+        }
+
+        public struct AvatarRpc
+        {
+            public const ushort CurrentVersion = 1;
+            public const int FixedWireSize = 28;
+
+            public ushort Version;
+            public ushort Reserved;
+            public Guid AvatarId;
+            public uint MethodId;
+            public byte[] ArgsPayload;
+
+            public byte[] Serialize()
+            {
+                byte[] argsPayloadBytes = ArgsPayload ?? Array.Empty<byte>();
+
+                byte[] bytes = new byte[FixedWireSize + argsPayloadBytes.Length];
+                WriteUInt16BigEndian(bytes, 0, Version);
+                WriteUInt16BigEndian(bytes, 2, Reserved);
+                byte[] avatarBytes = AvatarId.ToByteArray();
+                Buffer.BlockCopy(avatarBytes, 0, bytes, 4, avatarBytes.Length);
+                WriteUInt32BigEndian(bytes, 20, MethodId);
+                WriteUInt32BigEndian(bytes, 24, (uint)argsPayloadBytes.Length);
+                if (argsPayloadBytes.Length > 0)
+                {
+                    Buffer.BlockCopy(argsPayloadBytes, 0, bytes, FixedWireSize, argsPayloadBytes.Length);
+                }
+
+                return bytes;
+            }
+
+            public static bool TryDeserialize(byte[] data, int offset, int dataSize, out AvatarRpc message)
+            {
+                message = default(AvatarRpc);
+                if (data == null || offset < 0 || dataSize < FixedWireSize || data.Length - offset < dataSize)
+                {
+                    return false;
+                }
+
+                AvatarRpc parsed = default(AvatarRpc);
+                parsed.Version = ReadUInt16BigEndian(data, offset);
+                parsed.Reserved = ReadUInt16BigEndian(data, offset + 2);
+                byte[] avatarBytes = new byte[16];
+                Buffer.BlockCopy(data, offset + 4, avatarBytes, 0, avatarBytes.Length);
+                parsed.AvatarId = new Guid(avatarBytes);
+                parsed.MethodId = ReadUInt32BigEndian(data, offset + 20);
+                uint argsPayloadLength = ReadUInt32BigEndian(data, offset + 24);
+                if (parsed.Version != CurrentVersion || argsPayloadLength > int.MaxValue || dataSize != FixedWireSize + (int)argsPayloadLength)
+                {
+                    return false;
+                }
+
+                parsed.ArgsPayload = argsPayloadLength == 0
+                    ? Array.Empty<byte>()
+                    : new byte[(int)argsPayloadLength];
+                if (argsPayloadLength > 0)
+                {
+                    Buffer.BlockCopy(data, offset + FixedWireSize, parsed.ArgsPayload, 0, (int)argsPayloadLength);
                 }
 
                 message = parsed;

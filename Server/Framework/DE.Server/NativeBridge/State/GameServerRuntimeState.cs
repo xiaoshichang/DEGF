@@ -390,13 +390,24 @@ namespace DE.Server.NativeBridge
 
         private static bool InvokeGeneratedServerRpcOnTarget(object target, uint methodId, byte[] argsPayload)
         {
-            var methodInfo = target.GetType().GetMethod("__DEGF_RPC_InvokeServerRpc", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (methodInfo == null)
+            for (var currentType = target.GetType(); currentType != null; currentType = currentType.BaseType)
             {
-                return false;
+                var methodInfo = currentType.GetMethod(
+                    "__DEGF_RPC_InvokeServerRpc",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+                );
+                if (methodInfo == null)
+                {
+                    continue;
+                }
+
+                if ((bool)methodInfo.Invoke(null, new object[] { target, methodId, new RpcBinaryReader(argsPayload) }))
+                {
+                    return true;
+                }
             }
 
-            return (bool)methodInfo.Invoke(null, new object[] { target, methodId, new RpcBinaryReader(argsPayload) });
+            return false;
         }
 
         private readonly struct CreateAvatarResult

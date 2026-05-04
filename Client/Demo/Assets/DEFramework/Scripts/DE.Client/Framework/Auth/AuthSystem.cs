@@ -609,13 +609,27 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private bool _InvokeGeneratedClientRpcOnTarget(object target, uint methodId, byte[] argsPayload)
         {
-            var methodInfo = target.GetType().GetMethod("__DEGF_RPC_InvokeClientRpc", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            if (methodInfo == null)
+            for (var currentType = target.GetType(); currentType != null; currentType = currentType.BaseType)
             {
-                return false;
+                var methodInfo = currentType.GetMethod(
+                    "__DEGF_RPC_InvokeClientRpc",
+                    System.Reflection.BindingFlags.Static
+                    | System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic
+                    | System.Reflection.BindingFlags.DeclaredOnly
+                );
+                if (methodInfo == null)
+                {
+                    continue;
+                }
+
+                if ((bool)methodInfo.Invoke(null, new object[] { target, methodId, new RpcBinaryReader(argsPayload) }))
+                {
+                    return true;
+                }
             }
 
-            return (bool)methodInfo.Invoke(null, new object[] { target, methodId, new RpcBinaryReader(argsPayload) });
+            return false;
         }
 
         private byte[] _BuildClientHandShakeFrame(ulong sessionId)

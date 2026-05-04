@@ -351,7 +351,8 @@ namespace DE.Share.EntityPropertySG
         private static bool IsSupportedRpcParameterType(ITypeSymbol typeSymbol)
         {
             return typeSymbol.SpecialType == SpecialType.System_String
-                || typeSymbol.SpecialType == SpecialType.System_Int32;
+                || typeSymbol.SpecialType == SpecialType.System_Int32
+                || IsEntityProxyType(typeSymbol);
         }
 
         private static string GetRpcReaderMethodName(ITypeSymbol typeSymbol)
@@ -363,8 +364,37 @@ namespace DE.Share.EntityPropertySG
             case SpecialType.System_Int32:
                 return "ReadInt32";
             default:
+                if (IsEntityProxyType(typeSymbol))
+                {
+                    return "ReadEntityProxy";
+                }
+
                 throw new NotSupportedException("Unsupported RPC parameter type: " + typeSymbol.ToDisplayString());
             }
+        }
+
+        private static string GetRpcParameterTypeName(ITypeSymbol typeSymbol)
+        {
+            switch (typeSymbol.SpecialType)
+            {
+            case SpecialType.System_String:
+                return "string";
+            case SpecialType.System_Int32:
+                return "int";
+            default:
+                if (IsEntityProxyType(typeSymbol))
+                {
+                    return "DE.Share.Rpc.EntityProxy";
+                }
+
+                return typeSymbol.ToDisplayString();
+            }
+        }
+
+        private static bool IsEntityProxyType(ITypeSymbol typeSymbol)
+        {
+            return string.Equals(typeSymbol.ToDisplayString(), "DE.Share.Rpc.EntityProxy", StringComparison.Ordinal)
+                || string.Equals(typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "global::DE.Share.Rpc.EntityProxy", StringComparison.Ordinal);
         }
 
         private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol baseTypeSymbol)
@@ -656,7 +686,7 @@ namespace DE.Share.EntityPropertySG
         private static uint ComputeRpcMethodId(IMethodSymbol methodSymbol)
         {
             var signature = methodSymbol.Name + "("
-                + string.Join(",", methodSymbol.Parameters.Select(parameter => parameter.Type.ToDisplayString())) + ")";
+                + string.Join(",", methodSymbol.Parameters.Select(parameter => GetRpcParameterTypeName(parameter.Type))) + ")";
             const uint offsetBasis = 2166136261u;
             const uint prime = 16777619u;
             var hash = offsetBasis;

@@ -52,6 +52,12 @@ namespace DE.Share.Rpc
                     continue;
                 }
 
+                if (arg is EntityProxy)
+                {
+                    typeNames[i] = "DE.Share.Rpc.EntityProxy";
+                    continue;
+                }
+
                 throw new NotSupportedException("Unsupported RPC argument type: " + arg.GetType().FullName);
             }
 

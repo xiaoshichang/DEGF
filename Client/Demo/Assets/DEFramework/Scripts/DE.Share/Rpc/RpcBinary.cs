@@ -38,6 +38,12 @@ namespace DE.Share.Rpc
                 return;
             }
 
+            if (value is EntityProxy)
+            {
+                WriteEntityProxy((EntityProxy)value);
+                return;
+            }
+
             throw new NotSupportedException("Unsupported RPC argument type: " + value.GetType().FullName);
         }
 
@@ -55,6 +61,17 @@ namespace DE.Share.Rpc
             _buffer[_count++] = (byte)((value >> 16) & 0xff);
             _buffer[_count++] = (byte)((value >> 8) & 0xff);
             _buffer[_count++] = (byte)(value & 0xff);
+        }
+
+        public void WriteGuid(Guid value)
+        {
+            WriteBytes(value.ToByteArray());
+        }
+
+        public void WriteEntityProxy(EntityProxy value)
+        {
+            WriteGuid(value.EntityId);
+            WriteString(value.ServerId ?? string.Empty);
         }
 
         public byte[] ToArray()
@@ -136,5 +153,36 @@ namespace DE.Share.Rpc
             _offset += 4;
             return value;
         }
+
+        public Guid ReadGuid()
+        {
+            if (_buffer.Length - _offset < 16)
+            {
+                throw new InvalidOperationException("Invalid RPC guid payload.");
+            }
+
+            var bytes = new byte[16];
+            Buffer.BlockCopy(_buffer, _offset, bytes, 0, bytes.Length);
+            _offset += bytes.Length;
+            return new Guid(bytes);
+        }
+
+        public EntityProxy ReadEntityProxy()
+        {
+            return new EntityProxy(ReadGuid(), ReadString());
+        }
+    }
+
+    public readonly struct EntityProxy
+    {
+        public EntityProxy(Guid entityId, string serverId)
+        {
+            EntityId = entityId;
+            ServerId = serverId ?? string.Empty;
+        }
+
+        public Guid EntityId { get; }
+        public string ServerId { get; }
+        public bool IsValid => EntityId != Guid.Empty && !string.IsNullOrWhiteSpace(ServerId);
     }
 }

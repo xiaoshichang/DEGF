@@ -1,5 +1,4 @@
-﻿using System;
-using DE.Server.NativeBridge;
+﻿using DE.Server.NativeBridge;
 using DE.Share.Entities;
 using DE.Share.Rpc;
 
@@ -20,11 +19,24 @@ namespace DE.Server.Entities
             return true;
         }
 
+        public EntityProxy Proxy { get; private set; }
+
+        internal void AttachToGateServer(string serverId)
+        {
+            Proxy = new EntityProxy(Guid, serverId);
+        }
+
         public bool CallClient(string methodName, params object[] args)
         {
             uint methodId = RpcMethodId.Compute(methodName, args);
             byte[] argsPayload = RpcBinaryWriter.SerializeArguments(args);
             return AvatarRpcRuntime.SendClientAvatarRpc(this, methodId, argsPayload);
+        }
+
+        [ServerRpc]
+        public virtual void OnAvatarLoginFinish()
+        {
+            DELogger.Info(nameof(AvatarEntity), $"Avatar login registration finished, avatarId={Guid}.");
         }
     }
 }

@@ -134,6 +134,11 @@ namespace DE.Server.NativeBridge
 
         public bool HandleServerAvatarRpc(string sourceServerId, byte[] payload)
         {
+            if (ServerRpcPayload.TryDeserialize(payload, 0, payload == null ? 0 : payload.Length, out var serverRpc))
+            {
+                return HandleServerRpcRelay(sourceServerId, serverRpc, payload);
+            }
+
             if (!TryReadAvatarIdFromPayload(payload, out var avatarId)
                 || !AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount))
             {
@@ -161,6 +166,44 @@ namespace DE.Server.NativeBridge
             }
 
             return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error, Array.Empty<byte>());
+        }
+
+        private bool HandleServerRpcRelay(string sourceServerId, ServerRpcPayload serverRpc, byte[] payload)
+        {
+            if (serverRpc.TargetKind == ServerRpcTargetKind.Stub)
+            {
+                if (string.IsNullOrWhiteSpace(serverRpc.TargetServerId))
+                {
+                    DELogger.Warn(
+                        nameof(GateServerRuntimeState),
+                        $"Received stub RPC without target server id, stubName={serverRpc.StubName}, sourceServerId={sourceServerId}."
+                    );
+                    return false;
+                }
+
+                return NativeAPI.SendAvatarRpcToGame(serverRpc.TargetServerId, payload);
+            }
+
+            if (serverRpc.TargetKind != ServerRpcTargetKind.Entity)
+            {
+                DELogger.Warn(
+                    nameof(GateServerRuntimeState),
+                    $"Received unsupported server RPC target kind {serverRpc.TargetKind} on gate, sourceServerId={sourceServerId}."
+                );
+                return false;
+            }
+
+            if (!AvatarIdToAccount.TryGetValue(serverRpc.EntityId, out var avatarAccount)
+                || string.IsNullOrWhiteSpace(avatarAccount.GameServerId))
+            {
+                DELogger.Warn(
+                    nameof(GateServerRuntimeState),
+                    $"Received server entity RPC for unknown avatar route, avatarId={serverRpc.EntityId}, sourceServerId={sourceServerId}."
+                );
+                return false;
+            }
+
+            return NativeAPI.SendAvatarRpcToGame(avatarAccount.GameServerId, payload);
         }
 
         private static byte[] EnsureAvatarIdInPayload(Guid avatarId, byte[] payload)

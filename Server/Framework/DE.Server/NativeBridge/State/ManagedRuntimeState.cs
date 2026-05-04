@@ -156,6 +156,21 @@ namespace DE.Server.NativeBridge
             return gameServerIds[index];
         }
 
+        public string SelectGateServerId(string routeKey)
+        {
+            var gateServerIds = GetGateServerIds();
+            if (gateServerIds.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var hash = string.IsNullOrEmpty(routeKey)
+                ? 0
+                : routeKey.GetHashCode();
+            var index = (hash & int.MaxValue) % gateServerIds.Count;
+            return gateServerIds[index];
+        }
+
         public IReadOnlyList<string> GetGameServerIds()
         {
             var gameServerIds = new List<string>();
@@ -194,6 +209,46 @@ namespace DE.Server.NativeBridge
 
             gameServerIds.Sort(StringComparer.Ordinal);
             return gameServerIds;
+        }
+
+        public IReadOnlyList<string> GetGateServerIds()
+        {
+            var gateServerIds = new List<string>();
+            if (string.IsNullOrWhiteSpace(ConfigPath) || !File.Exists(ConfigPath))
+            {
+                return gateServerIds;
+            }
+
+            try
+            {
+                using (var stream = File.OpenRead(ConfigPath))
+                using (var document = JsonDocument.Parse(stream))
+                {
+                    if (!document.RootElement.TryGetProperty("gate", out var gateElement)
+                        || gateElement.ValueKind != JsonValueKind.Object)
+                    {
+                        return gateServerIds;
+                    }
+
+                    foreach (var property in gateElement.EnumerateObject())
+                    {
+                        if (!string.IsNullOrWhiteSpace(property.Name))
+                        {
+                            gateServerIds.Add(property.Name);
+                        }
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                DELogger.Warn(
+                    nameof(ManagedRuntimeState),
+                    $"Failed to read gate server ids from config {ConfigPath}: {exception.Message}"
+                );
+            }
+
+            gateServerIds.Sort(StringComparer.Ordinal);
+            return gateServerIds;
         }
 
         public bool TryResolveStubType(string stubTypeKey, out Type stubType)

@@ -21,6 +21,7 @@ namespace DE.Share.Tests
             Assert.Equal(default(int), target.BasicInfo.AllClientsValue);
             Assert.Equal(default(int), target.BasicInfo.ServerOnlyValue);
             Assert.Equal(default(int), target.BasicInfo.ClientOnlyValue);
+            Assert.Equal(0, target.BasicInfo.ClientServerValueChangedCount);
         }
 
         [Fact]
@@ -151,6 +152,13 @@ namespace DE.Share.Tests
 
             [EntityProperty(EntityPropertyFlag.ServerOnly)]
             private int __ServerOnlyValue;
+
+            public int ClientServerValueChangedCount { get; private set; }
+
+            partial void OnClientServerValueChanged(int value)
+            {
+                ClientServerValueChangedCount++;
+            }
         }
 
         private sealed partial class TestAvatarEntity : Entity

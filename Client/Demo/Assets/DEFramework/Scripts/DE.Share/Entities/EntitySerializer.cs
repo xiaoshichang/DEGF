@@ -204,7 +204,7 @@ namespace DE.Share.Entities
                         && property.CanRead
                         && property.CanWrite)
                     {
-                        members.Add(new EntityPropertyMember(propertyScope, propertyName, property.PropertyType, attribute, property, null));
+                        members.Add(new EntityPropertyMember(propertyScope, propertyName, property.PropertyType, attribute, property, field));
                         continue;
                     }
 
@@ -983,13 +983,13 @@ namespace DE.Share.Entities
 
             public void SetValue(Entity entity, object value)
             {
-                if (Property != null)
+                if (Field != null)
                 {
-                    Property.SetValue(Target, value, null);
+                    Field.SetValue(Target, value);
                     return;
                 }
 
-                Field.SetValue(Target, value);
+                Property.SetValue(Target, value, null);
             }
         }
 

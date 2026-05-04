@@ -159,11 +159,11 @@ namespace de::server::engine
 			HandleCreateAvatarReq(serverId, data);
 			return;
 
-		case network::MessageID::SS::AvatarRpcReq:
+		case network::MessageID::SS::AvatarRpcNtf:
 			if (auto* managedRuntimeService = GetManagedRuntimeService();
 				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerAvatarRpc(serverId, data))
 			{
-				Logger::Warn("GameServer", "Failed to handle AvatarRpcReq in managed runtime.");
+				Logger::Warn("GameServer", "Failed to handle AvatarRpcNtf in managed runtime.");
 			}
 			return;
 

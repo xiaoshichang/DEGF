@@ -82,7 +82,7 @@ namespace de::server::engine
 				{
 					return GetInnerNetwork().Send(
 						targetServerId,
-						static_cast<std::uint32_t>(network::MessageID::SS::AvatarRpcReq),
+						static_cast<std::uint32_t>(network::MessageID::SS::AvatarRpcNtf),
 						payload
 					);
 				}

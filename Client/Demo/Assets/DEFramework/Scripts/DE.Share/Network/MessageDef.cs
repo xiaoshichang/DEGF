@@ -31,7 +31,6 @@ namespace Assets.Scripts.DE.Share
                 OpenGateNtf = 0x00020006u,
                 CreateAvatarReq = 0x00020007u,
                 CreateAvatarRsp = 0x00020008u,
-                AvatarRpcReq = 0x00020009u,
                 AvatarRpcNtf = 0x0002000Au,
             }
 

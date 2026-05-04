@@ -124,7 +124,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
   m_AnchoredPosition: {x: 601.02216, y: -310}
-  m_SizeDelta: {x: 1171.4443, y: 50}
+  m_SizeDelta: {x: 1171.4443, y: 150}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &2114594552647277946
 CanvasRenderer:
@@ -154,7 +154,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 
+  m_text: "Avatar Guid: --\nHeadIcon: --\nScore: --"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

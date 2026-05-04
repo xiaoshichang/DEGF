@@ -96,6 +96,25 @@ namespace DE.Share.Tests
             Assert.Equal(source.ClientServerValue, target.ClientServerValue);
         }
 
+        [Fact]
+        public void OwnerSync_SerializesAvatarDisplayProperties()
+        {
+            TestAvatarEntity source = new TestAvatarEntity
+            {
+                Guid = new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+                HeadIcon = "HeadIcon_03",
+                Score = 6400,
+            };
+            TestAvatarEntity target = new TestAvatarEntity();
+
+            byte[] avatarData = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
+            Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializeReason.OwnerSync, avatarData));
+
+            Assert.Equal(source.Guid, target.Guid);
+            Assert.Equal(source.HeadIcon, target.HeadIcon);
+            Assert.Equal(source.Score, target.Score);
+        }
+
         private static TestEntity CreateSource()
         {
             return new TestEntity
@@ -121,6 +140,15 @@ namespace DE.Share.Tests
 
             [EntityProperty(EntityPropertyFlag.ClientOnly)]
             private int __ClientOnlyValue;
+        }
+
+        private sealed partial class TestAvatarEntity : Entity
+        {
+            [EntityProperty(EntityPropertyFlag.ClientServer)]
+            private string __HeadIcon = "";
+
+            [EntityProperty(EntityPropertyFlag.ClientServer)]
+            private int __Score;
         }
     }
 }

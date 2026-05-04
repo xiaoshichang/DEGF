@@ -72,6 +72,32 @@ namespace Assets.Scripts.DE.Client.Framework
         public bool IsBusy => _State == AuthState.HttpAuthenticating || _State == AuthState.KcpConnecting || _State == AuthState.HandShaking || _State == AuthState.LoggingIn;
         public bool IsAuthenticated => _State == AuthState.Authenticated;
         public AuthAccountInfo CurrentAccountInfo => _CurrentAccountInfo;
+        public Type AvatarType => _AvatarType;
+
+        public void RegisterAvatarType<TAvatar>() where TAvatar : AvatarEntity, new()
+        {
+            RegisterAvatarType(typeof(TAvatar));
+        }
+
+        public void RegisterAvatarType(Type avatarType)
+        {
+            if (avatarType == null)
+            {
+                throw new ArgumentNullException(nameof(avatarType));
+            }
+
+            if (!typeof(AvatarEntity).IsAssignableFrom(avatarType))
+            {
+                throw new ArgumentException("Avatar type must derive from AvatarEntity.", nameof(avatarType));
+            }
+
+            if (avatarType.GetConstructor(Type.EmptyTypes) == null)
+            {
+                throw new ArgumentException("Avatar type must have a public parameterless constructor.", nameof(avatarType));
+            }
+
+            _AvatarType = avatarType;
+        }
 
         public void Init()
         {
@@ -462,7 +488,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
-            var avatar = new AvatarEntity();
+            var avatar = _CreateAvatar();
             if (!EntitySerializer.TryDeserialize(avatar, EntitySerializeReason.OwnerSync, loginRsp.AvatarData))
             {
                 _FailAuth("Login failed because avatar data is invalid.");
@@ -482,6 +508,11 @@ namespace Assets.Scripts.DE.Client.Framework
                 LogTag,
                 "Login succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ", avatarId=" + _CurrentAccountInfo.AvatarId + ".");
             _NotifyLoginSucceeded(_CurrentAccountInfo);
+        }
+
+        private AvatarEntity _CreateAvatar()
+        {
+            return Activator.CreateInstance(_AvatarType) as AvatarEntity;
         }
 
         private byte[] _BuildClientHandShakeFrame(ulong sessionId)
@@ -690,6 +721,7 @@ namespace Assets.Scripts.DE.Client.Framework
         private Action<AuthState> _PendingStateChangedCallback;
         private Action<AuthAccountInfo> _PendingSucceededCallback;
         private Action<string> _PendingFailedCallback;
+        private Type _AvatarType = typeof(AvatarEntity);
         private readonly List<byte> _ReceiveBuffer = new List<byte>();
     }
 }

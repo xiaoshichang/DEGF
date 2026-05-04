@@ -1,5 +1,6 @@
 using Assets.Scripts.DE.Client.Framework;
 using Assets.Scripts.DE.Client.UI;
+using Assets.Scripts.Demo.Client.Entities;
 using TMPro;
 using UnityEngine;
 
@@ -37,11 +38,20 @@ namespace Assets.Scripts.Demo.Client.UI
 
             if (accountInfo == null || accountInfo.Avatar == null)
             {
-                _AvatarInfoText.text = "Avatar Guid: --";
+                _AvatarInfoText.text = "Avatar Guid: --\nHeadIcon: --\nScore: --";
                 return;
             }
 
-            _AvatarInfoText.text = "Avatar Guid: " + accountInfo.Avatar.Guid;
+            DemoAvatarEntity demoAvatar = accountInfo.Avatar as DemoAvatarEntity;
+            string headIcon = demoAvatar == null || string.IsNullOrEmpty(demoAvatar.HeadIcon)
+                ? "--"
+                : demoAvatar.HeadIcon;
+            string score = demoAvatar == null ? "--" : demoAvatar.Score.ToString();
+
+            _AvatarInfoText.text =
+                "Avatar Guid: " + accountInfo.Avatar.Guid
+                + "\nHeadIcon: " + headIcon
+                + "\nScore: " + score;
         }
 
 

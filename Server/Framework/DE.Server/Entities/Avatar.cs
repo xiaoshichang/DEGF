@@ -1,5 +1,7 @@
 ﻿using System;
+using DE.Server.NativeBridge;
 using DE.Share.Entities;
+using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
@@ -16,6 +18,13 @@ namespace DE.Server.Entities
         public override bool IsMigratable()
         {
             return true;
+        }
+
+        public bool CallClient(string methodName, params object[] args)
+        {
+            uint methodId = RpcMethodId.Compute(methodName, args);
+            byte[] argsPayload = RpcBinaryWriter.SerializeArguments(args);
+            return AvatarRpcRuntime.SendClientAvatarRpc(this, methodId, argsPayload);
         }
     }
 }

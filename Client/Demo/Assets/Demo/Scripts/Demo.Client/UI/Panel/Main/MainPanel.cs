@@ -89,7 +89,7 @@ namespace Assets.Scripts.Demo.Client.UI
                 return;
             }
 
-            avatar.RequestSetHeadIcon(headIcon);
+            avatar.CallServer("SetHeadIcon", headIcon);
         }
 
         private Button _CreateSetRandomHeadIconButton()

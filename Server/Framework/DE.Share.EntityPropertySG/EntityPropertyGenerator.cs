@@ -107,7 +107,6 @@ namespace DE.Share.EntityPropertySG
             var attributeSymbol = context.Compilation.GetTypeByMetadataName(AttributeFullName);
             var serverRpcAttributeSymbol = context.Compilation.GetTypeByMetadataName(ServerRpcAttributeFullName);
             var clientRpcAttributeSymbol = context.Compilation.GetTypeByMetadataName(ClientRpcAttributeFullName);
-            var avatarRpcRuntimeSymbol = context.Compilation.GetTypeByMetadataName("DE.Server.NativeBridge.AvatarRpcRuntime");
             if (entitySymbol == null || entityComponentSymbol == null || attributeSymbol == null)
             {
                 return;
@@ -197,8 +196,7 @@ namespace DE.Share.EntityPropertySG
                 var source = GenerateSource(
                     typeSymbol,
                     fieldInfos ?? new List<FieldGenerationInfo>(),
-                    rpcMethodInfos ?? new List<RpcMethodGenerationInfo>(),
-                    avatarRpcRuntimeSymbol != null
+                    rpcMethodInfos ?? new List<RpcMethodGenerationInfo>()
                 );
                 context.AddSource(
                     SanitizeHintName(typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) + ".EntityProperty.g.cs",
@@ -369,19 +367,6 @@ namespace DE.Share.EntityPropertySG
             }
         }
 
-        private static string GetRpcWriterMethodName(ITypeSymbol typeSymbol)
-        {
-            switch (typeSymbol.SpecialType)
-            {
-            case SpecialType.System_String:
-                return "WriteString";
-            case SpecialType.System_Int32:
-                return "WriteInt32";
-            default:
-                throw new NotSupportedException("Unsupported RPC parameter type: " + typeSymbol.ToDisplayString());
-            }
-        }
-
         private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol baseTypeSymbol)
         {
             for (var current = typeSymbol; current != null; current = current.BaseType)
@@ -450,8 +435,7 @@ namespace DE.Share.EntityPropertySG
         private static string GenerateSource(
             INamedTypeSymbol typeSymbol,
             IReadOnlyCollection<FieldGenerationInfo> fieldInfos,
-            IReadOnlyCollection<RpcMethodGenerationInfo> rpcMethodInfos,
-            bool canGenerateServerClientRpcSendMethods
+            IReadOnlyCollection<RpcMethodGenerationInfo> rpcMethodInfos
         )
         {
             var builder = new StringBuilder();
@@ -561,7 +545,7 @@ namespace DE.Share.EntityPropertySG
                 builder.AppendLine();
             }
 
-            GenerateRpcSource(builder, indentLevel, rpcMethodInfos, canGenerateServerClientRpcSendMethods);
+            GenerateRpcSource(builder, indentLevel, rpcMethodInfos);
 
             while (indentLevel > 0)
             {
@@ -576,8 +560,7 @@ namespace DE.Share.EntityPropertySG
         private static void GenerateRpcSource(
             StringBuilder builder,
             int indentLevel,
-            IReadOnlyCollection<RpcMethodGenerationInfo> rpcMethodInfos,
-            bool canGenerateServerClientRpcSendMethods
+            IReadOnlyCollection<RpcMethodGenerationInfo> rpcMethodInfos
         )
         {
             var serverRpcMethods = rpcMethodInfos.Where(info => info.IsServerRpc).OrderBy(info => info.MethodSymbol.Name, StringComparer.Ordinal).ToList();
@@ -634,21 +617,6 @@ namespace DE.Share.EntityPropertySG
                 builder.AppendLine("}");
                 builder.AppendLine();
 
-                if (canGenerateServerClientRpcSendMethods)
-                {
-                    foreach (var methodInfo in clientRpcMethods)
-                    {
-                        GenerateClientRpcSendMethod(builder, indentLevel, methodInfo);
-                    }
-                }
-            }
-
-            if (!canGenerateServerClientRpcSendMethods)
-            {
-                foreach (var methodInfo in serverRpcMethods)
-                {
-                    GenerateClientServerRpcSendMethod(builder, indentLevel, methodInfo);
-                }
             }
         }
 
@@ -683,68 +651,6 @@ namespace DE.Share.EntityPropertySG
             builder.AppendLine("return true;");
             builder.Append(new string(' ', indentLevel * 4));
             builder.AppendLine("}");
-        }
-
-        private static void GenerateClientRpcSendMethod(StringBuilder builder, int indentLevel, RpcMethodGenerationInfo methodInfo)
-        {
-            builder.Append(new string(' ', indentLevel * 4));
-            builder.Append("public void __DEGF_RPC_Send");
-            builder.Append(methodInfo.MethodSymbol.Name);
-            builder.Append('(');
-            builder.Append(string.Join(", ", methodInfo.MethodSymbol.Parameters.Select(parameter => parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + " " + parameter.Name)));
-            builder.AppendLine(")");
-            builder.Append(new string(' ', indentLevel * 4));
-            builder.AppendLine("{");
-            builder.Append(new string(' ', (indentLevel + 1) * 4));
-            builder.AppendLine("var writer = new global::DE.Share.Rpc.RpcBinaryWriter();");
-            foreach (var parameter in methodInfo.MethodSymbol.Parameters)
-            {
-                builder.Append(new string(' ', (indentLevel + 1) * 4));
-                builder.Append("writer.");
-                builder.Append(GetRpcWriterMethodName(parameter.Type));
-                builder.Append('(');
-                builder.Append(parameter.Name);
-                builder.AppendLine(");");
-            }
-
-            builder.Append(new string(' ', (indentLevel + 1) * 4));
-            builder.Append("global::DE.Server.NativeBridge.AvatarRpcRuntime.SendClientAvatarRpc(this, ");
-            builder.Append(methodInfo.MethodId);
-            builder.AppendLine("u, writer.ToArray());");
-            builder.Append(new string(' ', indentLevel * 4));
-            builder.AppendLine("}");
-            builder.AppendLine();
-        }
-
-        private static void GenerateClientServerRpcSendMethod(StringBuilder builder, int indentLevel, RpcMethodGenerationInfo methodInfo)
-        {
-            builder.Append(new string(' ', indentLevel * 4));
-            builder.Append("public void __DEGF_RPC_Send");
-            builder.Append(methodInfo.MethodSymbol.Name);
-            builder.Append('(');
-            builder.Append(string.Join(", ", methodInfo.MethodSymbol.Parameters.Select(parameter => parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + " " + parameter.Name)));
-            builder.AppendLine(")");
-            builder.Append(new string(' ', indentLevel * 4));
-            builder.AppendLine("{");
-            builder.Append(new string(' ', (indentLevel + 1) * 4));
-            builder.AppendLine("var writer = new global::DE.Share.Rpc.RpcBinaryWriter();");
-            foreach (var parameter in methodInfo.MethodSymbol.Parameters)
-            {
-                builder.Append(new string(' ', (indentLevel + 1) * 4));
-                builder.Append("writer.");
-                builder.Append(GetRpcWriterMethodName(parameter.Type));
-                builder.Append('(');
-                builder.Append(parameter.Name);
-                builder.AppendLine(");");
-            }
-
-            builder.Append(new string(' ', (indentLevel + 1) * 4));
-            builder.Append("global::Assets.Scripts.DE.Client.Framework.AuthSystem.Instance.SendAvatarServerRpc(");
-            builder.Append(methodInfo.MethodId);
-            builder.AppendLine("u, writer.ToArray());");
-            builder.Append(new string(' ', indentLevel * 4));
-            builder.AppendLine("}");
-            builder.AppendLine();
         }
 
         private static uint ComputeRpcMethodId(IMethodSymbol methodSymbol)

@@ -8,6 +8,39 @@ namespace DE.Share.Rpc
         private byte[] _buffer = new byte[64];
         private int _count;
 
+        public static byte[] SerializeArguments(object[] args)
+        {
+            var writer = new RpcBinaryWriter();
+            if (args == null)
+            {
+                return writer.ToArray();
+            }
+
+            foreach (object arg in args)
+            {
+                writer.WriteObject(arg);
+            }
+
+            return writer.ToArray();
+        }
+
+        public void WriteObject(object value)
+        {
+            if (value == null || value is string)
+            {
+                WriteString((string)value);
+                return;
+            }
+
+            if (value is int)
+            {
+                WriteInt32((int)value);
+                return;
+            }
+
+            throw new NotSupportedException("Unsupported RPC argument type: " + value.GetType().FullName);
+        }
+
         public void WriteString(string value)
         {
             var bytes = string.IsNullOrEmpty(value) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(value);

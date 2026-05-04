@@ -4,7 +4,12 @@ namespace DE.Share.Rpc
 {
     public static class RpcMethodId
     {
-        public static uint Compute(string methodName, params string[] parameterTypeNames)
+        public static uint Compute(string methodName, params object[] args)
+        {
+            return ComputeByParameterTypeNames(methodName, GetParameterTypeNames(args));
+        }
+
+        public static uint ComputeByParameterTypeNames(string methodName, params string[] parameterTypeNames)
         {
             if (string.IsNullOrEmpty(methodName))
             {
@@ -22,6 +27,35 @@ namespace DE.Share.Rpc
             }
 
             return hash == 0 ? 1u : hash;
+        }
+
+        private static string[] GetParameterTypeNames(object[] args)
+        {
+            if (args == null || args.Length == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            string[] typeNames = new string[args.Length];
+            for (int i = 0; i < args.Length; i++)
+            {
+                object arg = args[i];
+                if (arg == null || arg is string)
+                {
+                    typeNames[i] = "string";
+                    continue;
+                }
+
+                if (arg is int)
+                {
+                    typeNames[i] = "int";
+                    continue;
+                }
+
+                throw new NotSupportedException("Unsupported RPC argument type: " + arg.GetType().FullName);
+            }
+
+            return typeNames;
         }
     }
 

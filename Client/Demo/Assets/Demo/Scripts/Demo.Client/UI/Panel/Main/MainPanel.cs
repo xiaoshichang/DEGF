@@ -89,7 +89,7 @@ namespace Assets.Scripts.Demo.Client.UI
                 return;
             }
 
-            avatar.__DEGF_RPC_SendSetHeadIcon(headIcon);
+            avatar.RequestSetHeadIcon(headIcon);
         }
 
         private Button _CreateSetRandomHeadIconButton()

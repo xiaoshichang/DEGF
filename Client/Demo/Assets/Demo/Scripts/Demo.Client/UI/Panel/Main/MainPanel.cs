@@ -14,15 +14,7 @@ namespace Assets.Scripts.Demo.Client.UI
         {
             _AvatarInfoText = UIUtils.FindChildComponent<TMP_Text>(transform, "ResultText");
             _SetRandomHeadIconButton = UIUtils.FindChildComponent<Button>(transform, "SetRandomHeadIconButton");
-            if (_SetRandomHeadIconButton == null)
-            {
-                _SetRandomHeadIconButton = _CreateSetRandomHeadIconButton();
-            }
-
-            if (_SetRandomHeadIconButton != null)
-            {
-                _SetRandomHeadIconButton.onClick.AddListener(_OnSetRandomHeadIconClicked);
-            }
+            _SetRandomHeadIconButton.onClick.AddListener(_OnSetRandomHeadIconClicked);
         }
 
         protected override void OnHide()

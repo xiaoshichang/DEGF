@@ -19,9 +19,4 @@ public partial class DemoAvatarEntity : AvatarEntity
         BasicInfo.HeadIcon = headIcon ?? string.Empty;
         CallClient("NotifyHeadIconChanged", BasicInfo.HeadIcon);
     }
-
-    [ClientRpc]
-    public void NotifyHeadIconChanged(string headIcon)
-    {
-    }
 }

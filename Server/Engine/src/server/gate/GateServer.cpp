@@ -320,7 +320,8 @@ namespace de::server::engine
 			createAvatarRsp.avatarId,
 			createAvatarRsp.isSuccess,
 			createAvatarRsp.statusCode,
-			createAvatarRsp.error
+			createAvatarRsp.error,
+			createAvatarRsp.avatarData
 		))
 		{
 			Logger::Warn("GateServer", "Failed to handle CreateAvatarRsp in managed runtime.");

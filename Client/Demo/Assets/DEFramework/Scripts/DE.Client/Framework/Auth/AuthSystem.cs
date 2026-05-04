@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using Assets.Scripts.DE.Client.Core;
+using DE.Client.Entities;
 using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Share;
+using DE.Share.Entities;
 using DE.Share.Utils;
 using UnityEngine;
 
@@ -21,6 +23,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public string ClientHost;
         public int ClientPort;
         public Guid AvatarId;
+        public AvatarEntity Avatar;
     }
 
     public enum AuthState
@@ -444,7 +447,27 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
+            if (loginRsp.AvatarData == null || loginRsp.AvatarData.Length == 0)
+            {
+                _FailAuth("Login failed because avatar data is empty.");
+                return;
+            }
+
+            var avatar = new AvatarEntity();
+            if (!EntitySerializer.TryDeserialize(avatar, EntitySerializeReason.OwnerSync, loginRsp.AvatarData))
+            {
+                _FailAuth("Login failed because avatar data is invalid.");
+                return;
+            }
+
+            if (avatar.Guid != loginRsp.AvatarId)
+            {
+                _FailAuth("Login failed because avatar data id mismatched, expected=" + loginRsp.AvatarId + ", actual=" + avatar.Guid + ".");
+                return;
+            }
+
             _CurrentAccountInfo.AvatarId = loginRsp.AvatarId;
+            _CurrentAccountInfo.Avatar = avatar;
             _State = AuthState.Authenticated;
             DELogger.Info(
                 LogTag,

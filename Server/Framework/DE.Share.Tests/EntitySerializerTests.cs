@@ -1,4 +1,5 @@
 using System;
+using Assets.Scripts.DE.Share;
 using DE.Share.Entities;
 using Xunit;
 
@@ -65,6 +66,34 @@ namespace DE.Share.Tests
             bool result = EntitySerializer.TryDeserialize(target, EntitySerializeReason.Migrate, data);
 
             Assert.False(result);
+        }
+
+        [Fact]
+        public void LoginRsp_SerializesAvatarData()
+        {
+            TestEntity source = CreateSource();
+            byte[] avatarData = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
+            MessageDef.LoginRsp sourceMessage = new MessageDef.LoginRsp
+            {
+                Version = MessageDef.LoginRsp.CurrentVersion,
+                IsSuccess = true,
+                StatusCode = 200,
+                AvatarId = source.Guid,
+                AvatarData = avatarData,
+                Error = string.Empty,
+            };
+
+            byte[] data = sourceMessage.Serialize();
+            bool result = MessageDef.LoginRsp.TryDeserialize(data, 0, data.Length, out MessageDef.LoginRsp parsedMessage);
+
+            Assert.True(result);
+            Assert.Equal(source.Guid, parsedMessage.AvatarId);
+            Assert.Equal(avatarData, parsedMessage.AvatarData);
+
+            TestEntity target = new TestEntity();
+            Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializeReason.OwnerSync, parsedMessage.AvatarData));
+            Assert.Equal(source.Guid, target.Guid);
+            Assert.Equal(source.ClientServerValue, target.ClientServerValue);
         }
 
         private static TestEntity CreateSource()

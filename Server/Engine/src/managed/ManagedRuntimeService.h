@@ -40,7 +40,8 @@ namespace de::server::engine
 			const network::GuidBytes& avatarId,
 			bool isSuccess,
 			std::int32_t statusCode,
-			const std::string& error
+			const std::string& error,
+			const std::vector<std::byte>& avatarData
 		);
 		void SetGameServerReadyCallback(std::function<void()> callback);
 		void SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&)> sender);
@@ -60,7 +61,9 @@ namespace de::server::engine
 			const std::uint8_t* avatarId,
 			std::int32_t isSuccess,
 			std::int32_t statusCode,
-			const char* error
+			const char* error,
+			const void* avatarData,
+			std::int32_t avatarDataSizeBytes
 		);
 		static std::int32_t DE_MANAGED_CALLTYPE NativeSendAvatarLoginRsp(
 			void* context,
@@ -68,7 +71,9 @@ namespace de::server::engine
 			const std::uint8_t* avatarId,
 			std::int32_t isSuccess,
 			std::int32_t statusCode,
-			const char* error
+			const char* error,
+			const void* avatarData,
+			std::int32_t avatarDataSizeBytes
 		);
 		static std::uint64_t DE_MANAGED_CALLTYPE NativeAddTimer(
 			void* context,

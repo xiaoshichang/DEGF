@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using DE.Server.Entities;
+using DE.Share.Entities;
 
 namespace DE.Server.NativeBridge
 {
@@ -97,7 +98,8 @@ namespace DE.Server.NativeBridge
                 avatarId,
                 result.IsSuccess,
                 result.StatusCode,
-                result.Error
+                result.Error,
+                result.AvatarData
             );
         }
 
@@ -144,13 +146,19 @@ namespace DE.Server.NativeBridge
         {
             if (Avatars.ContainsKey(avatarId))
             {
-                return new CreateAvatarResult(true, 200, string.Empty);
+                var existedAvatar = Avatars[avatarId];
+                return new CreateAvatarResult(
+                    true,
+                    200,
+                    string.Empty,
+                    EntitySerializer.Serialize(existedAvatar, EntitySerializeReason.OwnerSync)
+                );
             }
 
             var avatar = Activator.CreateInstance(AvatarType) as AvatarEntity;
             if (avatar == null)
             {
-                return new CreateAvatarResult(false, 500, "failed to create avatar entity");
+                return new CreateAvatarResult(false, 500, "failed to create avatar entity", Array.Empty<byte>());
             }
 
             avatar.Guid = avatarId;
@@ -160,21 +168,28 @@ namespace DE.Server.NativeBridge
                 nameof(GameServerRuntimeState),
                 $"Created avatar entity, avatarId={avatarId}, avatarType={AvatarType.FullName}."
             );
-            return new CreateAvatarResult(true, 200, string.Empty);
+            return new CreateAvatarResult(
+                true,
+                200,
+                string.Empty,
+                EntitySerializer.Serialize(avatar, EntitySerializeReason.OwnerSync)
+            );
         }
 
         private readonly struct CreateAvatarResult
         {
-            public CreateAvatarResult(bool isSuccess, int statusCode, string error)
+            public CreateAvatarResult(bool isSuccess, int statusCode, string error, byte[] avatarData)
             {
                 IsSuccess = isSuccess;
                 StatusCode = statusCode;
                 Error = error ?? string.Empty;
+                AvatarData = avatarData ?? Array.Empty<byte>();
             }
 
             public bool IsSuccess { get; }
             public int StatusCode { get; }
             public string Error { get; }
+            public byte[] AvatarData { get; }
         }
 
         private void NotifyIfAllAssignedStubsReady(IReadOnlyCollection<string> assignedStubTypeKeys)

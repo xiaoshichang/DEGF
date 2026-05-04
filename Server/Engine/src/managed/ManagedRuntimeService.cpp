@@ -305,11 +305,13 @@ namespace de::server::engine
 		const std::uint8_t* avatarId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
-		const char* error
+		const char* error,
+		const void* avatarData,
+		std::int32_t avatarDataSizeBytes
 	)
 	{
 		auto* service = static_cast<ManagedRuntimeService*>(context);
-		if (service == nullptr || targetServerId == nullptr || avatarId == nullptr || !service->createAvatarRspSender_)
+		if (service == nullptr || targetServerId == nullptr || avatarId == nullptr || avatarDataSizeBytes < 0 || !service->createAvatarRspSender_)
 		{
 			return 0;
 		}
@@ -321,6 +323,17 @@ namespace de::server::engine
 			message.isSuccess = isSuccess != 0;
 			message.statusCode = statusCode;
 			message.error = error == nullptr ? std::string{} : std::string(error);
+			if (avatarDataSizeBytes > 0)
+			{
+				if (avatarData == nullptr)
+				{
+					return 0;
+				}
+
+				const auto* avatarDataBytes = static_cast<const std::byte*>(avatarData);
+				message.avatarData.assign(avatarDataBytes, avatarDataBytes + avatarDataSizeBytes);
+			}
+
 			return service->createAvatarRspSender_(targetServerId, message) ? 1 : 0;
 		}
 		catch (const std::exception& exception)
@@ -341,11 +354,13 @@ namespace de::server::engine
 		const std::uint8_t* avatarId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
-		const char* error
+		const char* error,
+		const void* avatarData,
+		std::int32_t avatarDataSizeBytes
 	)
 	{
 		auto* service = static_cast<ManagedRuntimeService*>(context);
-		if (service == nullptr || avatarId == nullptr || !service->avatarLoginRspSender_)
+		if (service == nullptr || avatarId == nullptr || avatarDataSizeBytes < 0 || !service->avatarLoginRspSender_)
 		{
 			return 0;
 		}
@@ -357,6 +372,17 @@ namespace de::server::engine
 			message.isSuccess = isSuccess != 0;
 			message.statusCode = statusCode;
 			message.error = error == nullptr ? std::string{} : std::string(error);
+			if (avatarDataSizeBytes > 0)
+			{
+				if (avatarData == nullptr)
+				{
+					return 0;
+				}
+
+				const auto* avatarDataBytes = static_cast<const std::byte*>(avatarData);
+				message.avatarData.assign(avatarDataBytes, avatarDataBytes + avatarDataSizeBytes);
+			}
+
 			return service->avatarLoginRspSender_(clientSessionId, message) ? 1 : 0;
 		}
 		catch (const std::exception& exception)
@@ -683,7 +709,8 @@ namespace de::server::engine
 		const network::GuidBytes& avatarId,
 		bool isSuccess,
 		std::int32_t statusCode,
-		const std::string& error
+		const std::string& error,
+		const std::vector<std::byte>& avatarData
 	)
 	{
 		if (!running_ || handleCreateAvatarRspFn_ == nullptr)
@@ -696,7 +723,9 @@ namespace de::server::engine
 			avatarId.bytes.data(),
 			isSuccess ? 1 : 0,
 			statusCode,
-			error.c_str()
+			error.c_str(),
+			avatarData.empty() ? nullptr : avatarData.data(),
+			static_cast<std::int32_t>(avatarData.size())
 		);
 		if (result != 0)
 		{

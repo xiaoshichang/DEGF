@@ -60,7 +60,7 @@ namespace DE.Server.NativeBridge
         {
             if (avatarId == Guid.Empty)
             {
-                return NativeAPI.SendAvatarLoginRsp(0, Guid.Empty, false, 400, "avatar id is empty");
+                return NativeAPI.SendAvatarLoginRsp(0, Guid.Empty, false, 400, "avatar id is empty", Array.Empty<byte>());
             }
 
             var gameServerId = _managedRuntimeState.SelectGameServerId(avatarId);
@@ -82,7 +82,7 @@ namespace DE.Server.NativeBridge
             return true;
         }
 
-        public bool HandleCreateAvatarRsp(string sourceServerId, Guid avatarId, bool isSuccess, int statusCode, string error)
+        public bool HandleCreateAvatarRsp(string sourceServerId, Guid avatarId, bool isSuccess, int statusCode, string error, byte[] avatarData)
         {
             if (!AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount))
             {
@@ -97,7 +97,7 @@ namespace DE.Server.NativeBridge
                 nameof(GateServerRuntimeState),
                 $"Received avatar creation result, account={avatarAccount.Account}, clientSessionId={avatarAccount.ClientSessionId}, avatarId={avatarId}, success={isSuccess}, sourceServerId={sourceServerId}."
             );
-            return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error);
+            return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error, avatarData);
         }
 
         public void Uninitialize()
@@ -112,7 +112,7 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error);
+            return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error, Array.Empty<byte>());
         }
     }
 }

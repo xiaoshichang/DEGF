@@ -40,7 +40,9 @@ namespace DE.Server.NativeBridge
             IntPtr avatarId,
             int isSuccess,
             int statusCode,
-            IntPtr error
+            IntPtr error,
+            IntPtr avatarData,
+            int avatarDataSizeBytes
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -50,7 +52,9 @@ namespace DE.Server.NativeBridge
             IntPtr avatarId,
             int isSuccess,
             int statusCode,
-            IntPtr error
+            IntPtr error,
+            IntPtr avatarData,
+            int avatarDataSizeBytes
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -187,7 +191,7 @@ namespace DE.Server.NativeBridge
             }
         }
 
-        public static bool SendCreateAvatarRsp(string targetServerId, Guid avatarId, bool isSuccess, int statusCode, string error)
+        public static bool SendCreateAvatarRsp(string targetServerId, Guid avatarId, bool isSuccess, int statusCode, string error, byte[] avatarData)
         {
             if (s_sendCreateAvatarRsp == null || string.IsNullOrWhiteSpace(targetServerId))
             {
@@ -197,18 +201,22 @@ namespace DE.Server.NativeBridge
             IntPtr targetServerIdPtr = IntPtr.Zero;
             IntPtr avatarIdPtr = IntPtr.Zero;
             IntPtr errorPtr = IntPtr.Zero;
+            IntPtr avatarDataPtr = IntPtr.Zero;
             try
             {
                 targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
                 avatarIdPtr = CopyGuidToNative(avatarId);
                 errorPtr = Marshal.StringToCoTaskMemUTF8(error ?? string.Empty);
+                avatarDataPtr = CopyPayloadToNative(avatarData);
                 return s_sendCreateAvatarRsp(
                     s_context,
                     targetServerIdPtr,
                     avatarIdPtr,
                     isSuccess ? 1 : 0,
                     statusCode,
-                    errorPtr
+                    errorPtr,
+                    avatarDataPtr,
+                    avatarData == null ? 0 : avatarData.Length
                 ) != 0;
             }
             finally
@@ -216,10 +224,11 @@ namespace DE.Server.NativeBridge
                 FreeNative(targetServerIdPtr);
                 FreeNative(avatarIdPtr);
                 FreeNative(errorPtr);
+                FreeNative(avatarDataPtr);
             }
         }
 
-        public static bool SendAvatarLoginRsp(ulong clientSessionId, Guid avatarId, bool isSuccess, int statusCode, string error)
+        public static bool SendAvatarLoginRsp(ulong clientSessionId, Guid avatarId, bool isSuccess, int statusCode, string error, byte[] avatarData)
         {
             if (s_sendAvatarLoginRsp == null)
             {
@@ -228,23 +237,28 @@ namespace DE.Server.NativeBridge
 
             IntPtr avatarIdPtr = IntPtr.Zero;
             IntPtr errorPtr = IntPtr.Zero;
+            IntPtr avatarDataPtr = IntPtr.Zero;
             try
             {
                 avatarIdPtr = CopyGuidToNative(avatarId);
                 errorPtr = Marshal.StringToCoTaskMemUTF8(error ?? string.Empty);
+                avatarDataPtr = CopyPayloadToNative(avatarData);
                 return s_sendAvatarLoginRsp(
                     s_context,
                     clientSessionId,
                     avatarIdPtr,
                     isSuccess ? 1 : 0,
                     statusCode,
-                    errorPtr
+                    errorPtr,
+                    avatarDataPtr,
+                    avatarData == null ? 0 : avatarData.Length
                 ) != 0;
             }
             finally
             {
                 FreeNative(avatarIdPtr);
                 FreeNative(errorPtr);
+                FreeNative(avatarDataPtr);
             }
         }
 
@@ -253,6 +267,18 @@ namespace DE.Server.NativeBridge
             var bytes = guid.ToByteArray();
             var ptr = Marshal.AllocCoTaskMem(bytes.Length);
             Marshal.Copy(bytes, 0, ptr, bytes.Length);
+            return ptr;
+        }
+
+        private static IntPtr CopyPayloadToNative(byte[] payload)
+        {
+            if (payload == null || payload.Length == 0)
+            {
+                return IntPtr.Zero;
+            }
+
+            var ptr = Marshal.AllocCoTaskMem(payload.Length);
+            Marshal.Copy(payload, 0, ptr, payload.Length);
             return ptr;
         }
 

@@ -31,7 +31,9 @@ namespace de::server::engine::managed
 		const std::uint8_t* avatarId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
-		const char* error
+		const char* error,
+		const void* avatarData,
+		std::int32_t avatarDataSizeBytes
 	);
 	using NativeSendAvatarLoginRspFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
 		void* context,
@@ -39,7 +41,9 @@ namespace de::server::engine::managed
 		const std::uint8_t* avatarId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
-		const char* error
+		const char* error,
+		const void* avatarData,
+		std::int32_t avatarDataSizeBytes
 	);
 	using NativeManagedTimerCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId, void* state);
 	using NativeAddTimerFn = std::uint64_t (DE_MANAGED_CALLTYPE*)(
@@ -99,7 +103,9 @@ namespace de::server::engine::managed
 		const std::uint8_t* avatarId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
-		const char* error
+		const char* error,
+		const void* avatarData,
+		std::int32_t avatarDataSizeBytes
 	);
 	using ManagedUninitializeFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
 }

@@ -311,7 +311,9 @@ namespace DE.Server.NativeBridge
             IntPtr avatarId,
             int isSuccess,
             int statusCode,
-            IntPtr error
+            IntPtr error,
+            IntPtr avatarData,
+            int avatarDataSizeBytes
         )
         {
             try
@@ -328,9 +330,10 @@ namespace DE.Server.NativeBridge
                 var errorText = error == IntPtr.Zero
                     ? string.Empty
                     : Marshal.PtrToStringUTF8(error) ?? string.Empty;
+                var managedAvatarData = _CopyPayloadFromNative(avatarData, avatarDataSizeBytes);
                 return ManagedRuntimeState
                     .RequireCurrentGateServerRuntimeState()
-                    .HandleCreateAvatarRsp(sourceServerIdText, avatarGuid, isSuccess != 0, statusCode, errorText) ? 0 : -3;
+                    .HandleCreateAvatarRsp(sourceServerIdText, avatarGuid, isSuccess != 0, statusCode, errorText, managedAvatarData) ? 0 : -3;
             }
             catch (Exception exception)
             {

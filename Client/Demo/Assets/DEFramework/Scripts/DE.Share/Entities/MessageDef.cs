@@ -227,24 +227,26 @@ namespace Assets.Scripts.DE.Share
         public struct LoginRsp
         {
             public const ushort CurrentVersion = 1;
-            public const int FixedWireSize = 26;
+            public const int FixedWireSize = 30;
 
             public ushort Version;
             public bool IsSuccess;
             public byte Reserved;
             public int StatusCode;
             public Guid AvatarId;
+            public byte[] AvatarData;
             public string Error;
 
             public byte[] Serialize()
             {
                 byte[] errorBytes = string.IsNullOrEmpty(Error) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(Error);
+                byte[] avatarDataBytes = AvatarData ?? Array.Empty<byte>();
                 if (errorBytes.Length > ushort.MaxValue)
                 {
                     throw new InvalidOperationException("LoginRsp error is too long.");
                 }
 
-                byte[] bytes = new byte[FixedWireSize + errorBytes.Length];
+                byte[] bytes = new byte[FixedWireSize + errorBytes.Length + avatarDataBytes.Length];
                 WriteUInt16BigEndian(bytes, 0, Version);
                 bytes[2] = IsSuccess ? (byte)1 : (byte)0;
                 bytes[3] = Reserved;
@@ -252,9 +254,15 @@ namespace Assets.Scripts.DE.Share
                 byte[] avatarBytes = AvatarId.ToByteArray();
                 Buffer.BlockCopy(avatarBytes, 0, bytes, 8, avatarBytes.Length);
                 WriteUInt16BigEndian(bytes, 24, (ushort)errorBytes.Length);
+                WriteUInt32BigEndian(bytes, 26, (uint)avatarDataBytes.Length);
                 if (errorBytes.Length > 0)
                 {
                     Buffer.BlockCopy(errorBytes, 0, bytes, FixedWireSize, errorBytes.Length);
+                }
+
+                if (avatarDataBytes.Length > 0)
+                {
+                    Buffer.BlockCopy(avatarDataBytes, 0, bytes, FixedWireSize + errorBytes.Length, avatarDataBytes.Length);
                 }
 
                 return bytes;
@@ -277,7 +285,8 @@ namespace Assets.Scripts.DE.Share
                 Buffer.BlockCopy(data, offset + 8, avatarBytes, 0, avatarBytes.Length);
                 parsed.AvatarId = new Guid(avatarBytes);
                 int errorLength = ReadUInt16BigEndian(data, offset + 24);
-                if (parsed.Version != CurrentVersion || dataSize != FixedWireSize + errorLength)
+                uint avatarDataLength = ReadUInt32BigEndian(data, offset + 26);
+                if (parsed.Version != CurrentVersion || avatarDataLength > int.MaxValue || dataSize != FixedWireSize + errorLength + (int)avatarDataLength)
                 {
                     return false;
                 }
@@ -285,6 +294,14 @@ namespace Assets.Scripts.DE.Share
                 parsed.Error = errorLength == 0
                     ? string.Empty
                     : Encoding.UTF8.GetString(data, offset + FixedWireSize, errorLength);
+                parsed.AvatarData = avatarDataLength == 0
+                    ? Array.Empty<byte>()
+                    : new byte[(int)avatarDataLength];
+                if (avatarDataLength > 0)
+                {
+                    Buffer.BlockCopy(data, offset + FixedWireSize + errorLength, parsed.AvatarData, 0, (int)avatarDataLength);
+                }
+
                 message = parsed;
                 return true;
             }
@@ -336,24 +353,26 @@ namespace Assets.Scripts.DE.Share
         public struct CreateAvatarRsp
         {
             public const ushort CurrentVersion = 1;
-            public const int FixedWireSize = 26;
+            public const int FixedWireSize = 30;
 
             public ushort Version;
             public bool IsSuccess;
             public byte Reserved;
             public int StatusCode;
             public Guid AvatarId;
+            public byte[] AvatarData;
             public string Error;
 
             public byte[] Serialize()
             {
                 byte[] errorBytes = string.IsNullOrEmpty(Error) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(Error);
+                byte[] avatarDataBytes = AvatarData ?? Array.Empty<byte>();
                 if (errorBytes.Length > ushort.MaxValue)
                 {
                     throw new InvalidOperationException("CreateAvatarRsp error is too long.");
                 }
 
-                byte[] bytes = new byte[FixedWireSize + errorBytes.Length];
+                byte[] bytes = new byte[FixedWireSize + errorBytes.Length + avatarDataBytes.Length];
                 WriteUInt16BigEndian(bytes, 0, Version);
                 bytes[2] = IsSuccess ? (byte)1 : (byte)0;
                 bytes[3] = Reserved;
@@ -361,9 +380,15 @@ namespace Assets.Scripts.DE.Share
                 byte[] avatarBytes = AvatarId.ToByteArray();
                 Buffer.BlockCopy(avatarBytes, 0, bytes, 8, avatarBytes.Length);
                 WriteUInt16BigEndian(bytes, 24, (ushort)errorBytes.Length);
+                WriteUInt32BigEndian(bytes, 26, (uint)avatarDataBytes.Length);
                 if (errorBytes.Length > 0)
                 {
                     Buffer.BlockCopy(errorBytes, 0, bytes, FixedWireSize, errorBytes.Length);
+                }
+
+                if (avatarDataBytes.Length > 0)
+                {
+                    Buffer.BlockCopy(avatarDataBytes, 0, bytes, FixedWireSize + errorBytes.Length, avatarDataBytes.Length);
                 }
 
                 return bytes;
@@ -386,7 +411,8 @@ namespace Assets.Scripts.DE.Share
                 Buffer.BlockCopy(data, offset + 8, avatarBytes, 0, avatarBytes.Length);
                 parsed.AvatarId = new Guid(avatarBytes);
                 int errorLength = ReadUInt16BigEndian(data, offset + 24);
-                if (parsed.Version != CurrentVersion || dataSize != FixedWireSize + errorLength)
+                uint avatarDataLength = ReadUInt32BigEndian(data, offset + 26);
+                if (parsed.Version != CurrentVersion || avatarDataLength > int.MaxValue || dataSize != FixedWireSize + errorLength + (int)avatarDataLength)
                 {
                     return false;
                 }
@@ -394,6 +420,14 @@ namespace Assets.Scripts.DE.Share
                 parsed.Error = errorLength == 0
                     ? string.Empty
                     : Encoding.UTF8.GetString(data, offset + FixedWireSize, errorLength);
+                parsed.AvatarData = avatarDataLength == 0
+                    ? Array.Empty<byte>()
+                    : new byte[(int)avatarDataLength];
+                if (avatarDataLength > 0)
+                {
+                    Buffer.BlockCopy(data, offset + FixedWireSize + errorLength, parsed.AvatarData, 0, (int)avatarDataLength);
+                }
+
                 message = parsed;
                 return true;
             }

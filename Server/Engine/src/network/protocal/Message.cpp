@@ -75,7 +75,7 @@ namespace de::server::engine::network
 			return bytes;
 		}
 
-		void AppendStringWithUInt16Length(std::vector<std::uint8_t>& bytes, std::size_t lengthOffset, const std::string& value)
+		void AppendStringWithUInt16Length(std::vector<std::uint8_t>& bytes, std::size_t lengthOffset, std::size_t dataOffset, const std::string& value)
 		{
 			if (value.size() > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()))
 			{
@@ -85,7 +85,21 @@ namespace de::server::engine::network
 			WriteUInt16BigEndian(bytes.data() + lengthOffset, static_cast<std::uint16_t>(value.size()));
 			if (!value.empty())
 			{
-				std::memcpy(bytes.data() + bytes.size() - value.size(), value.data(), value.size());
+				std::memcpy(bytes.data() + dataOffset, value.data(), value.size());
+			}
+		}
+
+		void AppendBytes(std::vector<std::uint8_t>& bytes, std::size_t lengthOffset, std::size_t dataOffset, const std::vector<std::byte>& value)
+		{
+			if (value.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()))
+			{
+				throw std::invalid_argument("Message binary field is too long.");
+			}
+
+			WriteUInt32BigEndian(bytes.data() + lengthOffset, static_cast<std::uint32_t>(value.size()));
+			if (!value.empty())
+			{
+				std::memcpy(bytes.data() + dataOffset, value.data(), value.size());
 			}
 		}
 	}
@@ -186,13 +200,14 @@ namespace de::server::engine::network
 
 	std::vector<std::byte> LoginRspMessage::Serialize() const
 	{
-		std::vector<std::uint8_t> bytes(kFixedWireSize + error.size());
+		std::vector<std::uint8_t> bytes(kFixedWireSize + error.size() + avatarData.size());
 		WriteUInt16BigEndian(bytes.data(), version);
 		bytes[2] = isSuccess ? 1 : 0;
 		bytes[3] = reserved;
 		WriteUInt32BigEndian(bytes.data() + 4, static_cast<std::uint32_t>(statusCode));
 		std::memcpy(bytes.data() + 8, avatarId.bytes.data(), avatarId.bytes.size());
-		AppendStringWithUInt16Length(bytes, 24, error);
+		AppendStringWithUInt16Length(bytes, 24, kFixedWireSize, error);
+		AppendBytes(bytes, 26, kFixedWireSize + error.size(), avatarData);
 		return ToByteVector(bytes.data(), bytes.size());
 	}
 
@@ -228,13 +243,14 @@ namespace de::server::engine::network
 
 	std::vector<std::byte> CreateAvatarRspMessage::Serialize() const
 	{
-		std::vector<std::uint8_t> bytes(kFixedWireSize + error.size());
+		std::vector<std::uint8_t> bytes(kFixedWireSize + error.size() + avatarData.size());
 		WriteUInt16BigEndian(bytes.data(), version);
 		bytes[2] = isSuccess ? 1 : 0;
 		bytes[3] = reserved;
 		WriteUInt32BigEndian(bytes.data() + 4, static_cast<std::uint32_t>(statusCode));
 		std::memcpy(bytes.data() + 8, avatarId.bytes.data(), avatarId.bytes.size());
-		AppendStringWithUInt16Length(bytes, 24, error);
+		AppendStringWithUInt16Length(bytes, 24, kFixedWireSize, error);
+		AppendBytes(bytes, 26, kFixedWireSize + error.size(), avatarData);
 		return ToByteVector(bytes.data(), bytes.size());
 	}
 
@@ -253,12 +269,19 @@ namespace de::server::engine::network
 		parsed.statusCode = static_cast<std::int32_t>(ReadUInt32BigEndian(bytes + 4));
 		std::memcpy(parsed.avatarId.bytes.data(), bytes + 8, parsed.avatarId.bytes.size());
 		const auto errorLength = static_cast<std::size_t>(ReadUInt16BigEndian(bytes + 24));
-		if (parsed.version != kCurrentVersion || size != kFixedWireSize + errorLength)
+		const auto avatarDataLength = static_cast<std::size_t>(ReadUInt32BigEndian(bytes + 26));
+		if (parsed.version != kCurrentVersion || size != kFixedWireSize + errorLength + avatarDataLength)
 		{
 			return false;
 		}
 
 		parsed.error.assign(reinterpret_cast<const char*>(bytes + kFixedWireSize), errorLength);
+		parsed.avatarData.resize(avatarDataLength);
+		if (avatarDataLength > 0)
+		{
+			std::memcpy(parsed.avatarData.data(), bytes + kFixedWireSize + errorLength, avatarDataLength);
+		}
+
 		message = std::move(parsed);
 		return true;
 	}

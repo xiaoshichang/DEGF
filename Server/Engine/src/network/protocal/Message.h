@@ -67,6 +67,7 @@ namespace de::server::engine::network
 		std::uint8_t reserved = 0;
 		std::int32_t statusCode = 0;
 		GuidBytes avatarId{};
+		std::vector<std::byte> avatarData;
 		std::string error;
 
 		std::vector<std::byte> Serialize() const;
@@ -95,6 +96,7 @@ namespace de::server::engine::network
 		std::uint8_t reserved = 0;
 		std::int32_t statusCode = 0;
 		GuidBytes avatarId{};
+		std::vector<std::byte> avatarData;
 		std::string error;
 
 		std::vector<std::byte> Serialize() const;

@@ -27,6 +27,7 @@ namespace Assets.Scripts.DE.Share
                 HandShakeRsp = 0x00020002u,
                 HeartBeatWithDataNtf = 0x00020003u,
                 AllNodeReadyNtf = 0x00020004u,
+                StubDistributeNtf = 0x00020009u,
                 GameReadyNtf = 0x00020005u,
                 OpenGateNtf = 0x00020006u,
                 CreateAvatarReq = 0x00020007u,

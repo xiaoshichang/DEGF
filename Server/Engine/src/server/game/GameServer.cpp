@@ -166,6 +166,14 @@ namespace de::server::engine
 			ConnectToAllGates();
 			return;
 
+		case network::MessageID::SS::StubDistributeNtf:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleStubDistribute(data))
+			{
+				Logger::Warn("GameServer", "Failed to process StubDistributeNtf payload in managed runtime.");
+			}
+			return;
+
 		case network::MessageID::SS::CreateAvatarReq:
 			HandleCreateAvatarReq(serverId, data);
 			return;

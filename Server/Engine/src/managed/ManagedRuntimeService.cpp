@@ -41,6 +41,7 @@ namespace de::server::engine
 		constexpr const char_t* kInitializeMethodName = DE_HOST_CHAR_LITERAL("InitializeNative");
 		constexpr const char_t* kBuildStubDistributePayloadMethodName = DE_HOST_CHAR_LITERAL("BuildStubDistributePayloadNative");
 		constexpr const char_t* kHandleAllNodeReadyMethodName = DE_HOST_CHAR_LITERAL("HandleAllNodeReadyNative");
+		constexpr const char_t* kHandleStubDistributeMethodName = DE_HOST_CHAR_LITERAL("HandleStubDistributeNative");
 		constexpr const char_t* kValidateGateAuthMethodName = DE_HOST_CHAR_LITERAL("ValidateGateAuthNative");
 		constexpr const char_t* kHandleAvatarLoginReqMethodName = DE_HOST_CHAR_LITERAL("HandleAvatarLoginReqNative");
 		constexpr const char_t* kHandleCreateAvatarReqMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarReqNative");
@@ -796,6 +797,26 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::HandleStubDistribute(const std::vector<std::byte>& payload)
+	{
+		if (!running_ || handleStubDistributeFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleStubDistributeFn_(
+			payload.empty() ? nullptr : payload.data(),
+			static_cast<std::int32_t>(payload.size())
+		);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleStubDistributeNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
 	bool ManagedRuntimeService::HandleAvatarLoginReq(std::uint64_t clientSessionId, const std::string& account)
 	{
 		if (!running_ || handleAvatarLoginReqFn_ == nullptr)
@@ -1158,6 +1179,10 @@ namespace de::server::engine
 		bindMethod(kHandleAllNodeReadyMethodName, &handleAllNodeReadyPointer);
 		handleAllNodeReadyFn_ = reinterpret_cast<managed::ManagedHandleAllNodeReadyFn>(handleAllNodeReadyPointer);
 
+		void* handleStubDistributePointer = nullptr;
+		bindMethod(kHandleStubDistributeMethodName, &handleStubDistributePointer);
+		handleStubDistributeFn_ = reinterpret_cast<managed::ManagedHandleStubDistributeFn>(handleStubDistributePointer);
+
 		void* validateGateAuthPointer = nullptr;
 		bindMethod(kValidateGateAuthMethodName, &validateGateAuthPointer);
 		validateGateAuthFn_ = reinterpret_cast<managed::ManagedValidateGateAuthFn>(validateGateAuthPointer);
@@ -1196,6 +1221,7 @@ namespace de::server::engine
 		if (initializeFn_ == nullptr
 			|| buildStubDistributePayloadFn_ == nullptr
 			|| handleAllNodeReadyFn_ == nullptr
+			|| handleStubDistributeFn_ == nullptr
 			|| validateGateAuthFn_ == nullptr
 			|| handleAvatarLoginReqFn_ == nullptr
 			|| handleCreateAvatarReqFn_ == nullptr
@@ -1223,6 +1249,7 @@ namespace de::server::engine
 		initializeFn_ = nullptr;
 		buildStubDistributePayloadFn_ = nullptr;
 		handleAllNodeReadyFn_ = nullptr;
+		handleStubDistributeFn_ = nullptr;
 		validateGateAuthFn_ = nullptr;
 		handleAvatarLoginReqFn_ = nullptr;
 		handleCreateAvatarReqFn_ = nullptr;

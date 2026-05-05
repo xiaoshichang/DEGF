@@ -201,7 +201,7 @@ namespace DE.Server.NativeBridge
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        public static int HandleAllNodeReadyNative(IntPtr payload, int sizeBytes)
+        public static int HandleStubDistributeNative(IntPtr payload, int sizeBytes)
         {
             try
             {
@@ -212,7 +212,30 @@ namespace DE.Server.NativeBridge
 
                 var managedPayload = _CopyPayloadFromNative(payload, sizeBytes);
                 var table = ServerStubDistributeTable.ConvertServerStubDistributeTableFromPayload(managedPayload);
-                ManagedRuntimeState.RequireCurrentGameServerRuntimeState().HandleAllNodeReady(table);
+                ManagedRuntimeState.RequireCurrent().HandleStubDistribute(table);
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleStubDistributeNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleAllNodeReadyNative(IntPtr payload, int sizeBytes)
+        {
+            _ = payload;
+            _ = sizeBytes;
+
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                ManagedRuntimeState.RequireCurrentGameServerRuntimeState().HandleAllNodeReady();
                 return 0;
             }
             catch (Exception exception)

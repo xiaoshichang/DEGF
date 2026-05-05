@@ -105,6 +105,7 @@ namespace de::server::engine::managed
 		std::int32_t outputBufferSizeBytes
 	);
 	using ManagedHandleAllNodeReadyFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
+	using ManagedHandleStubDistributeFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
 	using ManagedValidateGateAuthFn = int (DE_MANAGED_CALLTYPE*)(
 		const void* inputPayload,
 		std::int32_t inputSizeBytes,

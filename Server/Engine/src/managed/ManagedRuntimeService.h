@@ -27,6 +27,7 @@ namespace de::server::engine
 		bool IsRunning() const;
 		bool TryBuildStubDistributePayload(const std::vector<std::string>& gameServerIds, std::vector<std::byte>& payload);
 		bool HandleAllNodeReady(const std::vector<std::byte>& payload);
+		bool HandleStubDistribute(const std::vector<std::byte>& payload);
 		bool TryValidateGateAuth(
 			const std::string& account,
 			const std::string& password,
@@ -132,6 +133,7 @@ namespace de::server::engine
 		managed::ManagedInitializeFn initializeFn_ = nullptr;
 		managed::ManagedBuildStubDistributePayloadFn buildStubDistributePayloadFn_ = nullptr;
 		managed::ManagedHandleAllNodeReadyFn handleAllNodeReadyFn_ = nullptr;
+		managed::ManagedHandleStubDistributeFn handleStubDistributeFn_ = nullptr;
 		managed::ManagedValidateGateAuthFn validateGateAuthFn_ = nullptr;
 		managed::ManagedHandleAvatarLoginReqFn handleAvatarLoginReqFn_ = nullptr;
 		managed::ManagedHandleCreateAvatarReqFn handleCreateAvatarReqFn_ = nullptr;

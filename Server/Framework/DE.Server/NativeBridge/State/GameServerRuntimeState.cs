@@ -20,7 +20,6 @@ namespace DE.Server.NativeBridge
         }
 
         public Dictionary<Type, DateTime> ReadyStubs { get; } = new Dictionary<Type, DateTime>();
-        public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
         public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new Dictionary<Type, ServerStubEntity>();
         public Dictionary<Guid, AvatarEntity> Avatars { get; } = new Dictionary<Guid, AvatarEntity>();
         public Dictionary<Guid, ServerEntity> Entities { get; } = new Dictionary<Guid, ServerEntity>();
@@ -29,16 +28,9 @@ namespace DE.Server.NativeBridge
         public Type NpcType { get; private set; }
         public Type SpaceType { get; private set; }
 
-        public void HandleAllNodeReady(ServerStubDistributeTable table)
+        public void HandleAllNodeReady()
         {
-            if (table == null)
-            {
-                throw new ArgumentNullException(nameof(table));
-            }
-
-            StubDistributeTable = table;
-
-            var assignedStubTypeKeys = table
+            var assignedStubTypeKeys = _managedRuntimeState.StubDistributeTable
                 .GetAssignedStubTypeKeys(_managedRuntimeState.ServerId)
                 .Where(stubTypeKey => !string.IsNullOrWhiteSpace(stubTypeKey))
                 .Distinct(StringComparer.Ordinal)
@@ -64,7 +56,7 @@ namespace DE.Server.NativeBridge
 
             var stubType = stubEntity.GetType();
             var stubTypeKey = ManagedRuntimeState.GetStubTypeKey(stubType);
-            var assignedStubTypeKeys = StubDistributeTable.GetAssignedStubTypeKeys(_managedRuntimeState.ServerId);
+            var assignedStubTypeKeys = _managedRuntimeState.StubDistributeTable.GetAssignedStubTypeKeys(_managedRuntimeState.ServerId);
 
             if (!assignedStubTypeKeys.Contains(stubTypeKey))
             {
@@ -89,7 +81,6 @@ namespace DE.Server.NativeBridge
             StubInstances.Clear();
             Avatars.Clear();
             Entities.Clear();
-            StubDistributeTable = new ServerStubDistributeTable();
             AvatarType = null;
             NpcType = null;
             SpaceType = null;
@@ -158,39 +149,6 @@ namespace DE.Server.NativeBridge
             }
 
             return HandleServerRpcPayload(sourceServerId, serverRpc);
-        }
-
-        public string FindStubServerId(string stubName)
-        {
-            if (string.IsNullOrWhiteSpace(stubName))
-            {
-                return string.Empty;
-            }
-
-            foreach (var pair in StubDistributeTable.NodeToStubTypeKeys)
-            {
-                if (pair.Value == null)
-                {
-                    continue;
-                }
-
-                foreach (var stubTypeKey in pair.Value)
-                {
-                    if (!_managedRuntimeState.TryResolveStubType(stubTypeKey, out var stubType))
-                    {
-                        continue;
-                    }
-
-                    if (string.Equals(stubType.Name, stubName, StringComparison.Ordinal)
-                        || string.Equals(stubType.FullName, stubName, StringComparison.Ordinal)
-                        || string.Equals(stubTypeKey, stubName, StringComparison.Ordinal))
-                    {
-                        return pair.Key;
-                    }
-                }
-            }
-
-            return string.Empty;
         }
 
         private bool HandleAvatarRpcPayload(string sourceServerId, byte[] payload)

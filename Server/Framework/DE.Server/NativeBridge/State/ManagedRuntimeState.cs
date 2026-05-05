@@ -48,6 +48,7 @@ namespace DE.Server.NativeBridge
         public ManagedRuntimeServerType ServerType { get; private set; }
         public GateServerRuntimeState GateServerRuntimeState { get; private set; }
         public GameServerRuntimeState GameServerRuntimeState { get; private set; }
+        public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
 
         private ManagedRuntimeState()
         {
@@ -144,6 +145,48 @@ namespace DE.Server.NativeBridge
             return stubType.AssemblyQualifiedName ?? stubType.FullName ?? stubType.Name;
         }
 
+        public void HandleStubDistribute(ServerStubDistributeTable table)
+        {
+            StubDistributeTable = table ?? throw new ArgumentNullException(nameof(table));
+            DELogger.Info(
+                nameof(ManagedRuntimeState),
+                $"Stub distribute table updated on {ServerId}, nodeCount={StubDistributeTable.NodeToStubTypeKeys.Count}."
+            );
+        }
+
+        public string FindStubServerId(string stubName)
+        {
+            if (string.IsNullOrWhiteSpace(stubName))
+            {
+                return string.Empty;
+            }
+
+            foreach (var pair in StubDistributeTable.NodeToStubTypeKeys)
+            {
+                if (pair.Value == null)
+                {
+                    continue;
+                }
+
+                foreach (var stubTypeKey in pair.Value)
+                {
+                    if (!TryResolveStubType(stubTypeKey, out var stubType))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(stubType.Name, stubName, StringComparison.Ordinal)
+                        || string.Equals(stubType.FullName, stubName, StringComparison.Ordinal)
+                        || string.Equals(stubTypeKey, stubName, StringComparison.Ordinal))
+                    {
+                        return pair.Key;
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
         public string SelectGameServerId(Guid avatarId)
         {
             var gameServerIds = GetGameServerIds();
@@ -157,7 +200,7 @@ namespace DE.Server.NativeBridge
         }
 
         /// <summary>
-        /// 同一个routekey选出来的Gate是固定的，从而保证RPC在同一个routekey的情况下保序
+        /// The same route key maps to the same gate, keeping RPC order stable per route key.
         /// </summary>
         public string SelectGateServerId(string routeKey)
         {
@@ -532,6 +575,7 @@ namespace DE.Server.NativeBridge
 
             GateServerRuntimeState = null;
             GameServerRuntimeState = null;
+            StubDistributeTable = new ServerStubDistributeTable();
             StubTypes = new List<Type>();
             GameplayAssembly = null;
             ServerType = ManagedRuntimeServerType.Unknown;

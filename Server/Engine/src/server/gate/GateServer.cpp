@@ -179,6 +179,14 @@ namespace de::server::engine
 			HandleCreateAvatarRsp(serverId, data);
 			return;
 
+		case network::MessageID::SS::StubDistributeNtf:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleStubDistribute(data))
+			{
+				Logger::Warn("GateServer", "Failed to process StubDistributeNtf payload in managed runtime.");
+			}
+			return;
+
 		case network::MessageID::SS::AvatarRpcNtf:
 			if (auto* managedRuntimeService = GetManagedRuntimeService();
 				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerAvatarRpc(serverId, data))

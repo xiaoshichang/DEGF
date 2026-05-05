@@ -188,10 +188,30 @@ namespace de::server::engine
 		}
 
 		auto& innerNetwork = GetInnerNetwork();
+		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
+		{
+			(void)gateConfig;
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::StubDistributeNtf), payload))
+			{
+				Logger::Warn("GMServer", "Failed to send StubDistributeNtf to " + serverId + ".");
+				return;
+			}
+		}
+
 		for (const auto& [serverId, gameConfig] : clusterConfig.game)
 		{
 			(void)gameConfig;
-			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::AllNodeReadyNtf), payload))
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::StubDistributeNtf), payload))
+			{
+				Logger::Warn("GMServer", "Failed to send StubDistributeNtf to " + serverId + ".");
+				return;
+			}
+		}
+
+		for (const auto& [serverId, gameConfig] : clusterConfig.game)
+		{
+			(void)gameConfig;
+			if (!innerNetwork.Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::AllNodeReadyNtf), {}))
 			{
 				Logger::Warn("GMServer", "Failed to send AllNodeReadyNtf to " + serverId + ".");
 				return;
@@ -201,7 +221,7 @@ namespace de::server::engine
 		allNodeReadyNotified_ = true;
 		Logger::Info(
 			"GMServer",
-			"Sent AllNodeReadyNtf to all game nodes with stub distribute payload size " + std::to_string(payload.size()) + "."
+			"Sent StubDistributeNtf to all game/gate nodes and AllNodeReadyNtf to all game nodes with stub distribute payload size " + std::to_string(payload.size()) + "."
 		);
 	}
 

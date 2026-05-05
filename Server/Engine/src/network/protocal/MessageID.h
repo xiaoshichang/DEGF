@@ -30,6 +30,7 @@ namespace de::server::engine::network
 			OpenGateNtf = 0x00020006u,
 			CreateAvatarReq = 0x00020007u,
 			CreateAvatarRsp = 0x00020008u,
+			StubDistributeNtf = 0x00020009u,
 			AvatarRpcNtf = 0x0002000Au,
 			ServerRpcNtf = 0x0002000Bu,
 		};

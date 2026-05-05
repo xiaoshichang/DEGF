@@ -1,8 +1,7 @@
 using System;
 using System.Collections;
-using System.Linq;
-using System.Reflection;
 using System.Text;
+using DynamicExpresso;
 
 namespace DE.Server.NativeBridge
 {
@@ -17,7 +16,7 @@ namespace DE.Server.NativeBridge
 
             try
             {
-                var value = EvaluatePath(code.Trim());
+                var value = Evaluate(code.Trim());
                 return FormatValue(value);
             }
             catch (Exception exception)
@@ -26,88 +25,36 @@ namespace DE.Server.NativeBridge
             }
         }
 
-        private static object EvaluatePath(string code)
-        {
-            var parts = code
-                .Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(part => part.Trim())
-                .Where(part => !string.IsNullOrWhiteSpace(part))
-                .ToArray();
-            if (parts.Length == 0)
-            {
-                return string.Empty;
-            }
-
-            var value = ResolveRoot(parts[0]);
-            for (var index = 1; index < parts.Length; ++index)
-            {
-                value = ResolveMember(value, parts[index]);
-            }
-
-            return value;
-        }
-
-        private static object ResolveRoot(string name)
+        private static object Evaluate(string code)
         {
             var runtimeState = ManagedRuntimeState.RequireCurrent();
-            if (string.Equals(name, nameof(ManagedRuntimeState), StringComparison.Ordinal))
+            var interpreter = new Interpreter();
+
+            interpreter.SetVariable(nameof(ManagedRuntimeState), runtimeState);
+            interpreter.SetVariable("Runtime", runtimeState);
+
+            if (runtimeState.GmCommandRuntimeState != null)
             {
-                return runtimeState;
+                interpreter.SetVariable(nameof(GmCommandRuntimeState), runtimeState.GmCommandRuntimeState);
+                interpreter.SetVariable("GM", runtimeState.GmCommandRuntimeState);
             }
 
-            if (string.Equals(name, nameof(GmCommandRuntimeState), StringComparison.Ordinal))
+            if (runtimeState.GateServerRuntimeState != null)
             {
-                return runtimeState.GmCommandRuntimeState ?? throw new InvalidOperationException("GM command runtime state is not available on this node.");
+                interpreter.SetVariable(nameof(GateServerRuntimeState), runtimeState.GateServerRuntimeState);
+                interpreter.SetVariable("Gate", runtimeState.GateServerRuntimeState);
             }
 
-            if (string.Equals(name, nameof(GateServerRuntimeState), StringComparison.Ordinal))
+            if (runtimeState.GameServerRuntimeState != null)
             {
-                return runtimeState.GateServerRuntimeState ?? throw new InvalidOperationException("Gate server runtime state is not available on this node.");
+                interpreter.SetVariable(nameof(GameServerRuntimeState), runtimeState.GameServerRuntimeState);
+                interpreter.SetVariable("Game", runtimeState.GameServerRuntimeState);
+                interpreter.SetVariable("Avatars", runtimeState.GameServerRuntimeState.Avatars);
+                interpreter.SetVariable("Entities", runtimeState.GameServerRuntimeState.Entities);
+                interpreter.SetVariable("Stubs", runtimeState.GameServerRuntimeState.StubInstances);
             }
 
-            if (string.Equals(name, nameof(GameServerRuntimeState), StringComparison.Ordinal))
-            {
-                return runtimeState.GameServerRuntimeState ?? throw new InvalidOperationException("Game server runtime state is not available on this node.");
-            }
-
-            throw new InvalidOperationException($"Unknown C# telnet root: {name}.");
-        }
-
-        private static object ResolveMember(object target, string memberName)
-        {
-            if (target == null)
-            {
-                return null;
-            }
-
-            var type = target.GetType();
-            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-            var property = type.GetProperty(memberName, flags);
-            if (property != null)
-            {
-                return property.GetValue(target);
-            }
-
-            var field = type.GetField(memberName, flags);
-            if (field != null)
-            {
-                return field.GetValue(target);
-            }
-
-            var methodName = memberName.EndsWith("()", StringComparison.Ordinal)
-                ? memberName.Substring(0, memberName.Length - 2)
-                : memberName;
-            var method = type
-                .GetMethods(flags)
-                .FirstOrDefault(candidate => string.Equals(candidate.Name, methodName, StringComparison.Ordinal)
-                    && candidate.GetParameters().Length == 0);
-            if (method != null)
-            {
-                return method.Invoke(target, Array.Empty<object>());
-            }
-
-            throw new InvalidOperationException($"Member {memberName} not found on {type.FullName}.");
+            return interpreter.Eval(code);
         }
 
         private static string FormatValue(object value)

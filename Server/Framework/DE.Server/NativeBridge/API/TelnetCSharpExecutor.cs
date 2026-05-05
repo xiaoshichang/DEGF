@@ -1,7 +1,12 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Text;
-using DynamicExpresso;
+using DE.Server.Entities;
+using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.Scripting;
 
 namespace DE.Server.NativeBridge
 {
@@ -28,33 +33,38 @@ namespace DE.Server.NativeBridge
         private static object Evaluate(string code)
         {
             var runtimeState = ManagedRuntimeState.RequireCurrent();
-            var interpreter = new Interpreter();
+            var globals = new TelnetCSharpGlobals(runtimeState);
+            return CSharpScript
+                .EvaluateAsync<object>(code, CreateScriptOptions(runtimeState), globals, typeof(TelnetCSharpGlobals))
+                .GetAwaiter()
+                .GetResult();
+        }
 
-            interpreter.SetVariable(nameof(ManagedRuntimeState), runtimeState);
-            interpreter.SetVariable("Runtime", runtimeState);
-
-            if (runtimeState.GmCommandRuntimeState != null)
+        private static ScriptOptions CreateScriptOptions(ManagedRuntimeState runtimeState)
+        {
+            var assemblies = new List<Assembly>
             {
-                interpreter.SetVariable(nameof(GmCommandRuntimeState), runtimeState.GmCommandRuntimeState);
-                interpreter.SetVariable("GM", runtimeState.GmCommandRuntimeState);
+                typeof(object).Assembly,
+                typeof(Enumerable).Assembly,
+                typeof(Dictionary<,>).Assembly,
+                typeof(ManagedRuntimeState).Assembly,
+                typeof(ServerEntity).Assembly,
+            };
+
+            if (runtimeState.GameplayAssembly != null)
+            {
+                assemblies.Add(runtimeState.GameplayAssembly);
             }
 
-            if (runtimeState.GateServerRuntimeState != null)
-            {
-                interpreter.SetVariable(nameof(GateServerRuntimeState), runtimeState.GateServerRuntimeState);
-                interpreter.SetVariable("Gate", runtimeState.GateServerRuntimeState);
-            }
-
-            if (runtimeState.GameServerRuntimeState != null)
-            {
-                interpreter.SetVariable(nameof(GameServerRuntimeState), runtimeState.GameServerRuntimeState);
-                interpreter.SetVariable("Game", runtimeState.GameServerRuntimeState);
-                interpreter.SetVariable("Avatars", runtimeState.GameServerRuntimeState.Avatars);
-                interpreter.SetVariable("Entities", runtimeState.GameServerRuntimeState.Entities);
-                interpreter.SetVariable("Stubs", runtimeState.GameServerRuntimeState.StubInstances);
-            }
-
-            return interpreter.Eval(code);
+            return ScriptOptions.Default
+                .WithReferences(assemblies.Distinct())
+                .WithImports(
+                    "System",
+                    "System.Collections.Generic",
+                    "System.Linq",
+                    "DE.Server.Entities",
+                    "DE.Server.NativeBridge"
+                );
         }
 
         private static string FormatValue(object value)
@@ -89,6 +99,54 @@ namespace DE.Server.NativeBridge
             }
 
             return value.ToString() ?? string.Empty;
+        }
+
+        public sealed class TelnetCSharpGlobals
+        {
+            public TelnetCSharpGlobals(ManagedRuntimeState runtimeState)
+            {
+                ManagedRuntimeState = runtimeState ?? throw new ArgumentNullException(nameof(runtimeState));
+                Runtime = ManagedRuntimeState;
+                GmCommandRuntimeState = ManagedRuntimeState.GmCommandRuntimeState;
+                GM = GmCommandRuntimeState;
+                GateServerRuntimeState = ManagedRuntimeState.GateServerRuntimeState;
+                Gate = GateServerRuntimeState;
+                GameServerRuntimeState = ManagedRuntimeState.GameServerRuntimeState;
+                Game = GameServerRuntimeState;
+            }
+
+            public ManagedRuntimeState ManagedRuntimeState { get; }
+            public ManagedRuntimeState Runtime { get; }
+            public GmCommandRuntimeState GmCommandRuntimeState { get; }
+            public GmCommandRuntimeState GM { get; }
+            public GateServerRuntimeState GateServerRuntimeState { get; }
+            public GateServerRuntimeState Gate { get; }
+            public GameServerRuntimeState GameServerRuntimeState { get; }
+            public GameServerRuntimeState Game { get; }
+
+            public object Avatars
+            {
+                get
+                {
+                    return GameServerRuntimeState?.Avatars;
+                }
+            }
+
+            public object Entities
+            {
+                get
+                {
+                    return GameServerRuntimeState?.Entities;
+                }
+            }
+
+            public object Stubs
+            {
+                get
+                {
+                    return GameServerRuntimeState?.StubInstances;
+                }
+            }
         }
     }
 }

@@ -102,4 +102,17 @@ namespace de::server::engine::network
 		std::vector<std::byte> Serialize() const;
 		static bool TryDeserialize(const void* data, std::size_t size, CreateAvatarRspMessage& message);
 	};
+
+	struct GmTotalEntityCountReqMessage
+	{
+		static constexpr std::uint16_t kCurrentVersion = 1;
+		static constexpr std::size_t kWireSize = 12;
+
+		std::uint16_t version = kCurrentVersion;
+		std::uint16_t reserved = 0;
+		std::uint64_t requestId = 0;
+
+		std::vector<std::byte> Serialize() const;
+		static bool TryDeserialize(const void* data, std::size_t size, GmTotalEntityCountReqMessage& message);
+	};
 }

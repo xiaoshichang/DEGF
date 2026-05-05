@@ -33,6 +33,8 @@ namespace de::server::engine::network
 			StubDistributeNtf = 0x00020009u,
 			AvatarRpcNtf = 0x0002000Au,
 			ServerRpcNtf = 0x0002000Bu,
+			GmTotalEntityCountReq = 0x0002000Cu,
+			GmTotalEntityCountRsp = 0x0002000Du,
 		};
 
 		constexpr bool IsCS(std::uint32_t messageId)

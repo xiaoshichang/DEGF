@@ -468,6 +468,104 @@ namespace DE.Server.NativeBridge
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int BeginGmTotalEntityCountCommandNative(ulong requestId, IntPtr gameServerIdsPayload, int gameServerIdsPayloadSizeBytes)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var gameServerIds = _ParseGameServerIds(_CopyPayloadFromNative(gameServerIdsPayload, gameServerIdsPayloadSizeBytes));
+                ManagedRuntimeState.RequireCurrentGmCommandRuntimeState().BeginTotalEntityCountCommand(requestId, gameServerIds);
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(BeginGmTotalEntityCountCommandNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int CancelGmCommandNative(ulong requestId)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                ManagedRuntimeState.RequireCurrentGmCommandRuntimeState().CancelCommand(requestId);
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(CancelGmCommandNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int BuildGmTotalEntityCountRspNative(ulong requestId, IntPtr outputBuffer, int outputBufferSizeBytes)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var response = ManagedRuntimeState.RequireCurrentGameServerRuntimeState().BuildTotalEntityCountRsp(requestId);
+                var payload = JsonSerializer.SerializeToUtf8Bytes(response, s_jsonSerializerOptions);
+                return _WritePayloadToNative(payload, outputBuffer, outputBufferSizeBytes);
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(BuildGmTotalEntityCountRspNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleGmTotalEntityCountRspNative(
+            IntPtr sourceServerId,
+            IntPtr payload,
+            int sizeBytes,
+            IntPtr outputBuffer,
+            int outputBufferSizeBytes)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var sourceServerIdText = sourceServerId == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(sourceServerId) ?? string.Empty;
+                var managedPayload = _CopyPayloadFromNative(payload, sizeBytes);
+                var result = ManagedRuntimeState
+                    .RequireCurrentGmCommandRuntimeState()
+                    .HandleTotalEntityCountRsp(sourceServerIdText, managedPayload);
+                if (result == null || string.IsNullOrEmpty(result.Response))
+                {
+                    return 0;
+                }
+
+                return _WritePayloadToNative(JsonSerializer.SerializeToUtf8Bytes(result, s_jsonSerializerOptions), outputBuffer, outputBufferSizeBytes);
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleGmTotalEntityCountRspNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static int UninitializeNative(IntPtr arg, int sizeBytes)
         {
             _ = arg;

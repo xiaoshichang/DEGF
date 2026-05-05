@@ -49,6 +49,10 @@ namespace de::server::engine
 		constexpr const char_t* kHandleClientAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleClientAvatarRpcNative");
 		constexpr const char_t* kHandleServerAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerAvatarRpcNative");
 		constexpr const char_t* kHandleServerRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerRpcNative");
+		constexpr const char_t* kBeginGmTotalEntityCountCommandMethodName = DE_HOST_CHAR_LITERAL("BeginGmTotalEntityCountCommandNative");
+		constexpr const char_t* kCancelGmCommandMethodName = DE_HOST_CHAR_LITERAL("CancelGmCommandNative");
+		constexpr const char_t* kBuildGmTotalEntityCountRspMethodName = DE_HOST_CHAR_LITERAL("BuildGmTotalEntityCountRspNative");
+		constexpr const char_t* kHandleGmTotalEntityCountRspMethodName = DE_HOST_CHAR_LITERAL("HandleGmTotalEntityCountRspNative");
 		constexpr const char_t* kUninitializeMethodName = DE_HOST_CHAR_LITERAL("UninitializeNative");
 
 		std::filesystem::path ResolvePathFromConfig(const std::string& configPath, const std::string& value)
@@ -949,6 +953,118 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::BeginGmTotalEntityCountCommand(std::uint64_t requestId, const std::vector<std::string>& gameServerIds)
+	{
+		if (!running_ || beginGmTotalEntityCountCommandFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const auto serializedGameServerIds = SerializeGameServerIds(gameServerIds);
+		const int result = beginGmTotalEntityCountCommandFn_(
+			requestId,
+			serializedGameServerIds.empty() ? nullptr : serializedGameServerIds.data(),
+			static_cast<std::int32_t>(serializedGameServerIds.size())
+		);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "BeginGmTotalEntityCountCommandNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::CancelGmCommand(std::uint64_t requestId)
+	{
+		if (!running_ || cancelGmCommandFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = cancelGmCommandFn_(requestId);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "CancelGmCommandNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::BuildGmTotalEntityCountRsp(std::uint64_t requestId, std::vector<std::byte>& payload)
+	{
+		payload.clear();
+		if (!running_ || buildGmTotalEntityCountRspFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int requiredSize = buildGmTotalEntityCountRspFn_(requestId, nullptr, 0);
+		if (requiredSize < 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "BuildGmTotalEntityCountRspNative failed with code: " + std::to_string(requiredSize));
+			return false;
+		}
+
+		if (requiredSize == 0)
+		{
+			return true;
+		}
+
+		payload.resize(static_cast<std::size_t>(requiredSize));
+		const int writtenSize = buildGmTotalEntityCountRspFn_(requestId, payload.data(), requiredSize);
+		if (writtenSize != requiredSize)
+		{
+			Logger::Warn("ManagedRuntimeService", "BuildGmTotalEntityCountRspNative wrote unexpected size: " + std::to_string(writtenSize));
+			payload.clear();
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::HandleGmTotalEntityCountRsp(
+		const std::string& sourceServerId,
+		const std::vector<std::byte>& payload,
+		std::string& telnetResponse
+	)
+	{
+		telnetResponse.clear();
+		if (!running_ || handleGmTotalEntityCountRspFn_ == nullptr)
+		{
+			return false;
+		}
+
+		std::string responseBuffer(64 * 1024, '\0');
+		const int writtenSize = handleGmTotalEntityCountRspFn_(
+			sourceServerId.c_str(),
+			payload.empty() ? nullptr : payload.data(),
+			static_cast<std::int32_t>(payload.size()),
+			responseBuffer.data(),
+			static_cast<std::int32_t>(responseBuffer.size())
+		);
+		if (writtenSize < 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleGmTotalEntityCountRspNative failed with code: " + std::to_string(writtenSize));
+			return false;
+		}
+
+		if (writtenSize == 0)
+		{
+			return true;
+		}
+
+		if (writtenSize > static_cast<int>(responseBuffer.size()))
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleGmTotalEntityCountRspNative response is too large: " + std::to_string(writtenSize));
+			return false;
+		}
+
+		telnetResponse.assign(responseBuffer.data(), static_cast<std::size_t>(writtenSize));
+		return true;
+	}
+
 	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
 	{
 		gameServerReadyCallback_ = std::move(callback);
@@ -1211,6 +1327,28 @@ namespace de::server::engine
 		bindMethod(kHandleServerRpcMethodName, &handleServerRpcPointer);
 		handleServerRpcFn_ = reinterpret_cast<managed::ManagedHandleServerRpcFn>(handleServerRpcPointer);
 
+		void* beginGmTotalEntityCountCommandPointer = nullptr;
+		bindMethod(kBeginGmTotalEntityCountCommandMethodName, &beginGmTotalEntityCountCommandPointer);
+		beginGmTotalEntityCountCommandFn_ = reinterpret_cast<managed::ManagedBeginGmTotalEntityCountCommandFn>(
+			beginGmTotalEntityCountCommandPointer
+		);
+
+		void* cancelGmCommandPointer = nullptr;
+		bindMethod(kCancelGmCommandMethodName, &cancelGmCommandPointer);
+		cancelGmCommandFn_ = reinterpret_cast<managed::ManagedCancelGmCommandFn>(cancelGmCommandPointer);
+
+		void* buildGmTotalEntityCountRspPointer = nullptr;
+		bindMethod(kBuildGmTotalEntityCountRspMethodName, &buildGmTotalEntityCountRspPointer);
+		buildGmTotalEntityCountRspFn_ = reinterpret_cast<managed::ManagedBuildGmTotalEntityCountRspFn>(
+			buildGmTotalEntityCountRspPointer
+		);
+
+		void* handleGmTotalEntityCountRspPointer = nullptr;
+		bindMethod(kHandleGmTotalEntityCountRspMethodName, &handleGmTotalEntityCountRspPointer);
+		handleGmTotalEntityCountRspFn_ = reinterpret_cast<managed::ManagedHandleGmTotalEntityCountRspFn>(
+			handleGmTotalEntityCountRspPointer
+		);
+
 		void* uninitializePointer = nullptr;
 		bindMethod(kUninitializeMethodName, &uninitializePointer);
 		uninitializeFn_ = reinterpret_cast<managed::ManagedUninitializeFn>(uninitializePointer);
@@ -1229,6 +1367,10 @@ namespace de::server::engine
 			|| handleClientAvatarRpcFn_ == nullptr
 			|| handleServerAvatarRpcFn_ == nullptr
 			|| handleServerRpcFn_ == nullptr
+			|| beginGmTotalEntityCountCommandFn_ == nullptr
+			|| cancelGmCommandFn_ == nullptr
+			|| buildGmTotalEntityCountRspFn_ == nullptr
+			|| handleGmTotalEntityCountRspFn_ == nullptr
 			|| uninitializeFn_ == nullptr)
 		{
 			throw std::runtime_error("Managed runtime entrypoints are not bound.");
@@ -1257,6 +1399,10 @@ namespace de::server::engine
 		handleClientAvatarRpcFn_ = nullptr;
 		handleServerAvatarRpcFn_ = nullptr;
 		handleServerRpcFn_ = nullptr;
+		beginGmTotalEntityCountCommandFn_ = nullptr;
+		cancelGmCommandFn_ = nullptr;
+		buildGmTotalEntityCountRspFn_ = nullptr;
+		handleGmTotalEntityCountRspFn_ = nullptr;
 		uninitializeFn_ = nullptr;
 		gameServerReadyCallback_ = {};
 		createAvatarReqSender_ = {};

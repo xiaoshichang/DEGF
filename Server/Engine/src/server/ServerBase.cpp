@@ -178,6 +178,27 @@ namespace de::server::engine
 		Logger::Warn("ServerBase", "Inner network disconnected from " + serverId + ".");
 	}
 
+	TelnetCommandResult ServerBase::OnTelnetCommand(std::uint64_t sessionId, std::string_view commandLine)
+	{
+		(void)sessionId;
+		if (telnetService_ == nullptr)
+		{
+			return {};
+		}
+
+		return telnetService_->HandleCommand(commandLine);
+	}
+
+	bool ServerBase::ReplyToTelnetSession(std::uint64_t sessionId, std::string response, bool closeSession)
+	{
+		if (telnetService_ == nullptr)
+		{
+			return false;
+		}
+
+		return telnetService_->ReplyToSession(sessionId, std::move(response), closeSession);
+	}
+
 	void ServerBase::InitTelnet()
 	{
 		const auto& telnetConfig = GetTelnetConfig();
@@ -192,6 +213,12 @@ namespace de::server::engine
 			[this]()
 			{
 				Stop();
+			}
+		);
+		telnetService_->SetCommandHandler(
+			[this](std::uint64_t sessionId, std::string_view commandLine)
+			{
+				return OnTelnetCommand(sessionId, commandLine);
 			}
 		);
 		telnetService_->Start(telnetConfig);

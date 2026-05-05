@@ -34,6 +34,8 @@ namespace Assets.Scripts.DE.Share
                 CreateAvatarRsp = 0x00020008u,
                 AvatarRpcNtf = 0x0002000Au,
                 ServerRpcNtf = 0x0002000Bu,
+                GmTotalEntityCountReq = 0x0002000Cu,
+                GmTotalEntityCountRsp = 0x0002000Du,
             }
 
             public static bool IsCS(uint messageId)

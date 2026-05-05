@@ -4,11 +4,13 @@
 #include "core/BoostAsio.h"
 #include "managed/ManagedRuntimeService.h"
 #include "network/inner/InnerNetwork.h"
+#include "telnet/TelnetService.h"
 #include "timer/TimerManager.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace de::server::engine
@@ -39,6 +41,8 @@ namespace de::server::engine
 		virtual void OnInnerRegistered(const std::string& serverId);
 		virtual void OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data);
 		virtual void OnInnerDisconnect(const std::string& serverId);
+		virtual TelnetCommandResult OnTelnetCommand(std::uint64_t sessionId, std::string_view commandLine);
+		bool ReplyToTelnetSession(std::uint64_t sessionId, std::string response, bool closeSession = false);
 
 	private:
 		void InitInnerNetwork();

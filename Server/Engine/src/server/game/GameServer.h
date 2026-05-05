@@ -23,6 +23,7 @@ namespace de::server::engine
 		void OnInnerDisconnect(const std::string& serverId) override;
 		void OnManagedGameServerReady();
 		void HandleCreateAvatarReq(const std::string& serverId, const std::vector<std::byte>& data);
+		void HandleGmTotalEntityCountReq(const std::string& serverId, const std::vector<std::byte>& data);
 		void ConnectToGm();
 		void ConnectToAllGates();
 		void TryNotifyGameReady();

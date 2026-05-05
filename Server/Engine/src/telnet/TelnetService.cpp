@@ -121,6 +121,24 @@ namespace de::server::engine
 			service_.OnSessionClosed(sessionId_);
 		}
 
+		void SendCommandReply(std::string response, bool closeSession)
+		{
+			if (!response.empty())
+			{
+				if (response.size() < 2 || response.substr(response.size() - 2) != "\r\n")
+				{
+					response.append("\r\n");
+				}
+				EnqueueWrite(std::move(response));
+			}
+
+			closeAfterWrite_ = closeSession;
+			if (!closeAfterWrite_)
+			{
+				EnqueueWrite(kPrompt);
+			}
+		}
+
 	private:
 		void DoRead()
 		{
@@ -268,8 +286,11 @@ namespace de::server::engine
 
 		void HandleLine()
 		{
-			const auto result = service_.HandleCommand(lineBuffer_);
+			const auto result = service_.HandleCommand(sessionId_, lineBuffer_);
 			lineBuffer_.clear();
+
+			closeAfterWrite_ = result.closeSession;
+			stopServerAfterWrite_ = result.stopServer;
 
 			if (!result.response.empty())
 			{
@@ -281,8 +302,10 @@ namespace de::server::engine
 				EnqueueWrite(response);
 			}
 
-			closeAfterWrite_ = result.closeSession;
-			stopServerAfterWrite_ = result.stopServer;
+			if (result.pending)
+			{
+				return;
+			}
 
 			if (!closeAfterWrite_ && !stopServerAfterWrite_)
 			{
@@ -441,6 +464,33 @@ namespace de::server::engine
 	std::uint16_t TelnetService::GetListenPort() const
 	{
 		return listenPort_;
+	}
+
+	void TelnetService::SetCommandHandler(CommandHandler commandHandler)
+	{
+		commandHandler_ = std::move(commandHandler);
+	}
+
+	bool TelnetService::ReplyToSession(std::uint64_t sessionId, std::string response, bool closeSession)
+	{
+		const auto sessionIterator = sessions_.find(sessionId);
+		if (sessionIterator == sessions_.end() || sessionIterator->second == nullptr)
+		{
+			return false;
+		}
+
+		sessionIterator->second->SendCommandReply(std::move(response), closeSession);
+		return true;
+	}
+
+	TelnetCommandResult TelnetService::HandleCommand(std::uint64_t sessionId, std::string_view commandLine)
+	{
+		if (commandHandler_)
+		{
+			return commandHandler_(sessionId, commandLine);
+		}
+
+		return HandleCommand(commandLine);
 	}
 
 	TelnetCommandResult TelnetService::HandleCommand(std::string_view commandLine)

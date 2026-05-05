@@ -47,6 +47,10 @@ namespace de::server::engine
 		bool HandleClientAvatarRpc(std::uint64_t clientSessionId, const std::vector<std::byte>& payload);
 		bool HandleServerAvatarRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload);
 		bool HandleServerRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload);
+		bool BeginGmTotalEntityCountCommand(std::uint64_t requestId, const std::vector<std::string>& gameServerIds);
+		bool CancelGmCommand(std::uint64_t requestId);
+		bool BuildGmTotalEntityCountRsp(std::uint64_t requestId, std::vector<std::byte>& payload);
+		bool HandleGmTotalEntityCountRsp(const std::string& sourceServerId, const std::vector<std::byte>& payload, std::string& telnetResponse);
 		void SetGameServerReadyCallback(std::function<void()> callback);
 		void SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&)> sender);
 		void SetCreateAvatarRspSender(std::function<bool(const std::string&, const network::CreateAvatarRspMessage&)> sender);
@@ -141,6 +145,10 @@ namespace de::server::engine
 		managed::ManagedHandleClientAvatarRpcFn handleClientAvatarRpcFn_ = nullptr;
 		managed::ManagedHandleServerAvatarRpcFn handleServerAvatarRpcFn_ = nullptr;
 		managed::ManagedHandleServerRpcFn handleServerRpcFn_ = nullptr;
+		managed::ManagedBeginGmTotalEntityCountCommandFn beginGmTotalEntityCountCommandFn_ = nullptr;
+		managed::ManagedCancelGmCommandFn cancelGmCommandFn_ = nullptr;
+		managed::ManagedBuildGmTotalEntityCountRspFn buildGmTotalEntityCountRspFn_ = nullptr;
+		managed::ManagedHandleGmTotalEntityCountRspFn handleGmTotalEntityCountRspFn_ = nullptr;
 		managed::ManagedUninitializeFn uninitializeFn_ = nullptr;
 		std::function<void()> gameServerReadyCallback_;
 		std::function<bool(const std::string&, const network::GuidBytes&)> createAvatarReqSender_;

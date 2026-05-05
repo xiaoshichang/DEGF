@@ -46,6 +46,7 @@ namespace DE.Server.NativeBridge
         public Assembly GameplayAssembly { get; private set; }
         public List<Type> StubTypes { get; private set; } = new List<Type>();
         public ManagedRuntimeServerType ServerType { get; private set; }
+        public GmCommandRuntimeState GmCommandRuntimeState { get; private set; }
         public GateServerRuntimeState GateServerRuntimeState { get; private set; }
         public GameServerRuntimeState GameServerRuntimeState { get; private set; }
         public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
@@ -95,6 +96,19 @@ namespace DE.Server.NativeBridge
             }
 
             return runtimeState.GateServerRuntimeState;
+        }
+
+        public static GmCommandRuntimeState RequireCurrentGmCommandRuntimeState()
+        {
+            var runtimeState = RequireCurrent();
+            if (runtimeState.GmCommandRuntimeState == null)
+            {
+                throw new InvalidOperationException(
+                    $"Managed runtime for server {runtimeState.ServerId} does not own GM command runtime state."
+                );
+            }
+
+            return runtimeState.GmCommandRuntimeState;
         }
 
         public static GameServerRuntimeState RequireCurrentGameServerRuntimeState()
@@ -550,7 +564,11 @@ namespace DE.Server.NativeBridge
             var assemblies = new[] { GameplayAssembly, Assembly.GetExecutingAssembly() };
             StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies);
 
-            if (ServerType == ManagedRuntimeServerType.Gate)
+            if (ServerType == ManagedRuntimeServerType.Gm)
+            {
+                GmCommandRuntimeState = new GmCommandRuntimeState(this);
+            }
+            else if (ServerType == ManagedRuntimeServerType.Gate)
             {
                 GateServerRuntimeState = new GateServerRuntimeState(this);
             }
@@ -567,12 +585,14 @@ namespace DE.Server.NativeBridge
 
         private void UninitializeCore()
         {
+            GmCommandRuntimeState?.Uninitialize();
             GateServerRuntimeState?.Uninitialize();
             GameServerRuntimeState?.Uninitialize();
 
             UnregisterUnhandledExceptionHandlers();
             UnregisterGameplayAssemblyResolver();
 
+            GmCommandRuntimeState = null;
             GateServerRuntimeState = null;
             GameServerRuntimeState = null;
             StubDistributeTable = new ServerStubDistributeTable();

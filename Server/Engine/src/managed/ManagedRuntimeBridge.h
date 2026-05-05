@@ -144,6 +144,24 @@ namespace de::server::engine::managed
 		const void* payload,
 		std::int32_t payloadSizeBytes
 	);
+	using ManagedBeginGmTotalEntityCountCommandFn = int (DE_MANAGED_CALLTYPE*)(
+		std::uint64_t requestId,
+		const void* gameServerIdsPayload,
+		std::int32_t gameServerIdsPayloadSizeBytes
+	);
+	using ManagedCancelGmCommandFn = int (DE_MANAGED_CALLTYPE*)(std::uint64_t requestId);
+	using ManagedBuildGmTotalEntityCountRspFn = int (DE_MANAGED_CALLTYPE*)(
+		std::uint64_t requestId,
+		void* outputBuffer,
+		std::int32_t outputBufferSizeBytes
+	);
+	using ManagedHandleGmTotalEntityCountRspFn = int (DE_MANAGED_CALLTYPE*)(
+		const char* sourceServerId,
+		const void* payload,
+		std::int32_t payloadSizeBytes,
+		void* outputBuffer,
+		std::int32_t outputBufferSizeBytes
+	);
 	using ManagedUninitializeFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
 }
 

@@ -194,6 +194,10 @@ namespace de::server::engine
 			}
 			return;
 
+		case network::MessageID::SS::GmTotalEntityCountReq:
+			HandleGmTotalEntityCountReq(serverId, data);
+			return;
+
 		default:
 			ServerBase::OnInnerMessage(serverId, messageId, data);
 			return;
@@ -216,6 +220,29 @@ namespace de::server::engine
 		}
 
 		ServerBase::OnInnerDisconnect(serverId);
+	}
+
+	void GameServer::HandleGmTotalEntityCountReq(const std::string& serverId, const std::vector<std::byte>& data)
+	{
+		network::GmTotalEntityCountReqMessage requestMessage;
+		if (!network::GmTotalEntityCountReqMessage::TryDeserialize(data.data(), data.size(), requestMessage))
+		{
+			Logger::Warn("GameServer", "Received invalid GmTotalEntityCountReq payload from " + serverId + ".");
+			return;
+		}
+
+		std::vector<std::byte> responsePayload;
+		if (auto* managedRuntimeService = GetManagedRuntimeService();
+			managedRuntimeService == nullptr || !managedRuntimeService->BuildGmTotalEntityCountRsp(requestMessage.requestId, responsePayload))
+		{
+			Logger::Warn("GameServer", "Failed to build GmTotalEntityCountRsp in managed runtime.");
+			return;
+		}
+
+		if (!GetInnerNetwork().Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::GmTotalEntityCountRsp), responsePayload))
+		{
+			Logger::Warn("GameServer", "Failed to send GmTotalEntityCountRsp to " + serverId + ".");
+		}
 	}
 
 	void GameServer::ConnectToGm()

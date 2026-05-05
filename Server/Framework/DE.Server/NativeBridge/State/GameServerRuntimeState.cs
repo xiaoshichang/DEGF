@@ -115,6 +115,19 @@ namespace DE.Server.NativeBridge
             return NativeAPI.SendCreateAvatarReq(gameServerId, avatarId);
         }
 
+        public GmTotalEntityCountRsp BuildTotalEntityCountRsp(ulong requestId)
+        {
+            return new GmTotalEntityCountRsp
+            {
+                RequestId = requestId,
+                ServerId = _managedRuntimeState.ServerId,
+                EntityCount = Entities.Count,
+                AvatarCount = Avatars.Count,
+                StubCount = StubInstances.Count,
+                TotalEntityObjectCount = Entities.Count + StubInstances.Count,
+            };
+        }
+
         public void RegisterLocalEntity(ServerEntity entity)
         {
             if (entity == null)

@@ -19,12 +19,14 @@ namespace de::server::engine
 		std::string response;
 		bool closeSession = false;
 		bool stopServer = false;
+		bool pending = false;
 	};
 
 	class TelnetService
 	{
 	public:
 		using StopCallback = std::function<void()>;
+		using CommandHandler = std::function<TelnetCommandResult(std::uint64_t, std::string_view)>;
 
 		TelnetService(asio::io_context& ioContext, std::string serverId, StopCallback stopCallback = {});
 		~TelnetService();
@@ -34,6 +36,9 @@ namespace de::server::engine
 
 		bool IsRunning() const;
 		std::uint16_t GetListenPort() const;
+		void SetCommandHandler(CommandHandler commandHandler);
+		bool ReplyToSession(std::uint64_t sessionId, std::string response, bool closeSession = false);
+		TelnetCommandResult HandleCommand(std::uint64_t sessionId, std::string_view commandLine);
 		TelnetCommandResult HandleCommand(std::string_view commandLine);
 
 	private:
@@ -64,6 +69,7 @@ namespace de::server::engine
 		asio::ip::tcp::acceptor acceptor_;
 		std::string serverId_;
 		StopCallback stopCallback_;
+		CommandHandler commandHandler_;
 		bool running_ = false;
 		std::uint16_t listenPort_ = 0;
 		std::chrono::steady_clock::time_point startTime_;

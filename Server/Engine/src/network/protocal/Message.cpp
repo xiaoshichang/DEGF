@@ -285,4 +285,34 @@ namespace de::server::engine::network
 		message = std::move(parsed);
 		return true;
 	}
+
+	std::vector<std::byte> GmTotalEntityCountReqMessage::Serialize() const
+	{
+		std::array<std::uint8_t, kWireSize> bytes{};
+		WriteUInt16BigEndian(bytes.data(), version);
+		WriteUInt16BigEndian(bytes.data() + 2, reserved);
+		WriteUInt64BigEndian(bytes.data() + 4, requestId);
+		return ToByteVector(bytes.data(), bytes.size());
+	}
+
+	bool GmTotalEntityCountReqMessage::TryDeserialize(const void* data, std::size_t size, GmTotalEntityCountReqMessage& message)
+	{
+		if (data == nullptr || size != kWireSize)
+		{
+			return false;
+		}
+
+		const auto* bytes = static_cast<const std::uint8_t*>(data);
+		GmTotalEntityCountReqMessage parsed;
+		parsed.version = ReadUInt16BigEndian(bytes);
+		parsed.reserved = ReadUInt16BigEndian(bytes + 2);
+		parsed.requestId = ReadUInt64BigEndian(bytes + 4);
+		if (parsed.version != kCurrentVersion || parsed.requestId == 0)
+		{
+			return false;
+		}
+
+		message = parsed;
+		return true;
+	}
 }

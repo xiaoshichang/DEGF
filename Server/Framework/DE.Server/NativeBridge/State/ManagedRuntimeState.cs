@@ -156,6 +156,9 @@ namespace DE.Server.NativeBridge
             return gameServerIds[index];
         }
 
+        /// <summary>
+        /// 同一个routekey选出来的Gate是固定的，从而保证RPC在同一个routekey的情况下保序
+        /// </summary>
         public string SelectGateServerId(string routeKey)
         {
             var gateServerIds = GetGateServerIds();

@@ -32,6 +32,7 @@ namespace Assets.Scripts.DE.Share
                 CreateAvatarReq = 0x00020007u,
                 CreateAvatarRsp = 0x00020008u,
                 AvatarRpcNtf = 0x0002000Au,
+                ServerRpcNtf = 0x0002000Bu,
             }
 
             public static bool IsCS(uint messageId)

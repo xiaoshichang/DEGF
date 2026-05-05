@@ -21,16 +21,16 @@ namespace DE.Server.Entities
 
         public EntityProxy Proxy { get; private set; }
 
-        internal void AttachToGateServer(string serverId)
+        internal void AttachToGateServer(string bindingGate)
         {
-            Proxy = new EntityProxy(Guid, serverId);
+            Proxy = new EntityProxy(Guid, bindingGate);
         }
 
         public bool CallClient(string methodName, params object[] args)
         {
             uint methodId = RpcMethodId.Compute(methodName, args);
             byte[] argsPayload = RpcBinaryWriter.SerializeArguments(args);
-            return AvatarRpcRuntime.SendClientAvatarRpc(this, methodId, argsPayload);
+            return AvatarRpcCaller.CallClient(this, methodId, argsPayload);
         }
 
         [ServerRpc]

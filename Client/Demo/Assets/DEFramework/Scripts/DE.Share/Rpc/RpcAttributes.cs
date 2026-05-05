@@ -58,6 +58,12 @@ namespace DE.Share.Rpc
                     continue;
                 }
 
+                if (arg is EntityMailBox)
+                {
+                    typeNames[i] = "DE.Share.Rpc.EntityMailBox";
+                    continue;
+                }
+
                 throw new NotSupportedException("Unsupported RPC argument type: " + arg.GetType().FullName);
             }
 

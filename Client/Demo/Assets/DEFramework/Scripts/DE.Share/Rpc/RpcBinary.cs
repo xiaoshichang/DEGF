@@ -44,6 +44,12 @@ namespace DE.Share.Rpc
                 return;
             }
 
+            if (value is EntityMailBox)
+            {
+                WriteEntityMailBox((EntityMailBox)value);
+                return;
+            }
+
             throw new NotSupportedException("Unsupported RPC argument type: " + value.GetType().FullName);
         }
 
@@ -71,7 +77,13 @@ namespace DE.Share.Rpc
         public void WriteEntityProxy(EntityProxy value)
         {
             WriteGuid(value.EntityId);
-            WriteString(value.ServerId ?? string.Empty);
+            WriteString(value.BindingGate ?? string.Empty);
+        }
+
+        public void WriteEntityMailBox(EntityMailBox value)
+        {
+            WriteGuid(value.EntityId);
+            WriteString(value.BindingGame ?? string.Empty);
         }
 
         public byte[] ToArray()
@@ -171,18 +183,36 @@ namespace DE.Share.Rpc
         {
             return new EntityProxy(ReadGuid(), ReadString());
         }
+
+        public EntityMailBox ReadEntityMailBox()
+        {
+            return new EntityMailBox(ReadGuid(), ReadString());
+        }
     }
 
     public readonly struct EntityProxy
     {
-        public EntityProxy(Guid entityId, string serverId)
+        public EntityProxy(Guid entityId, string bindingGate)
         {
             EntityId = entityId;
-            ServerId = serverId ?? string.Empty;
+            BindingGate = bindingGate ?? string.Empty;
         }
 
         public Guid EntityId { get; }
-        public string ServerId { get; }
-        public bool IsValid => EntityId != Guid.Empty && !string.IsNullOrWhiteSpace(ServerId);
+        public string BindingGate { get; }
+        public bool IsValid => EntityId != Guid.Empty && !string.IsNullOrWhiteSpace(BindingGate);
+    }
+
+    public readonly struct EntityMailBox
+    {
+        public EntityMailBox(Guid entityId, string bindingGame)
+        {
+            EntityId = entityId;
+            BindingGame = bindingGame ?? string.Empty;
+        }
+
+        public Guid EntityId { get; }
+        public string BindingGame { get; }
+        public bool IsValid => EntityId != Guid.Empty && !string.IsNullOrWhiteSpace(BindingGame);
     }
 }

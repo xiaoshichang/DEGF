@@ -407,6 +407,44 @@ namespace DE.Server.NativeBridge
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleServerRpcNative(
+            IntPtr sourceServerId,
+            IntPtr payload,
+            int payloadSizeBytes
+        )
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var sourceServerIdText = sourceServerId == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(sourceServerId) ?? string.Empty;
+                var managedPayload = _CopyPayloadFromNative(payload, payloadSizeBytes);
+                var runtimeState = ManagedRuntimeState.RequireCurrent();
+                if (runtimeState.ServerType == ManagedRuntimeServerType.Gate)
+                {
+                    return runtimeState.GateServerRuntimeState.HandleServerRpc(sourceServerIdText, managedPayload) ? 0 : -3;
+                }
+
+                if (runtimeState.ServerType == ManagedRuntimeServerType.Game)
+                {
+                    return runtimeState.GameServerRuntimeState.HandleServerRpc(sourceServerIdText, managedPayload) ? 0 : -3;
+                }
+
+                return -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleServerRpcNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static int UninitializeNative(IntPtr arg, int sizeBytes)
         {
             _ = arg;

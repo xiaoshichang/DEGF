@@ -45,12 +45,14 @@ namespace de::server::engine
 		);
 		bool HandleClientAvatarRpc(std::uint64_t clientSessionId, const std::vector<std::byte>& payload);
 		bool HandleServerAvatarRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload);
+		bool HandleServerRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload);
 		void SetGameServerReadyCallback(std::function<void()> callback);
 		void SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&)> sender);
 		void SetCreateAvatarRspSender(std::function<bool(const std::string&, const network::CreateAvatarRspMessage&)> sender);
 		void SetAvatarLoginRspSender(std::function<bool(std::uint64_t, const network::LoginRspMessage&)> sender);
-		void SetAvatarRpcToGameSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender);
+		void SetAvatarRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender);
 		void SetAvatarRpcToClientSender(std::function<bool(std::uint64_t, const std::vector<std::byte>&)> sender);
+		void SetServerRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender);
 
 	private:
 		static void DE_MANAGED_CALLTYPE NativeNotifyGameServerReady(void* context);
@@ -79,7 +81,7 @@ namespace de::server::engine
 			const void* avatarData,
 			std::int32_t avatarDataSizeBytes
 		);
-		static std::int32_t DE_MANAGED_CALLTYPE NativeSendAvatarRpcToGame(
+		static std::int32_t DE_MANAGED_CALLTYPE NativeSendAvatarRpcToServer(
 			void* context,
 			const char* targetServerId,
 			const std::uint8_t* payload,
@@ -88,6 +90,12 @@ namespace de::server::engine
 		static std::int32_t DE_MANAGED_CALLTYPE NativeSendAvatarRpcToClient(
 			void* context,
 			std::uint64_t clientSessionId,
+			const std::uint8_t* payload,
+			std::int32_t payloadSizeBytes
+		);
+		static std::int32_t DE_MANAGED_CALLTYPE NativeSendServerRpcToServer(
+			void* context,
+			const char* targetServerId,
 			const std::uint8_t* payload,
 			std::int32_t payloadSizeBytes
 		);
@@ -130,13 +138,15 @@ namespace de::server::engine
 		managed::ManagedHandleCreateAvatarRspFn handleCreateAvatarRspFn_ = nullptr;
 		managed::ManagedHandleClientAvatarRpcFn handleClientAvatarRpcFn_ = nullptr;
 		managed::ManagedHandleServerAvatarRpcFn handleServerAvatarRpcFn_ = nullptr;
+		managed::ManagedHandleServerRpcFn handleServerRpcFn_ = nullptr;
 		managed::ManagedUninitializeFn uninitializeFn_ = nullptr;
 		std::function<void()> gameServerReadyCallback_;
 		std::function<bool(const std::string&, const network::GuidBytes&)> createAvatarReqSender_;
 		std::function<bool(const std::string&, const network::CreateAvatarRspMessage&)> createAvatarRspSender_;
 		std::function<bool(std::uint64_t, const network::LoginRspMessage&)> avatarLoginRspSender_;
-		std::function<bool(const std::string&, const std::vector<std::byte>&)> avatarRpcToGameSender_;
+		std::function<bool(const std::string&, const std::vector<std::byte>&)> avatarRpcToServerSender_;
 		std::function<bool(std::uint64_t, const std::vector<std::byte>&)> avatarRpcToClientSender_;
+		std::function<bool(const std::string&, const std::vector<std::byte>&)> serverRpcToServerSender_;
 		std::unordered_set<TimerManager::TimerID> managedTimerIds_;
 		bool running_ = false;
 	};

@@ -15,8 +15,9 @@ namespace DE.Server.NativeBridge
         public IntPtr SendCreateAvatarReq;
         public IntPtr SendCreateAvatarRsp;
         public IntPtr SendAvatarLoginRsp;
-        public IntPtr SendAvatarRpcToGame;
+        public IntPtr SendAvatarRpcToServer;
         public IntPtr SendAvatarRpcToClient;
+        public IntPtr SendServerRpcToServer;
         public IntPtr AddTimer;
         public IntPtr CancelTimer;
     }
@@ -60,7 +61,7 @@ namespace DE.Server.NativeBridge
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate int NativeSendAvatarRpcToGameDelegate(
+        private delegate int NativeSendAvatarRpcToServerDelegate(
             IntPtr context,
             IntPtr targetServerId,
             IntPtr payload,
@@ -71,6 +72,14 @@ namespace DE.Server.NativeBridge
         private delegate int NativeSendAvatarRpcToClientDelegate(
             IntPtr context,
             ulong clientSessionId,
+            IntPtr payload,
+            int payloadSizeBytes
+        );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeSendServerRpcToServerDelegate(
+            IntPtr context,
+            IntPtr targetServerId,
             IntPtr payload,
             int payloadSizeBytes
         );
@@ -92,8 +101,9 @@ namespace DE.Server.NativeBridge
         private static NativeSendCreateAvatarReqDelegate s_sendCreateAvatarReq;
         private static NativeSendCreateAvatarRspDelegate s_sendCreateAvatarRsp;
         private static NativeSendAvatarLoginRspDelegate s_sendAvatarLoginRsp;
-        private static NativeSendAvatarRpcToGameDelegate s_sendAvatarRpcToGame;
+        private static NativeSendAvatarRpcToServerDelegate s_sendAvatarRpcToServer;
         private static NativeSendAvatarRpcToClientDelegate s_sendAvatarRpcToClient;
+        private static NativeSendServerRpcToServerDelegate s_sendServerRpcToServer;
         private static NativeAddTimerDelegate s_addTimer;
         private static NativeCancelTimerDelegate s_cancelTimer;
 
@@ -165,14 +175,14 @@ namespace DE.Server.NativeBridge
                 );
             }
 
-            if (nativeApi.SendAvatarRpcToGame == IntPtr.Zero)
+            if (nativeApi.SendAvatarRpcToServer == IntPtr.Zero)
             {
-                s_sendAvatarRpcToGame = null;
+                s_sendAvatarRpcToServer = null;
             }
             else
             {
-                s_sendAvatarRpcToGame = Marshal.GetDelegateForFunctionPointer<NativeSendAvatarRpcToGameDelegate>(
-                    nativeApi.SendAvatarRpcToGame
+                s_sendAvatarRpcToServer = Marshal.GetDelegateForFunctionPointer<NativeSendAvatarRpcToServerDelegate>(
+                    nativeApi.SendAvatarRpcToServer
                 );
             }
 
@@ -186,6 +196,17 @@ namespace DE.Server.NativeBridge
                     nativeApi.SendAvatarRpcToClient
                 );
             }
+
+            if (nativeApi.SendServerRpcToServer == IntPtr.Zero)
+            {
+                s_sendServerRpcToServer = null;
+            }
+            else
+            {
+                s_sendServerRpcToServer = Marshal.GetDelegateForFunctionPointer<NativeSendServerRpcToServerDelegate>(
+                    nativeApi.SendServerRpcToServer
+                );
+            }
         }
 
         public static void Reset()
@@ -196,8 +217,9 @@ namespace DE.Server.NativeBridge
             s_sendCreateAvatarReq = null;
             s_sendCreateAvatarRsp = null;
             s_sendAvatarLoginRsp = null;
-            s_sendAvatarRpcToGame = null;
+            s_sendAvatarRpcToServer = null;
             s_sendAvatarRpcToClient = null;
+            s_sendServerRpcToServer = null;
             s_addTimer = null;
             s_cancelTimer = null;
             DELogger.Reset();
@@ -306,9 +328,9 @@ namespace DE.Server.NativeBridge
             }
         }
 
-        public static bool SendAvatarRpcToGame(string targetServerId, byte[] payload)
+        public static bool SendAvatarRpcToServer(string targetServerId, byte[] payload)
         {
-            if (s_sendAvatarRpcToGame == null || string.IsNullOrWhiteSpace(targetServerId))
+            if (s_sendAvatarRpcToServer == null || string.IsNullOrWhiteSpace(targetServerId))
             {
                 return false;
             }
@@ -319,7 +341,7 @@ namespace DE.Server.NativeBridge
             {
                 targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
                 payloadPtr = CopyPayloadToNative(payload);
-                return s_sendAvatarRpcToGame(
+                return s_sendAvatarRpcToServer(
                     s_context,
                     targetServerIdPtr,
                     payloadPtr,
@@ -353,6 +375,33 @@ namespace DE.Server.NativeBridge
             }
             finally
             {
+                FreeNative(payloadPtr);
+            }
+        }
+
+        public static bool SendServerRpcToServer(string targetServerId, byte[] payload)
+        {
+            if (s_sendServerRpcToServer == null || string.IsNullOrWhiteSpace(targetServerId))
+            {
+                return false;
+            }
+
+            IntPtr targetServerIdPtr = IntPtr.Zero;
+            IntPtr payloadPtr = IntPtr.Zero;
+            try
+            {
+                targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
+                payloadPtr = CopyPayloadToNative(payload);
+                return s_sendServerRpcToServer(
+                    s_context,
+                    targetServerIdPtr,
+                    payloadPtr,
+                    payload == null ? 0 : payload.Length
+                ) != 0;
+            }
+            finally
+            {
+                FreeNative(targetServerIdPtr);
                 FreeNative(payloadPtr);
             }
         }

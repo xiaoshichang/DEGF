@@ -82,12 +82,22 @@ namespace de::server::engine
 					);
 				}
 			);
-			managedRuntimeService->SetAvatarRpcToGameSender(
+			managedRuntimeService->SetAvatarRpcToServerSender(
 				[this](const std::string& targetServerId, const std::vector<std::byte>& payload)
 				{
 					return GetInnerNetwork().Send(
 						targetServerId,
 						static_cast<std::uint32_t>(network::MessageID::SS::AvatarRpcNtf),
+						payload
+					);
+				}
+			);
+			managedRuntimeService->SetServerRpcToServerSender(
+				[this](const std::string& targetServerId, const std::vector<std::byte>& payload)
+				{
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::ServerRpcNtf),
 						payload
 					);
 				}
@@ -111,7 +121,8 @@ namespace de::server::engine
 			managedRuntimeService->SetGameServerReadyCallback({});
 			managedRuntimeService->SetCreateAvatarReqSender({});
 			managedRuntimeService->SetCreateAvatarRspSender({});
-			managedRuntimeService->SetAvatarRpcToGameSender({});
+			managedRuntimeService->SetAvatarRpcToServerSender({});
+			managedRuntimeService->SetServerRpcToServerSender({});
 		}
 
 		ServerBase::Uninit();
@@ -164,6 +175,14 @@ namespace de::server::engine
 				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerAvatarRpc(serverId, data))
 			{
 				Logger::Warn("GameServer", "Failed to handle AvatarRpcNtf in managed runtime.");
+			}
+			return;
+
+		case network::MessageID::SS::ServerRpcNtf:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerRpc(serverId, data))
+			{
+				Logger::Warn("GameServer", "Failed to handle ServerRpcNtf in managed runtime.");
 			}
 			return;
 

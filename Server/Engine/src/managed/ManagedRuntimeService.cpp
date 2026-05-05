@@ -47,6 +47,7 @@ namespace de::server::engine
 		constexpr const char_t* kHandleCreateAvatarRspMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarRspNative");
 		constexpr const char_t* kHandleClientAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleClientAvatarRpcNative");
 		constexpr const char_t* kHandleServerAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerAvatarRpcNative");
+		constexpr const char_t* kHandleServerRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerRpcNative");
 		constexpr const char_t* kUninitializeMethodName = DE_HOST_CHAR_LITERAL("UninitializeNative");
 
 		std::filesystem::path ResolvePathFromConfig(const std::string& configPath, const std::string& value)
@@ -399,7 +400,7 @@ namespace de::server::engine
 		}
 	}
 
-	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendAvatarRpcToGame(
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendAvatarRpcToServer(
 		void* context,
 		const char* targetServerId,
 		const std::uint8_t* payload,
@@ -407,7 +408,7 @@ namespace de::server::engine
 	)
 	{
 		auto* service = static_cast<ManagedRuntimeService*>(context);
-		if (service == nullptr || targetServerId == nullptr || payloadSizeBytes < 0 || !service->avatarRpcToGameSender_)
+		if (service == nullptr || targetServerId == nullptr || payloadSizeBytes < 0 || !service->avatarRpcToServerSender_)
 		{
 			return 0;
 		}
@@ -426,16 +427,16 @@ namespace de::server::engine
 				bytes.assign(begin, begin + payloadSizeBytes);
 			}
 
-			return service->avatarRpcToGameSender_(targetServerId, bytes) ? 1 : 0;
+			return service->avatarRpcToServerSender_(targetServerId, bytes) ? 1 : 0;
 		}
 		catch (const std::exception& exception)
 		{
-			Logger::Error("ManagedRuntimeService", "NativeSendAvatarRpcToGame failed: " + std::string(exception.what()));
+			Logger::Error("ManagedRuntimeService", "NativeSendAvatarRpcToServer failed: " + std::string(exception.what()));
 			return 0;
 		}
 		catch (...)
 		{
-			Logger::Error("ManagedRuntimeService", "NativeSendAvatarRpcToGame failed with unknown exception.");
+			Logger::Error("ManagedRuntimeService", "NativeSendAvatarRpcToServer failed with unknown exception.");
 			return 0;
 		}
 	}
@@ -477,6 +478,47 @@ namespace de::server::engine
 		catch (...)
 		{
 			Logger::Error("ManagedRuntimeService", "NativeSendAvatarRpcToClient failed with unknown exception.");
+			return 0;
+		}
+	}
+
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendServerRpcToServer(
+		void* context,
+		const char* targetServerId,
+		const std::uint8_t* payload,
+		std::int32_t payloadSizeBytes
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || targetServerId == nullptr || payloadSizeBytes < 0 || !service->serverRpcToServerSender_)
+		{
+			return 0;
+		}
+
+		try
+		{
+			std::vector<std::byte> bytes;
+			if (payloadSizeBytes > 0)
+			{
+				if (payload == nullptr)
+				{
+					return 0;
+				}
+
+				const auto* begin = reinterpret_cast<const std::byte*>(payload);
+				bytes.assign(begin, begin + payloadSizeBytes);
+			}
+
+			return service->serverRpcToServerSender_(targetServerId, bytes) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendServerRpcToServer failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendServerRpcToServer failed with unknown exception.");
 			return 0;
 		}
 	}
@@ -589,8 +631,9 @@ namespace de::server::engine
 				&ManagedRuntimeService::NativeSendCreateAvatarReq,
 				&ManagedRuntimeService::NativeSendCreateAvatarRsp,
 				&ManagedRuntimeService::NativeSendAvatarLoginRsp,
-				&ManagedRuntimeService::NativeSendAvatarRpcToGame,
+				&ManagedRuntimeService::NativeSendAvatarRpcToServer,
 				&ManagedRuntimeService::NativeSendAvatarRpcToClient,
+				&ManagedRuntimeService::NativeSendServerRpcToServer,
 				&ManagedRuntimeService::NativeAddTimer,
 				&ManagedRuntimeService::NativeCancelTimer
 			}
@@ -864,6 +907,27 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::HandleServerRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload)
+	{
+		if (!running_ || handleServerRpcFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleServerRpcFn_(
+			sourceServerId.c_str(),
+			payload.empty() ? nullptr : payload.data(),
+			static_cast<std::int32_t>(payload.size())
+		);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleServerRpcNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
 	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
 	{
 		gameServerReadyCallback_ = std::move(callback);
@@ -888,14 +952,19 @@ namespace de::server::engine
 		avatarLoginRspSender_ = std::move(sender);
 	}
 
-	void ManagedRuntimeService::SetAvatarRpcToGameSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender)
+	void ManagedRuntimeService::SetAvatarRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender)
 	{
-		avatarRpcToGameSender_ = std::move(sender);
+		avatarRpcToServerSender_ = std::move(sender);
 	}
 
 	void ManagedRuntimeService::SetAvatarRpcToClientSender(std::function<bool(std::uint64_t, const std::vector<std::byte>&)> sender)
 	{
 		avatarRpcToClientSender_ = std::move(sender);
+	}
+
+	void ManagedRuntimeService::SetServerRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender)
+	{
+		serverRpcToServerSender_ = std::move(sender);
 	}
 
 	std::uint64_t ManagedRuntimeService::AddManagedTimer(
@@ -1113,6 +1182,10 @@ namespace de::server::engine
 		bindMethod(kHandleServerAvatarRpcMethodName, &handleServerAvatarRpcPointer);
 		handleServerAvatarRpcFn_ = reinterpret_cast<managed::ManagedHandleServerAvatarRpcFn>(handleServerAvatarRpcPointer);
 
+		void* handleServerRpcPointer = nullptr;
+		bindMethod(kHandleServerRpcMethodName, &handleServerRpcPointer);
+		handleServerRpcFn_ = reinterpret_cast<managed::ManagedHandleServerRpcFn>(handleServerRpcPointer);
+
 		void* uninitializePointer = nullptr;
 		bindMethod(kUninitializeMethodName, &uninitializePointer);
 		uninitializeFn_ = reinterpret_cast<managed::ManagedUninitializeFn>(uninitializePointer);
@@ -1129,6 +1202,7 @@ namespace de::server::engine
 			|| handleCreateAvatarRspFn_ == nullptr
 			|| handleClientAvatarRpcFn_ == nullptr
 			|| handleServerAvatarRpcFn_ == nullptr
+			|| handleServerRpcFn_ == nullptr
 			|| uninitializeFn_ == nullptr)
 		{
 			throw std::runtime_error("Managed runtime entrypoints are not bound.");
@@ -1155,13 +1229,15 @@ namespace de::server::engine
 		handleCreateAvatarRspFn_ = nullptr;
 		handleClientAvatarRpcFn_ = nullptr;
 		handleServerAvatarRpcFn_ = nullptr;
+		handleServerRpcFn_ = nullptr;
 		uninitializeFn_ = nullptr;
 		gameServerReadyCallback_ = {};
 		createAvatarReqSender_ = {};
 		createAvatarRspSender_ = {};
 		avatarLoginRspSender_ = {};
-		avatarRpcToGameSender_ = {};
+		avatarRpcToServerSender_ = {};
 		avatarRpcToClientSender_ = {};
+		serverRpcToServerSender_ = {};
 		managedTimerIds_.clear();
 		CloseDynamicLibrary(hostfxrLibraryHandle_);
 		hostfxrLibraryHandle_ = nullptr;

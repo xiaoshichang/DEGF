@@ -20,13 +20,14 @@ namespace DE.Server.NativeBridge
         }
 
         public Dictionary<Type, DateTime> ReadyStubs { get; } = new Dictionary<Type, DateTime>();
-        public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new Dictionary<Type, ServerStubEntity>();
         public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
+        public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new Dictionary<Type, ServerStubEntity>();
+        public Dictionary<Guid, AvatarEntity> Avatars { get; } = new Dictionary<Guid, AvatarEntity>();
+        public Dictionary<Guid, ServerEntity> Entities { get; } = new Dictionary<Guid, ServerEntity>();
+
         public Type AvatarType { get; private set; }
         public Type NpcType { get; private set; }
         public Type SpaceType { get; private set; }
-        public Dictionary<Guid, AvatarEntity> Avatars { get; } = new Dictionary<Guid, AvatarEntity>();
-        public string CurrentAvatarRpcSourceGateServerId { get; private set; } = string.Empty;
 
         public void HandleAllNodeReady(ServerStubDistributeTable table)
         {
@@ -87,6 +88,7 @@ namespace DE.Server.NativeBridge
             ReadyStubs.Clear();
             StubInstances.Clear();
             Avatars.Clear();
+            Entities.Clear();
             StubDistributeTable = new ServerStubDistributeTable();
             AvatarType = null;
             NpcType = null;
@@ -122,14 +124,40 @@ namespace DE.Server.NativeBridge
             return NativeAPI.SendCreateAvatarReq(gameServerId, avatarId);
         }
 
-        public bool HandleAvatarRpc(string sourceServerId, byte[] payload)
+        public void RegisterLocalEntity(ServerEntity entity)
         {
-            if (ServerRpcPayload.TryDeserialize(payload, 0, payload == null ? 0 : payload.Length, out var serverRpc))
+            if (entity == null)
             {
-                return HandleServerRpc(sourceServerId, serverRpc);
+                throw new ArgumentNullException(nameof(entity));
             }
 
+            if (entity.Guid == Guid.Empty)
+            {
+                throw new InvalidOperationException("Cannot register an entity with an empty guid.");
+            }
+
+            entity.AttachToGameServer(_managedRuntimeState.ServerId);
+            Entities[entity.Guid] = entity;
+            if (entity is AvatarEntity avatar)
+            {
+                Avatars[entity.Guid] = avatar;
+            }
+        }
+
+        public bool HandleAvatarRpc(string sourceServerId, byte[] payload)
+        {
             return HandleAvatarRpcPayload(sourceServerId, payload);
+        }
+
+        public bool HandleServerRpc(string sourceServerId, byte[] payload)
+        {
+            if (!ServerRpcPayload.TryDeserialize(payload, 0, payload == null ? 0 : payload.Length, out var serverRpc))
+            {
+                DELogger.Warn(nameof(GameServerRuntimeState), "Received invalid server RPC payload.");
+                return false;
+            }
+
+            return HandleServerRpcPayload(sourceServerId, serverRpc);
         }
 
         public string FindStubServerId(string stubName)
@@ -183,29 +211,20 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            var previousSourceGateServerId = CurrentAvatarRpcSourceGateServerId;
-            CurrentAvatarRpcSourceGateServerId = sourceServerId ?? string.Empty;
-            try
+            if (!InvokeGeneratedServerRpc(avatar, rpc.MethodId, rpc.ArgsPayload))
             {
-                if (!InvokeGeneratedServerRpc(avatar, rpc.MethodId, rpc.ArgsPayload))
-                {
-                    DELogger.Warn(
-                        nameof(GameServerRuntimeState),
-                        $"Failed to invoke avatar RPC, avatarId={rpc.AvatarId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}."
-                    );
-                    return false;
-                }
-            }
-            finally
-            {
-                CurrentAvatarRpcSourceGateServerId = previousSourceGateServerId;
+                DELogger.Warn(
+                    nameof(GameServerRuntimeState),
+                    $"Failed to invoke avatar RPC, avatarId={rpc.AvatarId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}."
+                );
+                return false;
             }
 
             DELogger.Info(nameof(GameServerRuntimeState), $"Avatar RPC invoked, avatarId={rpc.AvatarId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}.");
             return true;
         }
 
-        private bool HandleServerRpc(string sourceServerId, ServerRpcPayload rpc)
+        private bool HandleServerRpcPayload(string sourceServerId, ServerRpcPayload rpc)
         {
             switch (rpc.TargetKind)
             {
@@ -213,6 +232,8 @@ namespace DE.Server.NativeBridge
                 return InvokeStubRpc(sourceServerId, rpc);
             case ServerRpcTargetKind.Entity:
                 return InvokeEntityRpc(sourceServerId, rpc);
+            case ServerRpcTargetKind.AvatarProxy:
+                return InvokeAvatarProxyRpc(sourceServerId, rpc);
             default:
                 DELogger.Warn(nameof(GameServerRuntimeState), $"Unknown server RPC target kind {rpc.TargetKind}, sourceServerId={sourceServerId}.");
                 return false;
@@ -239,19 +260,37 @@ namespace DE.Server.NativeBridge
 
         private bool InvokeEntityRpc(string sourceServerId, ServerRpcPayload rpc)
         {
-            if (!Avatars.TryGetValue(rpc.EntityId, out var avatar) || avatar == null)
+            if (!Entities.TryGetValue(rpc.EntityId, out var entity) || entity == null)
             {
                 DELogger.Warn(nameof(GameServerRuntimeState), $"Received entity RPC for unknown entityId={rpc.EntityId}, sourceServerId={sourceServerId}.");
                 return false;
             }
 
-            if (!InvokeGeneratedServerRpc(avatar, rpc.MethodId, rpc.ArgsPayload))
+            if (!InvokeGeneratedServerRpc(entity, rpc.MethodId, rpc.ArgsPayload))
             {
                 DELogger.Warn(nameof(GameServerRuntimeState), $"Failed to invoke entity RPC, entityId={rpc.EntityId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}.");
                 return false;
             }
 
             DELogger.Info(nameof(GameServerRuntimeState), $"Entity RPC invoked, entityId={rpc.EntityId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}.");
+            return true;
+        }
+
+        private bool InvokeAvatarProxyRpc(string sourceServerId, ServerRpcPayload rpc)
+        {
+            if (!Avatars.TryGetValue(rpc.EntityId, out var avatar) || avatar == null)
+            {
+                DELogger.Warn(nameof(GameServerRuntimeState), $"Received avatar proxy RPC for unknown avatarId={rpc.EntityId}, sourceServerId={sourceServerId}.");
+                return false;
+            }
+
+            if (!InvokeGeneratedServerRpc(avatar, rpc.MethodId, rpc.ArgsPayload))
+            {
+                DELogger.Warn(nameof(GameServerRuntimeState), $"Failed to invoke avatar proxy RPC, avatarId={rpc.EntityId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}.");
+                return false;
+            }
+
+            DELogger.Info(nameof(GameServerRuntimeState), $"Avatar proxy RPC invoked, avatarId={rpc.EntityId}, methodId={rpc.MethodId}, sourceServerId={sourceServerId}.");
             return true;
         }
 
@@ -281,18 +320,6 @@ namespace DE.Server.NativeBridge
             }
 
             return false;
-        }
-
-        public bool SendAvatarRpcToSourceGate(Guid avatarId, uint methodId, byte[] argsPayload)
-        {
-            if (string.IsNullOrWhiteSpace(CurrentAvatarRpcSourceGateServerId))
-            {
-                DELogger.Warn(nameof(GameServerRuntimeState), "Cannot send avatar RPC because source gate is unknown.");
-                return false;
-            }
-
-            var payload = AvatarRpcRuntime.BuildPayload(avatarId, methodId, argsPayload);
-            return NativeAPI.SendAvatarRpcToGame(CurrentAvatarRpcSourceGateServerId, payload);
         }
 
         private void CreateStub(string stubTypeKey)
@@ -344,7 +371,7 @@ namespace DE.Server.NativeBridge
 
             avatar.Guid = avatarId;
             avatar.AttachToGateServer(gateServerId);
-            Avatars[avatarId] = avatar;
+            RegisterLocalEntity(avatar);
 
             StubCaller.Call("LoginStub", "OnAvatarLogin", avatar.Proxy);
 
@@ -360,17 +387,7 @@ namespace DE.Server.NativeBridge
             );
         }
 
-        private static bool InvokeGeneratedServerRpc(AvatarEntity avatar, uint methodId, byte[] argsPayload)
-        {
-            return InvokeGeneratedServerRpcOnEntity(avatar, methodId, argsPayload);
-        }
-
-        private static bool InvokeGeneratedServerRpc(ServerStubEntity stubEntity, uint methodId, byte[] argsPayload)
-        {
-            return InvokeGeneratedServerRpcOnEntity(stubEntity, methodId, argsPayload);
-        }
-
-        private static bool InvokeGeneratedServerRpcOnEntity(Entity entity, uint methodId, byte[] argsPayload)
+        private static bool InvokeGeneratedServerRpc(ServerEntity entity, uint methodId, byte[] argsPayload)
         {
             if (InvokeGeneratedServerRpcOnTarget(entity, methodId, argsPayload))
             {

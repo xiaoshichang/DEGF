@@ -352,7 +352,8 @@ namespace DE.Share.EntityPropertySG
         {
             return typeSymbol.SpecialType == SpecialType.System_String
                 || typeSymbol.SpecialType == SpecialType.System_Int32
-                || IsEntityProxyType(typeSymbol);
+                || IsEntityProxyType(typeSymbol)
+                || IsEntityMailBoxType(typeSymbol);
         }
 
         private static string GetRpcReaderMethodName(ITypeSymbol typeSymbol)
@@ -367,6 +368,11 @@ namespace DE.Share.EntityPropertySG
                 if (IsEntityProxyType(typeSymbol))
                 {
                     return "ReadEntityProxy";
+                }
+
+                if (IsEntityMailBoxType(typeSymbol))
+                {
+                    return "ReadEntityMailBox";
                 }
 
                 throw new NotSupportedException("Unsupported RPC parameter type: " + typeSymbol.ToDisplayString());
@@ -387,6 +393,11 @@ namespace DE.Share.EntityPropertySG
                     return "DE.Share.Rpc.EntityProxy";
                 }
 
+                if (IsEntityMailBoxType(typeSymbol))
+                {
+                    return "DE.Share.Rpc.EntityMailBox";
+                }
+
                 return typeSymbol.ToDisplayString();
             }
         }
@@ -395,6 +406,12 @@ namespace DE.Share.EntityPropertySG
         {
             return string.Equals(typeSymbol.ToDisplayString(), "DE.Share.Rpc.EntityProxy", StringComparison.Ordinal)
                 || string.Equals(typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "global::DE.Share.Rpc.EntityProxy", StringComparison.Ordinal);
+        }
+
+        private static bool IsEntityMailBoxType(ITypeSymbol typeSymbol)
+        {
+            return string.Equals(typeSymbol.ToDisplayString(), "DE.Share.Rpc.EntityMailBox", StringComparison.Ordinal)
+                || string.Equals(typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "global::DE.Share.Rpc.EntityMailBox", StringComparison.Ordinal);
         }
 
         private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol baseTypeSymbol)

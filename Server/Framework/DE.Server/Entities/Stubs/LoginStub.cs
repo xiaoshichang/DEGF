@@ -15,8 +15,8 @@ namespace DE.Server.Stubs
         [ServerRpc]
         public void OnAvatarLogin(EntityProxy proxy)
         {
-            DELogger.Info(nameof(LoginStub), $"Avatar registered to LoginStub, avatarId={proxy.EntityId}, serverId={proxy.ServerId}.");
-            EntityCaller.Call(proxy, "OnAvatarLoginFinish");
+            DELogger.Info(nameof(LoginStub), $"Avatar registered to LoginStub, avatarId={proxy.EntityId}, bindingGate={proxy.BindingGate}.");
+            AvatarRpcCaller.CallAvatarProxy(proxy, "OnAvatarLoginFinish");
         }
     }
 }

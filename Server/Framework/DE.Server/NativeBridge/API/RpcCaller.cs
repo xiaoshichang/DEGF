@@ -1,4 +1,6 @@
 using System;
+using Assets.Scripts.DE.Share;
+using DE.Server.Entities;
 using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge
@@ -7,6 +9,7 @@ namespace DE.Server.NativeBridge
     {
         Entity = 1,
         Stub = 2,
+        AvatarProxy = 3,
     }
 
     public struct ServerRpcPayload
@@ -138,6 +141,38 @@ namespace DE.Server.NativeBridge
         }
     }
 
+    public static class AvatarRpcCaller
+    {
+        public static bool CallClient(AvatarEntity avatar, uint methodId, byte[] argsPayload)
+        {
+            if (avatar == null)
+            {
+                return false;
+            }
+
+            if (!avatar.Proxy.IsValid)
+            {
+                DELogger.Warn(nameof(AvatarRpcCaller), $"Cannot send avatar RPC because gate proxy is invalid, avatarId={avatar.Guid}.");
+                return false;
+            }
+
+            var payload = RpcCaller.BuildAvatarRpcPayload(avatar.Guid, methodId, argsPayload);
+            return NativeAPI.SendAvatarRpcToServer(avatar.Proxy.BindingGate, payload);
+        }
+
+        public static bool CallAvatarProxy(EntityProxy proxy, string methodName, params object[] args)
+        {
+            if (!proxy.IsValid)
+            {
+                DELogger.Warn(nameof(AvatarRpcCaller), $"Invalid avatar proxy for method {methodName}.");
+                return false;
+            }
+
+            var payload = RpcCaller.BuildServerRpcPayload(ServerRpcTargetKind.AvatarProxy, proxy.EntityId, string.Empty, string.Empty, methodName, args);
+            return NativeAPI.SendServerRpcToServer(proxy.BindingGate, payload);
+        }
+    }
+
     public static class StubCaller
     {
         public static bool Call(string stubName, string methodName, params object[] args)
@@ -150,10 +185,10 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            var payload = ServerRpcRuntime.BuildPayload(ServerRpcTargetKind.Stub, Guid.Empty, targetServerId, stubName, methodName, args);
+            var payload = RpcCaller.BuildServerRpcPayload(ServerRpcTargetKind.Stub, Guid.Empty, targetServerId, stubName, methodName, args);
             if (string.Equals(targetServerId, ManagedRuntimeState.RequireCurrent().ServerId, StringComparison.Ordinal))
             {
-                return runtimeState.HandleAvatarRpc(targetServerId, payload);
+                return runtimeState.HandleServerRpc(targetServerId, payload);
             }
 
             var gateServerId = ManagedRuntimeState.RequireCurrent().SelectGateServerId(stubName);
@@ -163,28 +198,60 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            return NativeAPI.SendAvatarRpcToGame(gateServerId, payload);
+            return NativeAPI.SendServerRpcToServer(gateServerId, payload);
         }
     }
 
     public static class EntityCaller
     {
-        public static bool Call(EntityProxy proxy, string methodName, params object[] args)
+        public static bool Call(EntityMailBox mailbox, string methodName, params object[] args)
         {
-            if (!proxy.IsValid)
+            if (!mailbox.IsValid)
             {
-                DELogger.Warn(nameof(EntityCaller), $"Invalid entity proxy for method {methodName}.");
+                DELogger.Warn(nameof(EntityCaller), $"Invalid entity mailbox for method {methodName}.");
                 return false;
             }
 
-            var payload = ServerRpcRuntime.BuildPayload(ServerRpcTargetKind.Entity, proxy.EntityId, string.Empty, string.Empty, methodName, args);
-            return NativeAPI.SendAvatarRpcToGame(proxy.ServerId, payload);
+            var payload = RpcCaller.BuildServerRpcPayload(ServerRpcTargetKind.Entity, mailbox.EntityId, mailbox.BindingGame, string.Empty, methodName, args);
+            var runtimeState = ManagedRuntimeState.RequireCurrent();
+            if (runtimeState.ServerType == ManagedRuntimeServerType.Game
+                && string.Equals(mailbox.BindingGame, runtimeState.ServerId, StringComparison.Ordinal))
+            {
+                return runtimeState.GameServerRuntimeState.HandleServerRpc(mailbox.BindingGame, payload);
+            }
+
+            if (runtimeState.ServerType == ManagedRuntimeServerType.Game)
+            {
+                var gateServerId = runtimeState.SelectGateServerId(mailbox.EntityId.ToString("N"));
+                if (string.IsNullOrWhiteSpace(gateServerId))
+                {
+                    DELogger.Warn(nameof(EntityCaller), $"Gate relay not found for entity RPC, entityId={mailbox.EntityId}, targetServerId={mailbox.BindingGame}.");
+                    return false;
+                }
+
+                return NativeAPI.SendServerRpcToServer(gateServerId, payload);
+            }
+
+            return NativeAPI.SendServerRpcToServer(mailbox.BindingGame, payload);
         }
     }
 
-    internal static class ServerRpcRuntime
+    public static class RpcCaller
     {
-        public static byte[] BuildPayload(ServerRpcTargetKind targetKind, Guid entityId, string targetServerId, string stubName, string methodName, object[] args)
+        public static byte[] BuildAvatarRpcPayload(Guid avatarId, uint methodId, byte[] argsPayload)
+        {
+            var rpc = new MessageDef.AvatarRpc
+            {
+                Version = MessageDef.AvatarRpc.CurrentVersion,
+                Reserved = 0,
+                AvatarId = avatarId,
+                MethodId = methodId,
+                ArgsPayload = argsPayload ?? Array.Empty<byte>(),
+            };
+            return rpc.Serialize();
+        }
+
+        public static byte[] BuildServerRpcPayload(ServerRpcTargetKind targetKind, Guid entityId, string targetServerId, string stubName, string methodName, object[] args)
         {
             var payload = new ServerRpcPayload
             {

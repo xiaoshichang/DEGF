@@ -31,6 +31,7 @@ namespace de::server::engine::network
 			CreateAvatarReq = 0x00020007u,
 			CreateAvatarRsp = 0x00020008u,
 			AvatarRpcNtf = 0x0002000Au,
+			ServerRpcNtf = 0x0002000Bu,
 		};
 
 		constexpr bool IsCS(std::uint32_t messageId)

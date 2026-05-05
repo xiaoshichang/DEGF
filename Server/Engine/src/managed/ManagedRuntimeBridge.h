@@ -162,6 +162,11 @@ namespace de::server::engine::managed
 		void* outputBuffer,
 		std::int32_t outputBufferSizeBytes
 	);
+	using ManagedExecuteTelnetCSharpFn = int (DE_MANAGED_CALLTYPE*)(
+		const char* code,
+		void* outputBuffer,
+		std::int32_t outputBufferSizeBytes
+	);
 	using ManagedUninitializeFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
 }
 

@@ -224,7 +224,13 @@ namespace de::server::engine
 
 	TelnetCommandResult GMServer::OnTelnetCommand(std::uint64_t sessionId, std::string_view commandLine)
 	{
-		const auto command = ToLowerCommand(TrimCommand(commandLine));
+		const auto trimmedCommand = TrimCommand(commandLine);
+		if (trimmedCommand.empty() || trimmedCommand.front() != '$')
+		{
+			return ServerBase::OnTelnetCommand(sessionId, commandLine);
+		}
+
+		const auto command = ToLowerCommand(std::string_view(trimmedCommand).substr(1));
 		if (command == "total_entity_count" || command == "totalentitycount")
 		{
 			return BeginTotalEntityCountCommand(sessionId);

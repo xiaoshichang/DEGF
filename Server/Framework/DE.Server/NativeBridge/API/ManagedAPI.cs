@@ -566,6 +566,29 @@ namespace DE.Server.NativeBridge
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int ExecuteTelnetCSharpNative(IntPtr code, IntPtr outputBuffer, int outputBufferSizeBytes)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                var codeText = code == IntPtr.Zero
+                    ? string.Empty
+                    : Marshal.PtrToStringUTF8(code) ?? string.Empty;
+                var response = TelnetCSharpExecutor.Execute(codeText);
+                return _WritePayloadToNative(Encoding.UTF8.GetBytes(response), outputBuffer, outputBufferSizeBytes);
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(ExecuteTelnetCSharpNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static int UninitializeNative(IntPtr arg, int sizeBytes)
         {
             _ = arg;

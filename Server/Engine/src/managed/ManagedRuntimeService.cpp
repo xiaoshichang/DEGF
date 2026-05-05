@@ -53,6 +53,7 @@ namespace de::server::engine
 		constexpr const char_t* kCancelGmCommandMethodName = DE_HOST_CHAR_LITERAL("CancelGmCommandNative");
 		constexpr const char_t* kBuildGmTotalEntityCountRspMethodName = DE_HOST_CHAR_LITERAL("BuildGmTotalEntityCountRspNative");
 		constexpr const char_t* kHandleGmTotalEntityCountRspMethodName = DE_HOST_CHAR_LITERAL("HandleGmTotalEntityCountRspNative");
+		constexpr const char_t* kExecuteTelnetCSharpMethodName = DE_HOST_CHAR_LITERAL("ExecuteTelnetCSharpNative");
 		constexpr const char_t* kUninitializeMethodName = DE_HOST_CHAR_LITERAL("UninitializeNative");
 
 		std::filesystem::path ResolvePathFromConfig(const std::string& configPath, const std::string& value)
@@ -1065,6 +1066,36 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::ExecuteTelnetCSharp(const std::string& code, std::string& response)
+	{
+		response.clear();
+		if (!running_ || executeTelnetCSharpFn_ == nullptr || code.empty())
+		{
+			return false;
+		}
+
+		std::string responseBuffer(64 * 1024, '\0');
+		const int writtenSize = executeTelnetCSharpFn_(
+			code.c_str(),
+			responseBuffer.data(),
+			static_cast<std::int32_t>(responseBuffer.size())
+		);
+		if (writtenSize < 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "ExecuteTelnetCSharpNative failed with code: " + std::to_string(writtenSize));
+			return false;
+		}
+
+		if (writtenSize > static_cast<int>(responseBuffer.size()))
+		{
+			Logger::Warn("ManagedRuntimeService", "ExecuteTelnetCSharpNative response is too large: " + std::to_string(writtenSize));
+			return false;
+		}
+
+		response.assign(responseBuffer.data(), static_cast<std::size_t>(writtenSize));
+		return true;
+	}
+
 	void ManagedRuntimeService::SetGameServerReadyCallback(std::function<void()> callback)
 	{
 		gameServerReadyCallback_ = std::move(callback);
@@ -1349,6 +1380,10 @@ namespace de::server::engine
 			handleGmTotalEntityCountRspPointer
 		);
 
+		void* executeTelnetCSharpPointer = nullptr;
+		bindMethod(kExecuteTelnetCSharpMethodName, &executeTelnetCSharpPointer);
+		executeTelnetCSharpFn_ = reinterpret_cast<managed::ManagedExecuteTelnetCSharpFn>(executeTelnetCSharpPointer);
+
 		void* uninitializePointer = nullptr;
 		bindMethod(kUninitializeMethodName, &uninitializePointer);
 		uninitializeFn_ = reinterpret_cast<managed::ManagedUninitializeFn>(uninitializePointer);
@@ -1371,6 +1406,7 @@ namespace de::server::engine
 			|| cancelGmCommandFn_ == nullptr
 			|| buildGmTotalEntityCountRspFn_ == nullptr
 			|| handleGmTotalEntityCountRspFn_ == nullptr
+			|| executeTelnetCSharpFn_ == nullptr
 			|| uninitializeFn_ == nullptr)
 		{
 			throw std::runtime_error("Managed runtime entrypoints are not bound.");
@@ -1403,6 +1439,7 @@ namespace de::server::engine
 		cancelGmCommandFn_ = nullptr;
 		buildGmTotalEntityCountRspFn_ = nullptr;
 		handleGmTotalEntityCountRspFn_ = nullptr;
+		executeTelnetCSharpFn_ = nullptr;
 		uninitializeFn_ = nullptr;
 		gameServerReadyCallback_ = {};
 		createAvatarReqSender_ = {};

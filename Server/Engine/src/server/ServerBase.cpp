@@ -8,13 +8,49 @@
 #include "timer/TimerManager.h"
 
 #include <chrono>
+#include <algorithm>
+#include <cctype>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace de::server::engine
 {
 	namespace
 	{
+		std::string TrimTelnetCommand(std::string_view value)
+		{
+			std::size_t begin = 0;
+			while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0)
+			{
+				++begin;
+			}
+
+			std::size_t end = value.size();
+			while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0)
+			{
+				--end;
+			}
+
+			return std::string(value.substr(begin, end - begin));
+		}
+
+		std::string ToLowerTelnetCommand(std::string_view value)
+		{
+			std::string result(value);
+			std::transform(
+				result.begin(),
+				result.end(),
+				result.begin(),
+				[](unsigned char character)
+				{
+					return static_cast<char>(std::tolower(character));
+				}
+			);
+			return result;
+		}
+
 		std::string BuildInnerNetworkEndpoint(const config::EndpointConfig& endpointConfig)
 		{
 			if (endpointConfig.host.empty() || endpointConfig.port == 0)
@@ -186,7 +222,31 @@ namespace de::server::engine
 			return {};
 		}
 
-		return telnetService_->HandleCommand(commandLine);
+		const auto trimmedCommand = TrimTelnetCommand(commandLine);
+		if (trimmedCommand.empty())
+		{
+			return {};
+		}
+
+		const auto normalizedCommand = ToLowerTelnetCommand(trimmedCommand);
+		if (trimmedCommand.front() == '$')
+		{
+			return telnetService_->HandleCommand(std::string_view(trimmedCommand).substr(1));
+		}
+
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService == nullptr)
+		{
+			return { "managed runtime service is not initialized", false, false, false };
+		}
+
+		std::string response;
+		if (!managedRuntimeService->ExecuteTelnetCSharp(trimmedCommand, response))
+		{
+			return { "failed to execute C# code", false, false, false };
+		}
+
+		return { response, false, false, false };
 	}
 
 	bool ServerBase::ReplyToTelnetSession(std::uint64_t sessionId, std::string response, bool closeSession)

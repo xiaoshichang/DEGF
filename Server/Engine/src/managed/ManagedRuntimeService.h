@@ -51,6 +51,7 @@ namespace de::server::engine
 		bool CancelGmCommand(std::uint64_t requestId);
 		bool BuildGmTotalEntityCountRsp(std::uint64_t requestId, std::vector<std::byte>& payload);
 		bool HandleGmTotalEntityCountRsp(const std::string& sourceServerId, const std::vector<std::byte>& payload, std::string& telnetResponse);
+		bool ExecuteTelnetCSharp(const std::string& code, std::string& response);
 		void SetGameServerReadyCallback(std::function<void()> callback);
 		void SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&)> sender);
 		void SetCreateAvatarRspSender(std::function<bool(const std::string&, const network::CreateAvatarRspMessage&)> sender);
@@ -149,6 +150,7 @@ namespace de::server::engine
 		managed::ManagedCancelGmCommandFn cancelGmCommandFn_ = nullptr;
 		managed::ManagedBuildGmTotalEntityCountRspFn buildGmTotalEntityCountRspFn_ = nullptr;
 		managed::ManagedHandleGmTotalEntityCountRspFn handleGmTotalEntityCountRspFn_ = nullptr;
+		managed::ManagedExecuteTelnetCSharpFn executeTelnetCSharpFn_ = nullptr;
 		managed::ManagedUninitializeFn uninitializeFn_ = nullptr;
 		std::function<void()> gameServerReadyCallback_;
 		std::function<bool(const std::string&, const network::GuidBytes&)> createAvatarReqSender_;

@@ -23,12 +23,14 @@ namespace de::server::engine::managed
 	using NativeSendCreateAvatarReqFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
 		void* context,
 		const char* targetServerId,
-		const std::uint8_t* avatarId
+		const std::uint8_t* avatarId,
+		std::uint64_t clientSessionId
 	);
 	using NativeSendCreateAvatarRspFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
 		void* context,
 		const char* targetServerId,
 		const std::uint8_t* avatarId,
+		std::uint64_t clientSessionId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
 		const char* error,
@@ -44,6 +46,10 @@ namespace de::server::engine::managed
 		const char* error,
 		const void* avatarData,
 		std::int32_t avatarDataSizeBytes
+	);
+	using NativeActiveDisconnectClientFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		std::uint64_t clientSessionId
 	);
 	using NativeSendAvatarRpcToServerFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
 		void* context,
@@ -81,6 +87,7 @@ namespace de::server::engine::managed
 		NativeSendCreateAvatarReqFn SendCreateAvatarReq = nullptr;
 		NativeSendCreateAvatarRspFn SendCreateAvatarRsp = nullptr;
 		NativeSendAvatarLoginRspFn SendAvatarLoginRsp = nullptr;
+		NativeActiveDisconnectClientFn ActiveDisconnectClient = nullptr;
 		NativeSendAvatarRpcToServerFn SendAvatarRpcToServer = nullptr;
 		NativeSendAvatarRpcToClientFn SendAvatarRpcToClient = nullptr;
 		NativeSendServerRpcToServerFn SendServerRpcToServer = nullptr;
@@ -118,11 +125,13 @@ namespace de::server::engine::managed
 	);
 	using ManagedHandleCreateAvatarReqFn = int (DE_MANAGED_CALLTYPE*)(
 		const char* sourceServerId,
-		const std::uint8_t* avatarId
+		const std::uint8_t* avatarId,
+		std::uint64_t clientSessionId
 	);
 	using ManagedHandleCreateAvatarRspFn = int (DE_MANAGED_CALLTYPE*)(
 		const char* sourceServerId,
 		const std::uint8_t* avatarId,
+		std::uint64_t clientSessionId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
 		const char* error,
@@ -133,6 +142,9 @@ namespace de::server::engine::managed
 		std::uint64_t clientSessionId,
 		const void* payload,
 		std::int32_t payloadSizeBytes
+	);
+	using ManagedHandleClientDisconnectFn = int (DE_MANAGED_CALLTYPE*)(
+		std::uint64_t clientSessionId
 	);
 	using ManagedHandleServerAvatarRpcFn = int (DE_MANAGED_CALLTYPE*)(
 		const char* sourceServerId,

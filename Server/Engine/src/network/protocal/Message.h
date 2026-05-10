@@ -76,11 +76,12 @@ namespace de::server::engine::network
 	struct CreateAvatarReqMessage
 	{
 		static constexpr std::uint16_t kCurrentVersion = 1;
-		static constexpr std::size_t kWireSize = 20;
+		static constexpr std::size_t kWireSize = 28;
 
 		std::uint16_t version = kCurrentVersion;
 		std::uint16_t reserved = 0;
 		GuidBytes avatarId{};
+		std::uint64_t clientSessionId = 0;
 
 		std::vector<std::byte> Serialize() const;
 		static bool TryDeserialize(const void* data, std::size_t size, CreateAvatarReqMessage& message);
@@ -89,13 +90,14 @@ namespace de::server::engine::network
 	struct CreateAvatarRspMessage
 	{
 		static constexpr std::uint16_t kCurrentVersion = 1;
-		static constexpr std::size_t kFixedWireSize = 30;
+		static constexpr std::size_t kFixedWireSize = 38;
 
 		std::uint16_t version = kCurrentVersion;
 		bool isSuccess = false;
 		std::uint8_t reserved = 0;
 		std::int32_t statusCode = 0;
 		GuidBytes avatarId{};
+		std::uint64_t clientSessionId = 0;
 		std::vector<std::byte> avatarData;
 		std::string error;
 

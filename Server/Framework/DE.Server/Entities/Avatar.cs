@@ -4,6 +4,12 @@ using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
+    public enum AvatarClientDetachReason
+    {
+        Disconnected = 1,
+        ReplacedByNewLogin = 2,
+    }
+
     public partial class AvatarEntity : ServerEntity
     {
         public AvatarEntity()
@@ -37,6 +43,18 @@ namespace DE.Server.Entities
         public virtual void OnAvatarLoginFinish()
         {
             DELogger.Info(nameof(AvatarEntity), $"Avatar login registration finished, avatarId={Guid}.");
+        }
+
+        [ServerRpc]
+        public virtual void OnAvatarClientAttached(ulong clientSessionId)
+        {
+            DELogger.Info(nameof(AvatarEntity), $"Avatar client attached, avatarId={Guid}, clientSessionId={clientSessionId}.");
+        }
+
+        [ServerRpc]
+        public virtual void OnAvatarClientDetached(ulong clientSessionId, AvatarClientDetachReason reason)
+        {
+            DELogger.Info(nameof(AvatarEntity), $"Avatar client detached, avatarId={Guid}, clientSessionId={clientSessionId}, reason={reason}.");
         }
     }
 }

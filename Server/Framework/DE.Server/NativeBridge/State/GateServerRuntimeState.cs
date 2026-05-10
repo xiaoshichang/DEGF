@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using DE.Server.Auth;
+using DE.Server.Entities;
 
 namespace DE.Server.NativeBridge
 {
@@ -10,10 +13,13 @@ namespace DE.Server.NativeBridge
         public string Account { get; set; } = string.Empty;
         public ulong ClientSessionId { get; set; }
         public string GameServerId { get; set; } = string.Empty;
+        public bool CreateAvatarPending { get; set; }
     }
 
     public sealed class GateServerRuntimeState
     {
+        private const int ReplacedByNewLoginStatusCode = 409;
+
         private readonly ManagedRuntimeState _managedRuntimeState;
 
         public GateServerRuntimeState(ManagedRuntimeState managedRuntimeState)
@@ -23,6 +29,7 @@ namespace DE.Server.NativeBridge
 
         public Dictionary<Guid, AvatarAccount> AvatarIdToAccount { get; } = new Dictionary<Guid, AvatarAccount>();
         public Dictionary<ulong, Guid> ClientSessionIdToAvatarId { get; } = new Dictionary<ulong, Guid>();
+        public Dictionary<string, Guid> AccountToAvatarId { get; } = new Dictionary<string, Guid>(StringComparer.Ordinal);
 
         public GateAuthValidationResult ValidateAuth(GateAuthValidationRequest request)
         {
@@ -50,19 +57,62 @@ namespace DE.Server.NativeBridge
             var accountName = string.IsNullOrWhiteSpace(account)
                 ? "account-" + Guid.NewGuid().ToString("N")
                 : account.Trim();
-            var avatarId = Guid.NewGuid();
-            AvatarIdToAccount[avatarId] = new AvatarAccount
+            var avatarId = GenerateStableAvatarId(accountName);
+
+            var createAvatarPending = false;
+            if (AccountToAvatarId.TryGetValue(accountName, out var existedAvatarId)
+                && AvatarIdToAccount.TryGetValue(existedAvatarId, out var existedAccount))
+            {
+                createAvatarPending = existedAccount.CreateAvatarPending;
+                if (existedAccount.ClientSessionId != clientSessionId)
+                {
+                    if (!existedAccount.CreateAvatarPending)
+                    {
+                        NotifyAvatarClientDetached(existedAccount, AvatarClientDetachReason.ReplacedByNewLogin);
+                    }
+
+                    NativeAPI.SendAvatarLoginRsp(
+                        existedAccount.ClientSessionId,
+                        avatarId,
+                        false,
+                        ReplacedByNewLoginStatusCode,
+                        "account logged in from another client",
+                        Array.Empty<byte>()
+                    );
+                    ClientSessionIdToAvatarId.Remove(existedAccount.ClientSessionId);
+                    NativeAPI.ActiveDisconnectClient(existedAccount.ClientSessionId);
+                    DELogger.Info(
+                        nameof(GateServerRuntimeState),
+                        $"Kicked previous login session, account={accountName}, oldClientSessionId={existedAccount.ClientSessionId}, newClientSessionId={clientSessionId}, avatarId={avatarId}."
+                    );
+                }
+            }
+
+            var avatarAccount = new AvatarAccount
             {
                 AvatarId = avatarId,
                 Account = accountName,
                 ClientSessionId = clientSessionId,
+                CreateAvatarPending = createAvatarPending,
             };
+            AvatarIdToAccount[avatarId] = avatarAccount;
+            AccountToAvatarId[accountName] = avatarId;
             ClientSessionIdToAvatarId[clientSessionId] = avatarId;
 
             DELogger.Info(
                 nameof(GateServerRuntimeState),
                 $"Avatar login request accepted, account={accountName}, clientSessionId={clientSessionId}, avatarId={avatarId}."
             );
+
+            if (avatarAccount.CreateAvatarPending)
+            {
+                DELogger.Info(
+                    nameof(GateServerRuntimeState),
+                    $"Rebound account to new client session while avatar creation is pending, account={accountName}, clientSessionId={clientSessionId}, avatarId={avatarId}."
+                );
+                return CreateAvatarRemote(avatarId);
+            }
+
             return CreateAvatarRemote(avatarId);
         }
 
@@ -76,7 +126,13 @@ namespace DE.Server.NativeBridge
             var gameServerId = _managedRuntimeState.SelectGameServerId(avatarId);
             if (string.IsNullOrWhiteSpace(gameServerId))
             {
-                return TrySendLoginRspByAvatarId(avatarId, false, 503, "no game server is available");
+                var sent = TrySendLoginRspByAvatarId(avatarId, false, 503, "no game server is available");
+                if (AvatarIdToAccount.TryGetValue(avatarId, out var failedAvatarAccount))
+                {
+                    ClearAvatarAccount(failedAvatarAccount);
+                }
+
+                return sent;
             }
 
             if (AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount))
@@ -84,10 +140,21 @@ namespace DE.Server.NativeBridge
                 avatarAccount.GameServerId = gameServerId;
             }
 
-            var sent = NativeAPI.SendCreateAvatarReq(gameServerId, avatarId);
-            if (!sent)
+            var createAvatarReqSent = NativeAPI.SendCreateAvatarReq(gameServerId, avatarId, avatarAccount == null ? 0 : avatarAccount.ClientSessionId);
+            if (!createAvatarReqSent)
             {
-                return TrySendLoginRspByAvatarId(avatarId, false, 503, "failed to send create avatar request");
+                var loginRspSent = TrySendLoginRspByAvatarId(avatarId, false, 503, "failed to send create avatar request");
+                if (avatarAccount != null)
+                {
+                    ClearAvatarAccount(avatarAccount);
+                }
+
+                return loginRspSent;
+            }
+
+            if (avatarAccount != null)
+            {
+                avatarAccount.CreateAvatarPending = true;
             }
 
             DELogger.Info(
@@ -97,7 +164,7 @@ namespace DE.Server.NativeBridge
             return true;
         }
 
-        public bool HandleCreateAvatarRsp(string sourceServerId, Guid avatarId, bool isSuccess, int statusCode, string error, byte[] avatarData)
+        public bool HandleCreateAvatarRsp(string sourceServerId, Guid avatarId, ulong clientSessionId, bool isSuccess, int statusCode, string error, byte[] avatarData)
         {
             if (!AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount))
             {
@@ -108,11 +175,56 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
+            if (clientSessionId != 0 && avatarAccount.ClientSessionId != clientSessionId)
+            {
+                DELogger.Info(
+                    nameof(GateServerRuntimeState),
+                    $"Ignored stale CreateAvatarRsp, account={avatarAccount.Account}, avatarId={avatarId}, responseClientSessionId={clientSessionId}, currentClientSessionId={avatarAccount.ClientSessionId}, sourceServerId={sourceServerId}."
+                );
+                return true;
+            }
+
+            avatarAccount.CreateAvatarPending = false;
+
             DELogger.Info(
                 nameof(GateServerRuntimeState),
                 $"Received avatar creation result, account={avatarAccount.Account}, clientSessionId={avatarAccount.ClientSessionId}, avatarId={avatarId}, success={isSuccess}, sourceServerId={sourceServerId}."
             );
-            return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error, avatarData);
+            var sent = NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error, avatarData);
+            if (!isSuccess)
+            {
+                ClearAvatarAccount(avatarAccount);
+            }
+
+            return sent;
+        }
+
+        public bool HandleClientDisconnect(ulong clientSessionId)
+        {
+            if (!ClientSessionIdToAvatarId.TryGetValue(clientSessionId, out var avatarId))
+            {
+                return true;
+            }
+
+            ClientSessionIdToAvatarId.Remove(clientSessionId);
+            if (!AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount)
+                || avatarAccount.ClientSessionId != clientSessionId)
+            {
+                return true;
+            }
+
+            if (!avatarAccount.CreateAvatarPending)
+            {
+                NotifyAvatarClientDetached(avatarAccount, AvatarClientDetachReason.Disconnected);
+            }
+
+            ClearAvatarAccount(avatarAccount);
+
+            DELogger.Info(
+                nameof(GateServerRuntimeState),
+                $"Cleared avatar login session, account={avatarAccount.Account}, clientSessionId={clientSessionId}, avatarId={avatarId}."
+            );
+            return true;
         }
 
         public bool HandleClientAvatarRpc(ulong clientSessionId, byte[] payload)
@@ -170,6 +282,7 @@ namespace DE.Server.NativeBridge
         {
             AvatarIdToAccount.Clear();
             ClientSessionIdToAvatarId.Clear();
+            AccountToAvatarId.Clear();
         }
 
         private bool TrySendLoginRspByAvatarId(Guid avatarId, bool isSuccess, int statusCode, string error)
@@ -180,6 +293,41 @@ namespace DE.Server.NativeBridge
             }
 
             return NativeAPI.SendAvatarLoginRsp(avatarAccount.ClientSessionId, avatarId, isSuccess, statusCode, error, Array.Empty<byte>());
+        }
+
+        private void ClearAvatarAccount(AvatarAccount avatarAccount)
+        {
+            if (avatarAccount == null)
+            {
+                return;
+            }
+
+            AvatarIdToAccount.Remove(avatarAccount.AvatarId);
+            ClientSessionIdToAvatarId.Remove(avatarAccount.ClientSessionId);
+            if (!string.IsNullOrWhiteSpace(avatarAccount.Account)
+                && AccountToAvatarId.TryGetValue(avatarAccount.Account, out var avatarId)
+                && avatarId == avatarAccount.AvatarId)
+            {
+                AccountToAvatarId.Remove(avatarAccount.Account);
+            }
+        }
+
+        private static bool NotifyAvatarClientDetached(AvatarAccount avatarAccount, AvatarClientDetachReason reason)
+        {
+            if (avatarAccount == null || string.IsNullOrWhiteSpace(avatarAccount.GameServerId))
+            {
+                return false;
+            }
+
+            var payload = RpcCaller.BuildServerRpcPayload(
+                ServerRpcTargetKind.AvatarProxy,
+                avatarAccount.AvatarId,
+                avatarAccount.GameServerId,
+                string.Empty,
+                "OnAvatarClientDetached",
+                new object[] { avatarAccount.ClientSessionId, reason }
+            );
+            return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, payload);
         }
 
         private bool HandleServerRpcRelay(string sourceServerId, ServerRpcPayload serverRpc, byte[] payload)
@@ -250,6 +398,18 @@ namespace DE.Server.NativeBridge
             Buffer.BlockCopy(payload, 4, avatarBytes, 0, avatarBytes.Length);
             avatarId = new Guid(avatarBytes);
             return avatarId != Guid.Empty;
+        }
+
+        private static Guid GenerateStableAvatarId(string account)
+        {
+            var normalizedAccount = account == null ? string.Empty : account.Trim();
+            var source = Encoding.UTF8.GetBytes("DEGF:Avatar:" + normalizedAccount);
+            var hash = SHA256.HashData(source);
+            var bytes = new byte[16];
+            Buffer.BlockCopy(hash, 0, bytes, 0, bytes.Length);
+            bytes[7] = (byte)((bytes[7] & 0x0F) | 0x40);
+            bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
+            return new Guid(bytes);
         }
     }
 }

@@ -57,10 +57,11 @@ namespace de::server::engine
 		if (managedRuntimeService != nullptr)
 		{
 			managedRuntimeService->SetCreateAvatarReqSender(
-				[this](const std::string& targetServerId, const network::GuidBytes& avatarId)
+				[this](const std::string& targetServerId, const network::GuidBytes& avatarId, std::uint64_t clientSessionId)
 				{
 					network::CreateAvatarReqMessage message;
 					message.avatarId = avatarId;
+					message.clientSessionId = clientSessionId;
 					return GetInnerNetwork().Send(
 						targetServerId,
 						static_cast<std::uint32_t>(network::MessageID::SS::CreateAvatarReq),
@@ -74,6 +75,19 @@ namespace de::server::engine
 					return SendLoginRspToClient(
 						static_cast<network::ClientNetworkSession::SessionId>(clientSessionId),
 						message.Serialize()
+					);
+				}
+			);
+			managedRuntimeService->SetActiveDisconnectClientSender(
+				[this](std::uint64_t clientSessionId)
+				{
+					if (clientNetwork_ == nullptr)
+					{
+						return false;
+					}
+
+					return clientNetwork_->ActiveDisconnect(
+						static_cast<network::ClientNetworkSession::SessionId>(clientSessionId)
 					);
 				}
 			);
@@ -134,6 +148,7 @@ namespace de::server::engine
 		{
 			managedRuntimeService->SetCreateAvatarReqSender({});
 			managedRuntimeService->SetAvatarLoginRspSender({});
+			managedRuntimeService->SetActiveDisconnectClientSender({});
 			managedRuntimeService->SetAvatarRpcToServerSender({});
 			managedRuntimeService->SetAvatarRpcToClientSender({});
 			managedRuntimeService->SetServerRpcToServerSender({});
@@ -382,6 +397,16 @@ namespace de::server::engine
 	void GateServer::OnClientDisconnect(network::ClientNetworkSession::SessionId sessionId)
 	{
 		Logger::Info("GateServer", "Client session disconnected: " + std::to_string(sessionId));
+		auto* managedRuntimeService = GetManagedRuntimeService();
+		if (managedRuntimeService == nullptr)
+		{
+			return;
+		}
+
+		if (!managedRuntimeService->HandleClientDisconnect(sessionId))
+		{
+			Logger::Warn("GateServer", "Failed to handle client disconnect in managed runtime.");
+		}
 	}
 
 	void GateServer::HandleCreateAvatarRsp(const std::string& serverId, const std::vector<std::byte>& data)
@@ -403,6 +428,7 @@ namespace de::server::engine
 		if (!managedRuntimeService->HandleCreateAvatarRsp(
 			serverId,
 			createAvatarRsp.avatarId,
+			createAvatarRsp.clientSessionId,
 			createAvatarRsp.isSuccess,
 			createAvatarRsp.statusCode,
 			createAvatarRsp.error,

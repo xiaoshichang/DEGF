@@ -52,6 +52,19 @@ namespace DE.Share.Rpc
                     continue;
                 }
 
+                if (arg is ulong)
+                {
+                    typeNames[i] = "ulong";
+                    continue;
+                }
+
+                Type argType = arg.GetType();
+                if (argType.IsEnum)
+                {
+                    typeNames[i] = argType.FullName ?? argType.Name;
+                    continue;
+                }
+
                 if (arg is EntityProxy)
                 {
                     typeNames[i] = "DE.Share.Rpc.EntityProxy";

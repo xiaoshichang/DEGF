@@ -47,6 +47,7 @@ namespace de::server::engine
 		constexpr const char_t* kHandleCreateAvatarReqMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarReqNative");
 		constexpr const char_t* kHandleCreateAvatarRspMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarRspNative");
 		constexpr const char_t* kHandleClientAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleClientAvatarRpcNative");
+		constexpr const char_t* kHandleClientDisconnectMethodName = DE_HOST_CHAR_LITERAL("HandleClientDisconnectNative");
 		constexpr const char_t* kHandleServerAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerAvatarRpcNative");
 		constexpr const char_t* kHandleServerRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerRpcNative");
 		constexpr const char_t* kBeginGmTotalEntityCountCommandMethodName = DE_HOST_CHAR_LITERAL("BeginGmTotalEntityCountCommandNative");
@@ -281,7 +282,8 @@ namespace de::server::engine
 	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendCreateAvatarReq(
 		void* context,
 		const char* targetServerId,
-		const std::uint8_t* avatarId
+		const std::uint8_t* avatarId,
+		std::uint64_t clientSessionId
 	)
 	{
 		auto* service = static_cast<ManagedRuntimeService*>(context);
@@ -294,7 +296,7 @@ namespace de::server::engine
 		{
 			network::GuidBytes guidBytes;
 			std::memcpy(guidBytes.bytes.data(), avatarId, guidBytes.bytes.size());
-			return service->createAvatarReqSender_(targetServerId, guidBytes) ? 1 : 0;
+			return service->createAvatarReqSender_(targetServerId, guidBytes, clientSessionId) ? 1 : 0;
 		}
 		catch (const std::exception& exception)
 		{
@@ -312,6 +314,7 @@ namespace de::server::engine
 		void* context,
 		const char* targetServerId,
 		const std::uint8_t* avatarId,
+		std::uint64_t clientSessionId,
 		std::int32_t isSuccess,
 		std::int32_t statusCode,
 		const char* error,
@@ -329,6 +332,7 @@ namespace de::server::engine
 		{
 			network::CreateAvatarRspMessage message;
 			std::memcpy(message.avatarId.bytes.data(), avatarId, message.avatarId.bytes.size());
+			message.clientSessionId = clientSessionId;
 			message.isSuccess = isSuccess != 0;
 			message.statusCode = statusCode;
 			message.error = error == nullptr ? std::string{} : std::string(error);
@@ -402,6 +406,33 @@ namespace de::server::engine
 		catch (...)
 		{
 			Logger::Error("ManagedRuntimeService", "NativeSendAvatarLoginRsp failed with unknown exception.");
+			return 0;
+		}
+	}
+
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeActiveDisconnectClient(
+		void* context,
+		std::uint64_t clientSessionId
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || clientSessionId == 0 || !service->activeDisconnectClientSender_)
+		{
+			return 0;
+		}
+
+		try
+		{
+			return service->activeDisconnectClientSender_(clientSessionId) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeActiveDisconnectClient failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeActiveDisconnectClient failed with unknown exception.");
 			return 0;
 		}
 	}
@@ -637,6 +668,7 @@ namespace de::server::engine
 				&ManagedRuntimeService::NativeSendCreateAvatarReq,
 				&ManagedRuntimeService::NativeSendCreateAvatarRsp,
 				&ManagedRuntimeService::NativeSendAvatarLoginRsp,
+				&ManagedRuntimeService::NativeActiveDisconnectClient,
 				&ManagedRuntimeService::NativeSendAvatarRpcToServer,
 				&ManagedRuntimeService::NativeSendAvatarRpcToClient,
 				&ManagedRuntimeService::NativeSendServerRpcToServer,
@@ -839,7 +871,7 @@ namespace de::server::engine
 		return true;
 	}
 
-	bool ManagedRuntimeService::HandleCreateAvatarReq(const std::string& sourceServerId, const network::GuidBytes& avatarId)
+	bool ManagedRuntimeService::HandleCreateAvatarReq(const std::string& sourceServerId, const network::GuidBytes& avatarId, std::uint64_t clientSessionId)
 	{
 		if (!running_ || handleCreateAvatarReqFn_ == nullptr)
 		{
@@ -848,7 +880,8 @@ namespace de::server::engine
 
 		const int result = handleCreateAvatarReqFn_(
 			sourceServerId.c_str(),
-			avatarId.bytes.data()
+			avatarId.bytes.data(),
+			clientSessionId
 		);
 		if (result != 0)
 		{
@@ -862,6 +895,7 @@ namespace de::server::engine
 	bool ManagedRuntimeService::HandleCreateAvatarRsp(
 		const std::string& sourceServerId,
 		const network::GuidBytes& avatarId,
+		std::uint64_t clientSessionId,
 		bool isSuccess,
 		std::int32_t statusCode,
 		const std::string& error,
@@ -876,6 +910,7 @@ namespace de::server::engine
 		const int result = handleCreateAvatarRspFn_(
 			sourceServerId.c_str(),
 			avatarId.bytes.data(),
+			clientSessionId,
 			isSuccess ? 1 : 0,
 			statusCode,
 			error.c_str(),
@@ -906,6 +941,23 @@ namespace de::server::engine
 		if (result != 0)
 		{
 			Logger::Warn("ManagedRuntimeService", "HandleClientAvatarRpcNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ManagedRuntimeService::HandleClientDisconnect(std::uint64_t clientSessionId)
+	{
+		if (!running_ || handleClientDisconnectFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleClientDisconnectFn_(clientSessionId);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleClientDisconnectNative failed with code: " + std::to_string(result));
 			return false;
 		}
 
@@ -1101,7 +1153,7 @@ namespace de::server::engine
 		gameServerReadyCallback_ = std::move(callback);
 	}
 
-	void ManagedRuntimeService::SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&)> sender)
+	void ManagedRuntimeService::SetCreateAvatarReqSender(std::function<bool(const std::string&, const network::GuidBytes&, std::uint64_t)> sender)
 	{
 		createAvatarReqSender_ = std::move(sender);
 	}
@@ -1118,6 +1170,11 @@ namespace de::server::engine
 	)
 	{
 		avatarLoginRspSender_ = std::move(sender);
+	}
+
+	void ManagedRuntimeService::SetActiveDisconnectClientSender(std::function<bool(std::uint64_t)> sender)
+	{
+		activeDisconnectClientSender_ = std::move(sender);
 	}
 
 	void ManagedRuntimeService::SetAvatarRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender)
@@ -1350,6 +1407,10 @@ namespace de::server::engine
 		bindMethod(kHandleClientAvatarRpcMethodName, &handleClientAvatarRpcPointer);
 		handleClientAvatarRpcFn_ = reinterpret_cast<managed::ManagedHandleClientAvatarRpcFn>(handleClientAvatarRpcPointer);
 
+		void* handleClientDisconnectPointer = nullptr;
+		bindMethod(kHandleClientDisconnectMethodName, &handleClientDisconnectPointer);
+		handleClientDisconnectFn_ = reinterpret_cast<managed::ManagedHandleClientDisconnectFn>(handleClientDisconnectPointer);
+
 		void* handleServerAvatarRpcPointer = nullptr;
 		bindMethod(kHandleServerAvatarRpcMethodName, &handleServerAvatarRpcPointer);
 		handleServerAvatarRpcFn_ = reinterpret_cast<managed::ManagedHandleServerAvatarRpcFn>(handleServerAvatarRpcPointer);
@@ -1400,6 +1461,7 @@ namespace de::server::engine
 			|| handleCreateAvatarReqFn_ == nullptr
 			|| handleCreateAvatarRspFn_ == nullptr
 			|| handleClientAvatarRpcFn_ == nullptr
+			|| handleClientDisconnectFn_ == nullptr
 			|| handleServerAvatarRpcFn_ == nullptr
 			|| handleServerRpcFn_ == nullptr
 			|| beginGmTotalEntityCountCommandFn_ == nullptr
@@ -1433,6 +1495,7 @@ namespace de::server::engine
 		handleCreateAvatarReqFn_ = nullptr;
 		handleCreateAvatarRspFn_ = nullptr;
 		handleClientAvatarRpcFn_ = nullptr;
+		handleClientDisconnectFn_ = nullptr;
 		handleServerAvatarRpcFn_ = nullptr;
 		handleServerRpcFn_ = nullptr;
 		beginGmTotalEntityCountCommandFn_ = nullptr;
@@ -1445,6 +1508,7 @@ namespace de::server::engine
 		createAvatarReqSender_ = {};
 		createAvatarRspSender_ = {};
 		avatarLoginRspSender_ = {};
+		activeDisconnectClientSender_ = {};
 		avatarRpcToServerSender_ = {};
 		avatarRpcToClientSender_ = {};
 		serverRpcToServerSender_ = {};

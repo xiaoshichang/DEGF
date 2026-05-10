@@ -357,7 +357,6 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
-            var keepAccountInfo = _State == AuthState.Authenticated;
             if (_State == AuthState.Authenticated)
             {
                 DELogger.Warn(LogTag, "KCP session disconnected after auth success.");
@@ -370,10 +369,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
-            if (!keepAccountInfo)
-            {
-                _CurrentAccountInfo = null;
-            }
+            _CurrentAccountInfo = null;
 
             _SetState(AuthState.Idle);
         }

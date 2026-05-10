@@ -61,10 +61,11 @@ namespace de::server::engine
 				}
 			);
 			managedRuntimeService->SetCreateAvatarReqSender(
-				[this](const std::string& targetServerId, const network::GuidBytes& avatarId)
+				[this](const std::string& targetServerId, const network::GuidBytes& avatarId, std::uint64_t clientSessionId)
 				{
 					network::CreateAvatarReqMessage message;
 					message.avatarId = avatarId;
+					message.clientSessionId = clientSessionId;
 					return GetInnerNetwork().Send(
 						targetServerId,
 						static_cast<std::uint32_t>(network::MessageID::SS::CreateAvatarReq),
@@ -355,7 +356,7 @@ namespace de::server::engine
 			return;
 		}
 
-		if (!managedRuntimeService->HandleCreateAvatarReq(serverId, createAvatarReq.avatarId))
+		if (!managedRuntimeService->HandleCreateAvatarReq(serverId, createAvatarReq.avatarId, createAvatarReq.clientSessionId))
 		{
 			Logger::Warn("GameServer", "Failed to handle CreateAvatarReq in managed runtime.");
 			return;

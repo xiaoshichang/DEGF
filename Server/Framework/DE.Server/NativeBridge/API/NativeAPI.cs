@@ -15,6 +15,7 @@ namespace DE.Server.NativeBridge
         public IntPtr SendCreateAvatarReq;
         public IntPtr SendCreateAvatarRsp;
         public IntPtr SendAvatarLoginRsp;
+        public IntPtr ActiveDisconnectClient;
         public IntPtr SendAvatarRpcToServer;
         public IntPtr SendAvatarRpcToClient;
         public IntPtr SendServerRpcToServer;
@@ -33,7 +34,8 @@ namespace DE.Server.NativeBridge
         private delegate int NativeSendCreateAvatarReqDelegate(
             IntPtr context,
             IntPtr targetServerId,
-            IntPtr avatarId
+            IntPtr avatarId,
+            ulong clientSessionId
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -41,6 +43,7 @@ namespace DE.Server.NativeBridge
             IntPtr context,
             IntPtr targetServerId,
             IntPtr avatarId,
+            ulong clientSessionId,
             int isSuccess,
             int statusCode,
             IntPtr error,
@@ -59,6 +62,9 @@ namespace DE.Server.NativeBridge
             IntPtr avatarData,
             int avatarDataSizeBytes
         );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeActiveDisconnectClientDelegate(IntPtr context, ulong clientSessionId);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int NativeSendAvatarRpcToServerDelegate(
@@ -101,6 +107,7 @@ namespace DE.Server.NativeBridge
         private static NativeSendCreateAvatarReqDelegate s_sendCreateAvatarReq;
         private static NativeSendCreateAvatarRspDelegate s_sendCreateAvatarRsp;
         private static NativeSendAvatarLoginRspDelegate s_sendAvatarLoginRsp;
+        private static NativeActiveDisconnectClientDelegate s_activeDisconnectClient;
         private static NativeSendAvatarRpcToServerDelegate s_sendAvatarRpcToServer;
         private static NativeSendAvatarRpcToClientDelegate s_sendAvatarRpcToClient;
         private static NativeSendServerRpcToServerDelegate s_sendServerRpcToServer;
@@ -175,6 +182,17 @@ namespace DE.Server.NativeBridge
                 );
             }
 
+            if (nativeApi.ActiveDisconnectClient == IntPtr.Zero)
+            {
+                s_activeDisconnectClient = null;
+            }
+            else
+            {
+                s_activeDisconnectClient = Marshal.GetDelegateForFunctionPointer<NativeActiveDisconnectClientDelegate>(
+                    nativeApi.ActiveDisconnectClient
+                );
+            }
+
             if (nativeApi.SendAvatarRpcToServer == IntPtr.Zero)
             {
                 s_sendAvatarRpcToServer = null;
@@ -217,6 +235,7 @@ namespace DE.Server.NativeBridge
             s_sendCreateAvatarReq = null;
             s_sendCreateAvatarRsp = null;
             s_sendAvatarLoginRsp = null;
+            s_activeDisconnectClient = null;
             s_sendAvatarRpcToServer = null;
             s_sendAvatarRpcToClient = null;
             s_sendServerRpcToServer = null;
@@ -235,7 +254,7 @@ namespace DE.Server.NativeBridge
             s_notifyGameServerReady(s_context);
         }
 
-        public static bool SendCreateAvatarReq(string targetServerId, Guid avatarId)
+        public static bool SendCreateAvatarReq(string targetServerId, Guid avatarId, ulong clientSessionId = 0)
         {
             if (s_sendCreateAvatarReq == null || string.IsNullOrWhiteSpace(targetServerId))
             {
@@ -248,7 +267,7 @@ namespace DE.Server.NativeBridge
             {
                 targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
                 avatarIdPtr = CopyGuidToNative(avatarId);
-                return s_sendCreateAvatarReq(s_context, targetServerIdPtr, avatarIdPtr) != 0;
+                return s_sendCreateAvatarReq(s_context, targetServerIdPtr, avatarIdPtr, clientSessionId) != 0;
             }
             finally
             {
@@ -257,7 +276,7 @@ namespace DE.Server.NativeBridge
             }
         }
 
-        public static bool SendCreateAvatarRsp(string targetServerId, Guid avatarId, bool isSuccess, int statusCode, string error, byte[] avatarData)
+        public static bool SendCreateAvatarRsp(string targetServerId, Guid avatarId, ulong clientSessionId, bool isSuccess, int statusCode, string error, byte[] avatarData)
         {
             if (s_sendCreateAvatarRsp == null || string.IsNullOrWhiteSpace(targetServerId))
             {
@@ -278,6 +297,7 @@ namespace DE.Server.NativeBridge
                     s_context,
                     targetServerIdPtr,
                     avatarIdPtr,
+                    clientSessionId,
                     isSuccess ? 1 : 0,
                     statusCode,
                     errorPtr,
@@ -326,6 +346,16 @@ namespace DE.Server.NativeBridge
                 FreeNative(errorPtr);
                 FreeNative(avatarDataPtr);
             }
+        }
+
+        public static bool ActiveDisconnectClient(ulong clientSessionId)
+        {
+            if (s_activeDisconnectClient == null || clientSessionId == 0)
+            {
+                return false;
+            }
+
+            return s_activeDisconnectClient(s_context, clientSessionId) != 0;
         }
 
         public static bool SendAvatarRpcToServer(string targetServerId, byte[] payload)

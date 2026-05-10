@@ -23,6 +23,7 @@ namespace DE.Server.NativeBridge
         public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new Dictionary<Type, ServerStubEntity>();
         public Dictionary<Guid, AvatarEntity> Avatars { get; } = new Dictionary<Guid, AvatarEntity>();
         public Dictionary<Guid, ServerEntity> Entities { get; } = new Dictionary<Guid, ServerEntity>();
+        public Dictionary<Guid, ulong> AvatarClientSessionIds { get; } = new Dictionary<Guid, ulong>();
 
         public Type AvatarType { get; private set; }
         public Type NpcType { get; private set; }
@@ -81,17 +82,19 @@ namespace DE.Server.NativeBridge
             StubInstances.Clear();
             Avatars.Clear();
             Entities.Clear();
+            AvatarClientSessionIds.Clear();
             AvatarType = null;
             NpcType = null;
             SpaceType = null;
         }
 
-        public bool HandleCreateAvatarReq(string sourceServerId, Guid avatarId)
+        public bool HandleCreateAvatarReq(string sourceServerId, Guid avatarId, ulong clientSessionId)
         {
-            var result = CreateAvatarLocal(avatarId, sourceServerId);
+            var result = CreateAvatarLocal(avatarId, sourceServerId, clientSessionId);
             return NativeAPI.SendCreateAvatarRsp(
                 sourceServerId,
                 avatarId,
+                clientSessionId,
                 result.IsSuccess,
                 result.StatusCode,
                 result.Error,
@@ -109,10 +112,10 @@ namespace DE.Server.NativeBridge
 
             if (string.Equals(gameServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
             {
-                return CreateAvatarLocal(avatarId, string.Empty).IsSuccess;
+                return CreateAvatarLocal(avatarId, string.Empty, 0).IsSuccess;
             }
 
-            return NativeAPI.SendCreateAvatarReq(gameServerId, avatarId);
+            return NativeAPI.SendCreateAvatarReq(gameServerId, avatarId, 0);
         }
 
         public GmTotalEntityCountRsp BuildTotalEntityCountRsp(ulong requestId)
@@ -316,7 +319,7 @@ namespace DE.Server.NativeBridge
             stubEntity.InitStub();
         }
 
-        private CreateAvatarResult CreateAvatarLocal(Guid avatarId, string gateServerId)
+        private CreateAvatarResult CreateAvatarLocal(Guid avatarId, string gateServerId, ulong clientSessionId)
         {
             if (Avatars.ContainsKey(avatarId))
             {
@@ -325,6 +328,8 @@ namespace DE.Server.NativeBridge
                 {
                     existedAvatar.AttachToGateServer(gateServerId);
                 }
+
+                NotifyAvatarClientAttached(existedAvatar, clientSessionId);
 
                 return new CreateAvatarResult(
                     true,
@@ -343,6 +348,7 @@ namespace DE.Server.NativeBridge
             avatar.Guid = avatarId;
             avatar.AttachToGateServer(gateServerId);
             RegisterLocalEntity(avatar);
+            NotifyAvatarClientAttached(avatar, clientSessionId);
 
             StubCaller.Call("LoginStub", "OnAvatarLogin", avatar.Proxy);
 
@@ -356,6 +362,28 @@ namespace DE.Server.NativeBridge
                 string.Empty,
                 EntitySerializer.Serialize(avatar, EntitySerializeReason.OwnerSync)
             );
+        }
+
+        private bool NotifyAvatarClientAttached(AvatarEntity avatar, ulong clientSessionId)
+        {
+            if (avatar == null || clientSessionId == 0)
+            {
+                return false;
+            }
+
+            if (AvatarClientSessionIds.TryGetValue(avatar.Guid, out var existedClientSessionId)
+                && clientSessionId <= existedClientSessionId)
+            {
+                DELogger.Info(
+                    nameof(GameServerRuntimeState),
+                    $"Ignored stale avatar client attach, avatarId={avatar.Guid}, clientSessionId={clientSessionId}, existedClientSessionId={existedClientSessionId}."
+                );
+                return false;
+            }
+
+            AvatarClientSessionIds[avatar.Guid] = clientSessionId;
+            avatar.OnAvatarClientAttached(clientSessionId);
+            return true;
         }
 
         private static bool InvokeGeneratedServerRpc(ServerEntity entity, uint methodId, byte[] argsPayload)

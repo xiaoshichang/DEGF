@@ -352,6 +352,8 @@ namespace DE.Share.EntityPropertySG
         {
             return typeSymbol.SpecialType == SpecialType.System_String
                 || typeSymbol.SpecialType == SpecialType.System_Int32
+                || typeSymbol.SpecialType == SpecialType.System_UInt64
+                || typeSymbol.TypeKind == TypeKind.Enum
                 || IsEntityProxyType(typeSymbol)
                 || IsEntityMailBoxType(typeSymbol);
         }
@@ -364,7 +366,14 @@ namespace DE.Share.EntityPropertySG
                 return "ReadString";
             case SpecialType.System_Int32:
                 return "ReadInt32";
+            case SpecialType.System_UInt64:
+                return "ReadUInt64";
             default:
+                if (typeSymbol.TypeKind == TypeKind.Enum)
+                {
+                    return "ReadInt32";
+                }
+
                 if (IsEntityProxyType(typeSymbol))
                 {
                     return "ReadEntityProxy";
@@ -387,7 +396,14 @@ namespace DE.Share.EntityPropertySG
                 return "string";
             case SpecialType.System_Int32:
                 return "int";
+            case SpecialType.System_UInt64:
+                return "ulong";
             default:
+                if (typeSymbol.TypeKind == TypeKind.Enum)
+                {
+                    return typeSymbol.ToDisplayString();
+                }
+
                 if (IsEntityProxyType(typeSymbol))
                 {
                     return "DE.Share.Rpc.EntityProxy";
@@ -681,11 +697,26 @@ namespace DE.Share.EntityPropertySG
                 var argumentName = "__rpc_arg_" + parameter.Ordinal;
                 argumentNames.Add(argumentName);
                 builder.Append(new string(' ', (indentLevel + 1) * 4));
-                builder.Append("var ");
-                builder.Append(argumentName);
-                builder.Append(" = reader.");
-                builder.Append(GetRpcReaderMethodName(parameter.Type));
-                builder.AppendLine("();");
+                if (parameter.Type.TypeKind == TypeKind.Enum)
+                {
+                    builder.Append("var ");
+                    builder.Append(argumentName);
+                    builder.Append(" = (");
+                    builder.Append(parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+                    builder.Append(")reader.");
+                    builder.Append(GetRpcReaderMethodName(parameter.Type));
+                    builder.Append("()");
+                }
+                else
+                {
+                    builder.Append("var ");
+                    builder.Append(argumentName);
+                    builder.Append(" = reader.");
+                    builder.Append(GetRpcReaderMethodName(parameter.Type));
+                    builder.Append("()");
+                }
+
+                builder.AppendLine(";");
             }
 
             builder.Append(new string(' ', (indentLevel + 1) * 4));

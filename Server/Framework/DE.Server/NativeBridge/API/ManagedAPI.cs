@@ -303,7 +303,8 @@ namespace DE.Server.NativeBridge
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static int HandleCreateAvatarReqNative(
             IntPtr sourceServerId,
-            IntPtr avatarId
+            IntPtr avatarId,
+            ulong clientSessionId
         )
         {
             try
@@ -319,7 +320,7 @@ namespace DE.Server.NativeBridge
                 var avatarGuid = _ReadGuidFromNative(avatarId);
                 return ManagedRuntimeState
                     .RequireCurrentGameServerRuntimeState()
-                    .HandleCreateAvatarReq(sourceServerIdText, avatarGuid) ? 0 : -3;
+                    .HandleCreateAvatarReq(sourceServerIdText, avatarGuid, clientSessionId) ? 0 : -3;
             }
             catch (Exception exception)
             {
@@ -332,6 +333,7 @@ namespace DE.Server.NativeBridge
         public static int HandleCreateAvatarRspNative(
             IntPtr sourceServerId,
             IntPtr avatarId,
+            ulong clientSessionId,
             int isSuccess,
             int statusCode,
             IntPtr error,
@@ -356,7 +358,7 @@ namespace DE.Server.NativeBridge
                 var managedAvatarData = _CopyPayloadFromNative(avatarData, avatarDataSizeBytes);
                 return ManagedRuntimeState
                     .RequireCurrentGateServerRuntimeState()
-                    .HandleCreateAvatarRsp(sourceServerIdText, avatarGuid, isSuccess != 0, statusCode, errorText, managedAvatarData) ? 0 : -3;
+                    .HandleCreateAvatarRsp(sourceServerIdText, avatarGuid, clientSessionId, isSuccess != 0, statusCode, errorText, managedAvatarData) ? 0 : -3;
             }
             catch (Exception exception)
             {
@@ -387,6 +389,27 @@ namespace DE.Server.NativeBridge
             catch (Exception exception)
             {
                 _LogManagedEntryException(nameof(HandleClientAvatarRpcNative), exception);
+                return -2;
+            }
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        public static int HandleClientDisconnectNative(ulong clientSessionId)
+        {
+            try
+            {
+                if (!ManagedRuntimeState.IsInitialized)
+                {
+                    return -1;
+                }
+
+                return ManagedRuntimeState
+                    .RequireCurrentGateServerRuntimeState()
+                    .HandleClientDisconnect(clientSessionId) ? 0 : -3;
+            }
+            catch (Exception exception)
+            {
+                _LogManagedEntryException(nameof(HandleClientDisconnectNative), exception);
                 return -2;
             }
         }

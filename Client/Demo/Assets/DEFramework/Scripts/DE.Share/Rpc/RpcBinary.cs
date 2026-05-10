@@ -38,6 +38,19 @@ namespace DE.Share.Rpc
                 return;
             }
 
+            if (value is ulong)
+            {
+                WriteUInt64((ulong)value);
+                return;
+            }
+
+            var valueType = value.GetType();
+            if (valueType.IsEnum)
+            {
+                WriteInt32(Convert.ToInt32(value));
+                return;
+            }
+
             if (value is EntityProxy)
             {
                 WriteEntityProxy((EntityProxy)value);
@@ -63,6 +76,19 @@ namespace DE.Share.Rpc
         public void WriteInt32(int value)
         {
             EnsureCapacity(4);
+            _buffer[_count++] = (byte)((value >> 24) & 0xff);
+            _buffer[_count++] = (byte)((value >> 16) & 0xff);
+            _buffer[_count++] = (byte)((value >> 8) & 0xff);
+            _buffer[_count++] = (byte)(value & 0xff);
+        }
+
+        public void WriteUInt64(ulong value)
+        {
+            EnsureCapacity(8);
+            _buffer[_count++] = (byte)((value >> 56) & 0xff);
+            _buffer[_count++] = (byte)((value >> 48) & 0xff);
+            _buffer[_count++] = (byte)((value >> 40) & 0xff);
+            _buffer[_count++] = (byte)((value >> 32) & 0xff);
             _buffer[_count++] = (byte)((value >> 24) & 0xff);
             _buffer[_count++] = (byte)((value >> 16) & 0xff);
             _buffer[_count++] = (byte)((value >> 8) & 0xff);
@@ -163,6 +189,25 @@ namespace DE.Share.Rpc
                 | (_buffer[_offset + 2] << 8)
                 | _buffer[_offset + 3];
             _offset += 4;
+            return value;
+        }
+
+        public ulong ReadUInt64()
+        {
+            if (_buffer.Length - _offset < 8)
+            {
+                throw new InvalidOperationException("Invalid RPC ulong payload.");
+            }
+
+            var value = ((ulong)_buffer[_offset] << 56)
+                | ((ulong)_buffer[_offset + 1] << 48)
+                | ((ulong)_buffer[_offset + 2] << 40)
+                | ((ulong)_buffer[_offset + 3] << 32)
+                | ((ulong)_buffer[_offset + 4] << 24)
+                | ((ulong)_buffer[_offset + 5] << 16)
+                | ((ulong)_buffer[_offset + 6] << 8)
+                | _buffer[_offset + 7];
+            _offset += 8;
             return value;
         }
 

@@ -217,6 +217,7 @@ namespace de::server::engine::network
 		WriteUInt16BigEndian(bytes.data(), version);
 		WriteUInt16BigEndian(bytes.data() + 2, reserved);
 		std::memcpy(bytes.data() + 4, avatarId.bytes.data(), avatarId.bytes.size());
+		WriteUInt64BigEndian(bytes.data() + 20, clientSessionId);
 		return ToByteVector(bytes.data(), bytes.size());
 	}
 
@@ -232,6 +233,7 @@ namespace de::server::engine::network
 		parsed.version = ReadUInt16BigEndian(bytes);
 		parsed.reserved = ReadUInt16BigEndian(bytes + 2);
 		std::memcpy(parsed.avatarId.bytes.data(), bytes + 4, parsed.avatarId.bytes.size());
+		parsed.clientSessionId = ReadUInt64BigEndian(bytes + 20);
 		if (parsed.version != kCurrentVersion || parsed.avatarId.IsEmpty())
 		{
 			return false;
@@ -249,8 +251,9 @@ namespace de::server::engine::network
 		bytes[3] = reserved;
 		WriteUInt32BigEndian(bytes.data() + 4, static_cast<std::uint32_t>(statusCode));
 		std::memcpy(bytes.data() + 8, avatarId.bytes.data(), avatarId.bytes.size());
-		AppendStringWithUInt16Length(bytes, 24, kFixedWireSize, error);
-		AppendBytes(bytes, 26, kFixedWireSize + error.size(), avatarData);
+		WriteUInt64BigEndian(bytes.data() + 24, clientSessionId);
+		AppendStringWithUInt16Length(bytes, 32, kFixedWireSize, error);
+		AppendBytes(bytes, 34, kFixedWireSize + error.size(), avatarData);
 		return ToByteVector(bytes.data(), bytes.size());
 	}
 
@@ -268,8 +271,9 @@ namespace de::server::engine::network
 		parsed.reserved = bytes[3];
 		parsed.statusCode = static_cast<std::int32_t>(ReadUInt32BigEndian(bytes + 4));
 		std::memcpy(parsed.avatarId.bytes.data(), bytes + 8, parsed.avatarId.bytes.size());
-		const auto errorLength = static_cast<std::size_t>(ReadUInt16BigEndian(bytes + 24));
-		const auto avatarDataLength = static_cast<std::size_t>(ReadUInt32BigEndian(bytes + 26));
+		parsed.clientSessionId = ReadUInt64BigEndian(bytes + 24);
+		const auto errorLength = static_cast<std::size_t>(ReadUInt16BigEndian(bytes + 32));
+		const auto avatarDataLength = static_cast<std::size_t>(ReadUInt32BigEndian(bytes + 34));
 		if (parsed.version != kCurrentVersion || size != kFixedWireSize + errorLength + avatarDataLength)
 		{
 			return false;

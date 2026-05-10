@@ -45,6 +45,7 @@ namespace DE.Server.NativeBridge
         public string FrameworkDllPath { get; private set; } = string.Empty;
         public string GameplayDllPath { get; private set; } = string.Empty;
         public Assembly GameplayAssembly { get; private set; }
+        public ManagedClusterConfig ClusterConfig { get; private set; }
         public List<Type> StubTypes { get; private set; } = new List<Type>();
         public ManagedRuntimeServerType ServerType { get; private set; }
         public GmCommandRuntimeState GmCommandRuntimeState { get; private set; }
@@ -236,37 +237,18 @@ namespace DE.Server.NativeBridge
         public IReadOnlyList<string> GetGameServerIds()
         {
             var gameServerIds = new List<string>();
-            if (string.IsNullOrWhiteSpace(ConfigPath) || !File.Exists(ConfigPath))
+            var gameNodes = ClusterConfig?.Game;
+            if (gameNodes == null)
             {
                 return gameServerIds;
             }
 
-            try
+            foreach (var property in gameNodes)
             {
-                using (var stream = File.OpenRead(ConfigPath))
-                using (var document = JsonDocument.Parse(stream))
+                if (!string.IsNullOrWhiteSpace(property.Key))
                 {
-                    if (!document.RootElement.TryGetProperty("game", out var gameElement)
-                        || gameElement.ValueKind != JsonValueKind.Object)
-                    {
-                        return gameServerIds;
-                    }
-
-                    foreach (var property in gameElement.EnumerateObject())
-                    {
-                        if (!string.IsNullOrWhiteSpace(property.Name))
-                        {
-                            gameServerIds.Add(property.Name);
-                        }
-                    }
+                    gameServerIds.Add(property.Key);
                 }
-            }
-            catch (Exception exception)
-            {
-                DELogger.Warn(
-                    nameof(ManagedRuntimeState),
-                    $"Failed to read game server ids from config {ConfigPath}: {exception.Message}"
-                );
             }
 
             gameServerIds.Sort(StringComparer.Ordinal);
@@ -276,37 +258,18 @@ namespace DE.Server.NativeBridge
         public IReadOnlyList<string> GetGateServerIds()
         {
             var gateServerIds = new List<string>();
-            if (string.IsNullOrWhiteSpace(ConfigPath) || !File.Exists(ConfigPath))
+            var gateNodes = ClusterConfig?.Gate;
+            if (gateNodes == null)
             {
                 return gateServerIds;
             }
 
-            try
+            foreach (var property in gateNodes)
             {
-                using (var stream = File.OpenRead(ConfigPath))
-                using (var document = JsonDocument.Parse(stream))
+                if (!string.IsNullOrWhiteSpace(property.Key))
                 {
-                    if (!document.RootElement.TryGetProperty("gate", out var gateElement)
-                        || gateElement.ValueKind != JsonValueKind.Object)
-                    {
-                        return gateServerIds;
-                    }
-
-                    foreach (var property in gateElement.EnumerateObject())
-                    {
-                        if (!string.IsNullOrWhiteSpace(property.Name))
-                        {
-                            gateServerIds.Add(property.Name);
-                        }
-                    }
+                    gateServerIds.Add(property.Key);
                 }
-            }
-            catch (Exception exception)
-            {
-                DELogger.Warn(
-                    nameof(ManagedRuntimeState),
-                    $"Failed to read gate server ids from config {ConfigPath}: {exception.Message}"
-                );
             }
 
             gateServerIds.Sort(StringComparer.Ordinal);
@@ -554,15 +517,16 @@ namespace DE.Server.NativeBridge
 
         private void InitializeCore(ManagedRuntimeInitInfo info)
         {
-            ServerId = info.ServerId ?? string.Empty;
-            ConfigPath = info.ConfigPath ?? string.Empty;
-            FrameworkDllPath = info.FrameworkDllPath ?? string.Empty;
-            GameplayDllPath = info.GameplayDllPath ?? string.Empty;
+            ServerId = RequireNonEmpty(info.ServerId, nameof(info.ServerId));
+            ConfigPath = RequireNonEmpty(info.ConfigPath, nameof(info.ConfigPath));
+            FrameworkDllPath = RequireNonEmpty(info.FrameworkDllPath, nameof(info.FrameworkDllPath));
+            GameplayDllPath = RequireNonEmpty(info.GameplayDllPath, nameof(info.GameplayDllPath));
             ServerType = ResolveServerType(ServerId);
 
             RegisterUnhandledExceptionHandlers();
             LoadGameplayAssemblies();
-            DatabaseService = new DatabaseService(ConfigPath);
+            ClusterConfig = ManagedClusterConfig.Load(ConfigPath);
+            DatabaseService = new DatabaseService(ClusterConfig.Database);
 
             var assemblies = new[] { GameplayAssembly, Assembly.GetExecutingAssembly() };
             StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies);
@@ -599,6 +563,7 @@ namespace DE.Server.NativeBridge
             GmCommandRuntimeState = null;
             GateServerRuntimeState = null;
             GameServerRuntimeState = null;
+            ClusterConfig = null;
             StubDistributeTable = new ServerStubDistributeTable();
             StubTypes = new List<Type>();
             GameplayAssembly = null;
@@ -607,6 +572,16 @@ namespace DE.Server.NativeBridge
             ConfigPath = string.Empty;
             FrameworkDllPath = string.Empty;
             GameplayDllPath = string.Empty;
+        }
+
+        private static string RequireNonEmpty(string value, string name)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException("Managed runtime init info field must not be empty.", name);
+            }
+
+            return value.Trim();
         }
     }
 }

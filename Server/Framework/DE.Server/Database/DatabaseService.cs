@@ -12,9 +12,10 @@ namespace DE.Server.Database
         private readonly MongoClient _client;
         private readonly IMongoDatabase _database;
 
-        public DatabaseService(string configPath)
+        public DatabaseService(DatabaseConfig config)
         {
-            _config = DatabaseConfigLoader.Load(configPath);
+            _config = config ?? throw new ArgumentNullException(nameof(config));
+            _config.Validate();
 
             var settings = MongoClientSettings.FromConnectionString(_config.ResolveConnectionString());
             settings.MinConnectionPoolSize = _config.MinConnectionPoolSize;

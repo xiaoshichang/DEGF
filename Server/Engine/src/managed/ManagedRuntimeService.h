@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config/ClusterConfig.h"
+#include "core/BoostAsio.h"
 #include "managed/ManagedRuntimeBridge.h"
 #include "network/protocal/Message.h"
 #include "server/gate/GateAuthValidationResult.h"
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -19,7 +21,7 @@ namespace de::server::engine
 	class ManagedRuntimeService
 	{
 	public:
-		explicit ManagedRuntimeService(TimerManager& timerManager);
+		ManagedRuntimeService(asio::io_context& ioContext, TimerManager& timerManager);
 		~ManagedRuntimeService();
 
 		void Start(std::string serverId, std::string configPath, const config::ManagedConfig& managedConfig);
@@ -28,11 +30,11 @@ namespace de::server::engine
 		bool TryBuildStubDistributePayload(const std::vector<std::string>& gameServerIds, std::vector<std::byte>& payload);
 		bool HandleAllNodeReady(const std::vector<std::byte>& payload);
 		bool HandleStubDistribute(const std::vector<std::byte>& payload);
-		bool TryValidateGateAuth(
+		bool BeginValidateGateAuth(
 			const std::string& account,
 			const std::string& password,
 			const std::vector<std::string>& gateServerIds,
-			GateAuthValidationResult& result
+			std::function<void(GateAuthValidationResult)> callback
 		);
 		bool HandleAvatarLoginReq(std::uint64_t clientSessionId, const std::string& account);
 		bool HandleCreateAvatarReq(const std::string& sourceServerId, const network::GuidBytes& avatarId, std::uint64_t clientSessionId);
@@ -122,6 +124,17 @@ namespace de::server::engine
 			void* state
 		);
 		static std::int32_t DE_MANAGED_CALLTYPE NativeCancelTimer(void* context, std::uint64_t timerId);
+		static std::int32_t DE_MANAGED_CALLTYPE NativePostToIoContext(
+			void* context,
+			managed::NativePostManagedCallbackFn callback,
+			void* state
+		);
+		static std::int32_t DE_MANAGED_CALLTYPE NativeCompleteGateAuthValidation(
+			void* context,
+			std::uint64_t requestId,
+			const void* payload,
+			std::int32_t payloadSizeBytes
+		);
 		std::uint64_t AddManagedTimer(
 			std::chrono::milliseconds delay,
 			bool repeat,
@@ -142,13 +155,14 @@ namespace de::server::engine
 		std::string gameplayDllPath_;
 		std::string runtimeConfigPath_;
 
+		asio::io_context* ioContext_ = nullptr;
 		TimerManager* timerManager_ = nullptr;
 		void* hostfxrLibraryHandle_ = nullptr;
 		managed::ManagedInitializeFn initializeFn_ = nullptr;
 		managed::ManagedBuildStubDistributePayloadFn buildStubDistributePayloadFn_ = nullptr;
 		managed::ManagedHandleAllNodeReadyFn handleAllNodeReadyFn_ = nullptr;
 		managed::ManagedHandleStubDistributeFn handleStubDistributeFn_ = nullptr;
-		managed::ManagedValidateGateAuthFn validateGateAuthFn_ = nullptr;
+		managed::ManagedBeginValidateGateAuthFn beginValidateGateAuthFn_ = nullptr;
 		managed::ManagedHandleAvatarLoginReqFn handleAvatarLoginReqFn_ = nullptr;
 		managed::ManagedHandleCreateAvatarReqFn handleCreateAvatarReqFn_ = nullptr;
 		managed::ManagedHandleCreateAvatarRspFn handleCreateAvatarRspFn_ = nullptr;
@@ -170,6 +184,8 @@ namespace de::server::engine
 		std::function<bool(const std::string&, const std::vector<std::byte>&)> avatarRpcToServerSender_;
 		std::function<bool(std::uint64_t, const std::vector<std::byte>&)> avatarRpcToClientSender_;
 		std::function<bool(const std::string&, const std::vector<std::byte>&)> serverRpcToServerSender_;
+		std::uint64_t nextGateAuthRequestId_ = 1;
+		std::unordered_map<std::uint64_t, std::function<void(GateAuthValidationResult)>> gateAuthValidationCallbacks_;
 		std::unordered_set<TimerManager::TimerID> managedTimerIds_;
 		bool running_ = false;
 	};

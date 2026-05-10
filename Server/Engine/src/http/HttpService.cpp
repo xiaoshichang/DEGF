@@ -203,8 +203,14 @@ namespace de::server::engine
 				input.read(request.body.data(), static_cast<std::streamsize>(contentLength));
 			}
 
-			const auto response = service_.HandleRequest(request);
-			EnqueueWrite(service_.BuildHttpResponseText(response));
+			auto self = shared_from_this();
+			service_.HandleRequest(
+				request,
+				[self](HttpResponse response)
+				{
+					self->EnqueueWrite(self->service_.BuildHttpResponseText(response));
+				}
+			);
 		}
 
 		void EnqueueWrite(std::string message)
@@ -325,19 +331,25 @@ namespace de::server::engine
 		return running_;
 	}
 
-	HttpResponse HttpService::HandleRequest(const HttpRequest& request) const
+	void HttpService::HandleRequest(const HttpRequest& request, ResponseCallback responseCallback) const
 	{
 		if (requestHandler_)
 		{
-			return requestHandler_(request);
+			requestHandler_(request, std::move(responseCallback));
+			return;
 		}
 
-		return HttpResponse{
-			404,
-			"Not Found",
-			"application/json; charset=utf-8",
-			R"({"error":"not found"})"
-		};
+		if (responseCallback)
+		{
+			responseCallback(
+				HttpResponse{
+					404,
+					"Not Found",
+					"application/json; charset=utf-8",
+					R"({"error":"not found"})"
+				}
+			);
+		}
 	}
 
 	void HttpService::StartAccept()

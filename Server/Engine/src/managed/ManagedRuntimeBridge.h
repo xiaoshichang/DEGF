@@ -70,6 +70,7 @@ namespace de::server::engine::managed
 		std::int32_t payloadSizeBytes
 	);
 	using NativeManagedTimerCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId, void* state);
+	using NativePostManagedCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, void* state);
 	using NativeAddTimerFn = std::uint64_t (DE_MANAGED_CALLTYPE*)(
 		void* context,
 		std::int64_t delayMilliseconds,
@@ -78,6 +79,17 @@ namespace de::server::engine::managed
 		void* state
 	);
 	using NativeCancelTimerFn = std::int32_t (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId);
+	using NativePostToIoContextFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		NativePostManagedCallbackFn callback,
+		void* state
+	);
+	using NativeCompleteGateAuthValidationFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		std::uint64_t requestId,
+		const void* payload,
+		std::int32_t payloadSizeBytes
+	);
 
 	struct NativeApi
 	{
@@ -93,6 +105,8 @@ namespace de::server::engine::managed
 		NativeSendServerRpcToServerFn SendServerRpcToServer = nullptr;
 		NativeAddTimerFn AddTimer = nullptr;
 		NativeCancelTimerFn CancelTimer = nullptr;
+		NativePostToIoContextFn PostToIoContext = nullptr;
+		NativeCompleteGateAuthValidationFn CompleteGateAuthValidation = nullptr;
 	};
 
 	struct ManagedRuntimeInitInfo
@@ -113,11 +127,10 @@ namespace de::server::engine::managed
 	);
 	using ManagedHandleAllNodeReadyFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
 	using ManagedHandleStubDistributeFn = int (DE_MANAGED_CALLTYPE*)(const void* payload, std::int32_t sizeBytes);
-	using ManagedValidateGateAuthFn = int (DE_MANAGED_CALLTYPE*)(
+	using ManagedBeginValidateGateAuthFn = int (DE_MANAGED_CALLTYPE*)(
+		std::uint64_t requestId,
 		const void* inputPayload,
-		std::int32_t inputSizeBytes,
-		void* outputBuffer,
-		std::int32_t outputBufferSizeBytes
+		std::int32_t inputSizeBytes
 	);
 	using ManagedHandleAvatarLoginReqFn = int (DE_MANAGED_CALLTYPE*)(
 		std::uint64_t clientSessionId,

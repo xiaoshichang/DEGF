@@ -21,6 +21,8 @@ namespace DE.Server.NativeBridge
         public IntPtr SendServerRpcToServer;
         public IntPtr AddTimer;
         public IntPtr CancelTimer;
+        public IntPtr PostToIoContext;
+        public IntPtr CompleteGateAuthValidation;
     }
 
 
@@ -102,6 +104,20 @@ namespace DE.Server.NativeBridge
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int NativeCancelTimerDelegate(IntPtr context, ulong timerId);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        internal delegate void ManagedPostCallbackDelegate(IntPtr context, IntPtr state);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativePostToIoContextDelegate(IntPtr context, IntPtr callback, IntPtr state);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeCompleteGateAuthValidationDelegate(
+            IntPtr context,
+            ulong requestId,
+            IntPtr payload,
+            int payloadSizeBytes
+        );
+
         private static IntPtr s_context;
         private static NativeNotifyGameServerReadyDelegate s_notifyGameServerReady;
         private static NativeSendCreateAvatarReqDelegate s_sendCreateAvatarReq;
@@ -113,6 +129,8 @@ namespace DE.Server.NativeBridge
         private static NativeSendServerRpcToServerDelegate s_sendServerRpcToServer;
         private static NativeAddTimerDelegate s_addTimer;
         private static NativeCancelTimerDelegate s_cancelTimer;
+        private static NativePostToIoContextDelegate s_postToIoContext;
+        private static NativeCompleteGateAuthValidationDelegate s_completeGateAuthValidation;
 
         public static void Initialize(NativeApiTable nativeApi)
         {
@@ -225,6 +243,28 @@ namespace DE.Server.NativeBridge
                     nativeApi.SendServerRpcToServer
                 );
             }
+
+            if (nativeApi.PostToIoContext == IntPtr.Zero)
+            {
+                s_postToIoContext = null;
+            }
+            else
+            {
+                s_postToIoContext = Marshal.GetDelegateForFunctionPointer<NativePostToIoContextDelegate>(
+                    nativeApi.PostToIoContext
+                );
+            }
+
+            if (nativeApi.CompleteGateAuthValidation == IntPtr.Zero)
+            {
+                s_completeGateAuthValidation = null;
+            }
+            else
+            {
+                s_completeGateAuthValidation = Marshal.GetDelegateForFunctionPointer<NativeCompleteGateAuthValidationDelegate>(
+                    nativeApi.CompleteGateAuthValidation
+                );
+            }
         }
 
         public static void Reset()
@@ -241,6 +281,8 @@ namespace DE.Server.NativeBridge
             s_sendServerRpcToServer = null;
             s_addTimer = null;
             s_cancelTimer = null;
+            s_postToIoContext = null;
+            s_completeGateAuthValidation = null;
             DELogger.Reset();
         }
 
@@ -482,6 +524,40 @@ namespace DE.Server.NativeBridge
             }
 
             return s_cancelTimer(s_context, timerId) != 0;
+        }
+
+        internal static bool PostToIoContext(IntPtr callback, IntPtr state)
+        {
+            if (callback == IntPtr.Zero || s_postToIoContext == null)
+            {
+                return false;
+            }
+
+            return s_postToIoContext(s_context, callback, state) != 0;
+        }
+
+        public static bool CompleteGateAuthValidation(ulong requestId, byte[] payload)
+        {
+            if (requestId == 0 || s_completeGateAuthValidation == null)
+            {
+                return false;
+            }
+
+            IntPtr payloadPtr = IntPtr.Zero;
+            try
+            {
+                payloadPtr = CopyPayloadToNative(payload);
+                return s_completeGateAuthValidation(
+                    s_context,
+                    requestId,
+                    payloadPtr,
+                    payload == null ? 0 : payload.Length
+                ) != 0;
+            }
+            finally
+            {
+                FreeNative(payloadPtr);
+            }
         }
     }
 }

@@ -42,7 +42,7 @@ namespace de::server::engine
 		constexpr const char_t* kBuildStubDistributePayloadMethodName = DE_HOST_CHAR_LITERAL("BuildStubDistributePayloadNative");
 		constexpr const char_t* kHandleAllNodeReadyMethodName = DE_HOST_CHAR_LITERAL("HandleAllNodeReadyNative");
 		constexpr const char_t* kHandleStubDistributeMethodName = DE_HOST_CHAR_LITERAL("HandleStubDistributeNative");
-		constexpr const char_t* kValidateGateAuthMethodName = DE_HOST_CHAR_LITERAL("ValidateGateAuthNative");
+		constexpr const char_t* kBeginValidateGateAuthMethodName = DE_HOST_CHAR_LITERAL("BeginValidateGateAuthNative");
 		constexpr const char_t* kHandleAvatarLoginReqMethodName = DE_HOST_CHAR_LITERAL("HandleAvatarLoginReqNative");
 		constexpr const char_t* kHandleCreateAvatarReqMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarReqNative");
 		constexpr const char_t* kHandleCreateAvatarRspMethodName = DE_HOST_CHAR_LITERAL("HandleCreateAvatarRspNative");
@@ -258,8 +258,9 @@ namespace de::server::engine
 		}
 	}
 
-	ManagedRuntimeService::ManagedRuntimeService(TimerManager& timerManager)
-		: timerManager_(&timerManager)
+	ManagedRuntimeService::ManagedRuntimeService(asio::io_context& ioContext, TimerManager& timerManager)
+		: ioContext_(&ioContext)
+		, timerManager_(&timerManager)
 	{
 	}
 
@@ -619,6 +620,102 @@ namespace de::server::engine
 		}
 	}
 
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativePostToIoContext(
+		void* context,
+		managed::NativePostManagedCallbackFn callback,
+		void* state
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || service->ioContext_ == nullptr || callback == nullptr)
+		{
+			return 0;
+		}
+
+		try
+		{
+			asio::post(
+				*service->ioContext_,
+				[service, callback, state]()
+				{
+					if (!service->running_)
+					{
+						return;
+					}
+
+					callback(service, state);
+				}
+			);
+			return 1;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativePostToIoContext failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativePostToIoContext failed with unknown exception.");
+			return 0;
+		}
+	}
+
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeCompleteGateAuthValidation(
+		void* context,
+		std::uint64_t requestId,
+		const void* payload,
+		std::int32_t payloadSizeBytes
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || payloadSizeBytes < 0)
+		{
+			return 0;
+		}
+
+		try
+		{
+			std::function<void(GateAuthValidationResult)> callback;
+			const auto iterator = service->gateAuthValidationCallbacks_.find(requestId);
+			if (iterator == service->gateAuthValidationCallbacks_.end())
+			{
+				Logger::Warn("ManagedRuntimeService", "Received unknown gate auth validation completion: " + std::to_string(requestId));
+				return 0;
+			}
+
+			callback = std::move(iterator->second);
+			service->gateAuthValidationCallbacks_.erase(iterator);
+
+			const auto* data = static_cast<const char*>(payload);
+			const std::string responsePayload = payloadSizeBytes == 0 || data == nullptr
+				? std::string{}
+				: std::string(data, static_cast<std::size_t>(payloadSizeBytes));
+			GateAuthValidationResult result;
+			if (!TryParseGateAuthValidationResultPayload(responsePayload, result))
+			{
+				result.StatusCode = 503;
+				result.Error = "auth validator returned invalid payload";
+			}
+
+			if (callback)
+			{
+				callback(result);
+			}
+
+			return 1;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeCompleteGateAuthValidation failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeCompleteGateAuthValidation failed with unknown exception.");
+			return 0;
+		}
+	}
+
 	void ManagedRuntimeService::Start(std::string serverId, std::string configPath, const config::ManagedConfig& managedConfig)
 	{
 		if (running_)
@@ -673,7 +770,9 @@ namespace de::server::engine
 				&ManagedRuntimeService::NativeSendAvatarRpcToClient,
 				&ManagedRuntimeService::NativeSendServerRpcToServer,
 				&ManagedRuntimeService::NativeAddTimer,
-				&ManagedRuntimeService::NativeCancelTimer
+				&ManagedRuntimeService::NativeCancelTimer,
+				&ManagedRuntimeService::NativePostToIoContext,
+				&ManagedRuntimeService::NativeCompleteGateAuthValidation
 			}
 		};
 
@@ -782,15 +881,14 @@ namespace de::server::engine
 		return true;
 	}
 
-	bool ManagedRuntimeService::TryValidateGateAuth(
+	bool ManagedRuntimeService::BeginValidateGateAuth(
 		const std::string& account,
 		const std::string& password,
 		const std::vector<std::string>& gateServerIds,
-		GateAuthValidationResult& result
+		std::function<void(GateAuthValidationResult)> callback
 	)
 	{
-		result = GateAuthValidationResult{};
-		if (!running_ || validateGateAuthFn_ == nullptr)
+		if (!running_ || beginValidateGateAuthFn_ == nullptr || !callback)
 		{
 			return false;
 		}
@@ -798,36 +896,14 @@ namespace de::server::engine
 		const auto requestPayload = SerializeGateAuthRequest(account, password, gateServerIds);
 		const auto* requestPayloadData = requestPayload.empty() ? nullptr : requestPayload.data();
 		const auto requestPayloadSize = static_cast<std::int32_t>(requestPayload.size());
+		const auto requestId = nextGateAuthRequestId_++;
+		gateAuthValidationCallbacks_[requestId] = std::move(callback);
 
-		const int requiredSize = validateGateAuthFn_(requestPayloadData, requestPayloadSize, nullptr, 0);
-		if (requiredSize <= 0)
+		const int result = beginValidateGateAuthFn_(requestId, requestPayloadData, requestPayloadSize);
+		if (result != 0)
 		{
-			Logger::Warn(
-				"ManagedRuntimeService",
-				"ValidateGateAuthNative failed to query output size, code: " + std::to_string(requiredSize)
-			);
-			return false;
-		}
-
-		std::string responsePayload(static_cast<std::size_t>(requiredSize), '\0');
-		const int writtenSize = validateGateAuthFn_(
-			requestPayloadData,
-			requestPayloadSize,
-			responsePayload.data(),
-			requiredSize
-		);
-		if (writtenSize != requiredSize)
-		{
-			Logger::Warn(
-				"ManagedRuntimeService",
-				"ValidateGateAuthNative wrote unexpected size: " + std::to_string(writtenSize)
-			);
-			return false;
-		}
-
-		if (!TryParseGateAuthValidationResultPayload(responsePayload, result))
-		{
-			Logger::Warn("ManagedRuntimeService", "ValidateGateAuthNative returned invalid payload.");
+			gateAuthValidationCallbacks_.erase(requestId);
+			Logger::Warn("ManagedRuntimeService", "BeginValidateGateAuthNative failed with code: " + std::to_string(result));
 			return false;
 		}
 
@@ -1387,9 +1463,9 @@ namespace de::server::engine
 		bindMethod(kHandleStubDistributeMethodName, &handleStubDistributePointer);
 		handleStubDistributeFn_ = reinterpret_cast<managed::ManagedHandleStubDistributeFn>(handleStubDistributePointer);
 
-		void* validateGateAuthPointer = nullptr;
-		bindMethod(kValidateGateAuthMethodName, &validateGateAuthPointer);
-		validateGateAuthFn_ = reinterpret_cast<managed::ManagedValidateGateAuthFn>(validateGateAuthPointer);
+		void* beginValidateGateAuthPointer = nullptr;
+		bindMethod(kBeginValidateGateAuthMethodName, &beginValidateGateAuthPointer);
+		beginValidateGateAuthFn_ = reinterpret_cast<managed::ManagedBeginValidateGateAuthFn>(beginValidateGateAuthPointer);
 
 		void* handleAvatarLoginReqPointer = nullptr;
 		bindMethod(kHandleAvatarLoginReqMethodName, &handleAvatarLoginReqPointer);
@@ -1456,7 +1532,7 @@ namespace de::server::engine
 			|| buildStubDistributePayloadFn_ == nullptr
 			|| handleAllNodeReadyFn_ == nullptr
 			|| handleStubDistributeFn_ == nullptr
-			|| validateGateAuthFn_ == nullptr
+			|| beginValidateGateAuthFn_ == nullptr
 			|| handleAvatarLoginReqFn_ == nullptr
 			|| handleCreateAvatarReqFn_ == nullptr
 			|| handleCreateAvatarRspFn_ == nullptr
@@ -1490,7 +1566,7 @@ namespace de::server::engine
 		buildStubDistributePayloadFn_ = nullptr;
 		handleAllNodeReadyFn_ = nullptr;
 		handleStubDistributeFn_ = nullptr;
-		validateGateAuthFn_ = nullptr;
+		beginValidateGateAuthFn_ = nullptr;
 		handleAvatarLoginReqFn_ = nullptr;
 		handleCreateAvatarReqFn_ = nullptr;
 		handleCreateAvatarRspFn_ = nullptr;
@@ -1512,6 +1588,8 @@ namespace de::server::engine
 		avatarRpcToServerSender_ = {};
 		avatarRpcToClientSender_ = {};
 		serverRpcToServerSender_ = {};
+		gateAuthValidationCallbacks_.clear();
+		nextGateAuthRequestId_ = 1;
 		managedTimerIds_.clear();
 		CloseDynamicLibrary(hostfxrLibraryHandle_);
 		hostfxrLibraryHandle_ = nullptr;

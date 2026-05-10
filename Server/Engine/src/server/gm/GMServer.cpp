@@ -268,9 +268,9 @@ namespace de::server::engine
 		httpService_ = std::make_unique<HttpService>(
 			GetIoContext(),
 			GetServerId(),
-			[this](const HttpRequest& request)
+			[this](const HttpRequest& request, HttpService::ResponseCallback responseCallback)
 			{
-				return httpHandler_->HandleRequest(request);
+				responseCallback(httpHandler_->HandleRequest(request));
 			}
 		);
 		httpService_->Start(config_.http);

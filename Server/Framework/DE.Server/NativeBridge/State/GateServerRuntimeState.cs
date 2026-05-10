@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using DE.Server.Auth;
+using DE.Server.Database;
 using DE.Server.Entities;
 
 namespace DE.Server.NativeBridge
@@ -50,6 +52,29 @@ namespace DE.Server.NativeBridge
                 request.Password,
                 gateServerIds
             );
+        }
+
+        public async Task<GateAuthValidationResult> ValidateAuthAsync(GateAuthValidationRequest request)
+        {
+            var routeResult = ValidateAuth(request);
+            if (!routeResult.IsSuccess)
+            {
+                return routeResult;
+            }
+
+            using (var cancellation = DatabaseService.CreateOperationCancellation())
+            {
+                if (await AccountCollection.ExistsAsync(request.Account, cancellation.Token))
+                {
+                    return routeResult;
+                }
+            }
+
+            return new GateAuthValidationResult
+            {
+                StatusCode = 401,
+                Error = "account not found",
+            };
         }
 
         public bool HandleAvatarLoginReq(ulong clientSessionId, string account)

@@ -28,6 +28,18 @@
     "frameworkDll": "../Framework/DE.Server/bin/Debug/net10.0/DE.Server.dll",
     "gameplayDll": "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll"
   },
+  "database": {
+    "provider": "MongoDB",
+    "connectionString": "mongodb://127.0.0.1:27017",
+    "connectionStringEnv": "DEGF_MONGODB_URI",
+    "databaseName": "degf_local_dev",
+    "minConnectionPoolSize": 0,
+    "maxConnectionPoolSize": 100,
+    "connectTimeoutMs": 10000,
+    "serverSelectionTimeoutMs": 10000,
+    "waitQueueTimeoutMs": 30000,
+    "operationTimeoutMs": 3000
+  },
   "gm": {
     "innerNetwork": {
       "listenEndpoint": {

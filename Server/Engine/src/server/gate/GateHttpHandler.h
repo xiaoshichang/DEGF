@@ -15,7 +15,8 @@ namespace de::server::engine
 	public:
 		using AllocateClientSessionFn = std::function<std::optional<network::AllocatedClientSession>()>;
 		using IsGateOpenFn = std::function<bool()>;
-		using ValidateAuthFn = std::function<GateAuthValidationResult(const std::string& account, const std::string& password)>;
+		using AuthValidationCallback = std::function<void(GateAuthValidationResult)>;
+		using ValidateAuthFn = std::function<void(const std::string& account, const std::string& password, AuthValidationCallback callback)>;
 
 		GateHttpHandler(
 			std::string serverId,
@@ -25,10 +26,11 @@ namespace de::server::engine
 			AllocateClientSessionFn allocateClientSession
 		);
 
-		HttpResponse HandleRequest(const HttpRequest& request) const;
+		void HandleRequest(const HttpRequest& request, HttpService::ResponseCallback responseCallback) const;
 
 	private:
-		HttpResponse HandleAuthRequest(const HttpRequest& request) const;
+		void HandleAuthRequest(const HttpRequest& request, HttpService::ResponseCallback responseCallback) const;
+		HttpResponse BuildAuthSuccessResponse() const;
 
 		std::string serverId_;
 		std::uint16_t clientPort_ = 0;

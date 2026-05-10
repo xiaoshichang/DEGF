@@ -5,6 +5,8 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
+using DE.Server.Database;
 using DE.Server.Auth;
 
 namespace DE.Server.NativeBridge
@@ -147,6 +149,7 @@ namespace DE.Server.NativeBridge
                 NativeAPI.Initialize(info.NativeApi);
                 
                 ManagedRuntimeState.Initialize(info);
+                DatabaseService.Initialize(info.ConfigPath);
                 DELogger.Info("ManagedAPI", $"Managed runtime initialized for {ManagedRuntimeState.RequireCurrent().ServerId}");
                 return 0;
             }
@@ -246,11 +249,11 @@ namespace DE.Server.NativeBridge
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        public static int ValidateGateAuthNative(IntPtr inputPayload, int inputSizeBytes, IntPtr outputBuffer, int outputBufferSizeBytes)
+        public static int BeginValidateGateAuthNative(ulong requestId, IntPtr inputPayload, int inputSizeBytes)
         {
             try
             {
-                if (!ManagedRuntimeState.IsInitialized)
+                if (!ManagedRuntimeState.IsInitialized || requestId == 0)
                 {
                     return -1;
                 }
@@ -262,14 +265,46 @@ namespace DE.Server.NativeBridge
                     return -3;
                 }
 
-                var result = ManagedRuntimeState.RequireCurrentGateServerRuntimeState().ValidateAuth(request);
-                var responsePayload = JsonSerializer.SerializeToUtf8Bytes(result, s_jsonSerializerOptions);
-                return _WritePayloadToNative(responsePayload, outputBuffer, outputBufferSizeBytes);
+                _ = CompleteGateAuthValidationAsync(requestId, request);
+                return 0;
             }
             catch (Exception exception)
             {
-                _LogManagedEntryException(nameof(ValidateGateAuthNative), exception);
+                _LogManagedEntryException(nameof(BeginValidateGateAuthNative), exception);
                 return -2;
+            }
+        }
+
+        private static async Task CompleteGateAuthValidationAsync(ulong requestId, GateAuthValidationRequest request)
+        {
+            GateAuthValidationResult result;
+            try
+            {
+                result = await ManagedRuntimeState.RequireCurrentGateServerRuntimeState().ValidateAuthAsync(request);
+            }
+            catch (Exception exception)
+            {
+                DELogger.Error(nameof(ManagedAPI), $"Async gate auth validation failed: {exception}");
+                result = new GateAuthValidationResult
+                {
+                    StatusCode = 503,
+                    Error = "auth validator unavailable",
+                };
+            }
+
+            var responsePayload = JsonSerializer.SerializeToUtf8Bytes(result, s_jsonSerializerOptions);
+            var posted = DEThreadDispatcher.Post(
+                () =>
+                {
+                    if (!NativeAPI.CompleteGateAuthValidation(requestId, responsePayload))
+                    {
+                        DELogger.Warn(nameof(ManagedAPI), $"Failed to complete gate auth validation request {requestId}.");
+                    }
+                }
+            );
+            if (!posted)
+            {
+                DELogger.Warn(nameof(ManagedAPI), $"Failed to post gate auth validation completion {requestId} to io_context.");
             }
         }
 
@@ -624,6 +659,7 @@ namespace DE.Server.NativeBridge
                     DELogger.Info("ManagedAPI", $"Managed runtime uninitializing for {ManagedRuntimeState.RequireCurrent().ServerId}");
                 }
 
+                DatabaseService.Uninitialize();
                 ManagedRuntimeState.Uninitialize();
                 NativeAPI.Reset();
                 return 0;

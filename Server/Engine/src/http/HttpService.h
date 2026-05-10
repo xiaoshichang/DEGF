@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace de::server::engine
 {
@@ -29,7 +30,8 @@ namespace de::server::engine
 	class HttpService
 	{
 	public:
-		using RequestHandler = std::function<HttpResponse(const HttpRequest&)>;
+		using ResponseCallback = std::function<void(HttpResponse)>;
+		using RequestHandler = std::function<void(const HttpRequest&, ResponseCallback)>;
 
 		HttpService(asio::io_context& ioContext, std::string serverId, RequestHandler requestHandler);
 		~HttpService();
@@ -38,7 +40,7 @@ namespace de::server::engine
 		void Stop();
 
 		bool IsRunning() const;
-		HttpResponse HandleRequest(const HttpRequest& request) const;
+		void HandleRequest(const HttpRequest& request, ResponseCallback responseCallback) const;
 
 	private:
 		class Session;

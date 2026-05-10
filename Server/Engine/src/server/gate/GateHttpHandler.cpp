@@ -74,42 +74,51 @@ namespace de::server::engine
 	{
 	}
 
-	HttpResponse GateHttpHandler::HandleRequest(const HttpRequest& request) const
+	void GateHttpHandler::HandleRequest(const HttpRequest& request, HttpService::ResponseCallback responseCallback) const
 	{
 		if (request.target == "/auth" || request.target == "/api/auth")
 		{
-			return HandleAuthRequest(request);
+			HandleAuthRequest(request, std::move(responseCallback));
+			return;
 		}
 
-		return HttpResponse{
-			404,
-			"Not Found",
-			"application/json; charset=utf-8",
-			R"({"error":"not found"})"
-		};
+		responseCallback(
+			HttpResponse{
+				404,
+				"Not Found",
+				"application/json; charset=utf-8",
+				R"({"error":"not found"})"
+			}
+		);
 	}
 
-	HttpResponse GateHttpHandler::HandleAuthRequest(const HttpRequest& request) const
+	void GateHttpHandler::HandleAuthRequest(const HttpRequest& request, HttpService::ResponseCallback responseCallback) const
 	{
 		if (request.method != "POST")
 		{
-			return HttpResponse{
-				405,
-				"Method Not Allowed",
-				"application/json; charset=utf-8",
-				R"({"error":"method not allowed"})"
-			};
+			responseCallback(
+				HttpResponse{
+					405,
+					"Method Not Allowed",
+					"application/json; charset=utf-8",
+					R"({"error":"method not allowed"})"
+				}
+			);
+			return;
 		}
 
 		if (!isGateOpen_ || !isGateOpen_())
 		{
-			return BuildJsonResponse(
-				503,
-				"Service Unavailable",
-				boost::json::object{
-					{ "error", "gate not open" }
-				}
+			responseCallback(
+				BuildJsonResponse(
+					503,
+					"Service Unavailable",
+					boost::json::object{
+						{ "error", "gate not open" }
+					}
+				)
 			);
+			return;
 		}
 
 		boost::json::value requestJson;
@@ -119,24 +128,30 @@ namespace de::server::engine
 		}
 		catch (const std::exception&)
 		{
-			return BuildJsonResponse(
-				400,
-				"Bad Request",
-				boost::json::object{
-					{ "error", "invalid json body" }
-				}
+			responseCallback(
+				BuildJsonResponse(
+					400,
+					"Bad Request",
+					boost::json::object{
+						{ "error", "invalid json body" }
+					}
+				)
 			);
+			return;
 		}
 
 		if (!requestJson.is_object())
 		{
-			return BuildJsonResponse(
-				400,
-				"Bad Request",
-				boost::json::object{
-					{ "error", "json body must be an object" }
-				}
+			responseCallback(
+				BuildJsonResponse(
+					400,
+					"Bad Request",
+					boost::json::object{
+						{ "error", "json body must be an object" }
+					}
+				)
 			);
+			return;
 		}
 
 		const auto& object = requestJson.as_object();
@@ -144,34 +159,52 @@ namespace de::server::engine
 		const auto* passwordValue = object.if_contains("password");
 		if (accountValue == nullptr || passwordValue == nullptr || !accountValue->is_string() || !passwordValue->is_string())
 		{
-			return BuildJsonResponse(
-				400,
-				"Bad Request",
-				boost::json::object{
-					{ "error", "account and password are required" }
-				}
+			responseCallback(
+				BuildJsonResponse(
+					400,
+					"Bad Request",
+					boost::json::object{
+						{ "error", "account and password are required" }
+					}
+				)
 			);
+			return;
 		}
 
 		const auto account = boost::json::value_to<std::string>(*accountValue);
 		const auto password = boost::json::value_to<std::string>(*passwordValue);
 		if (!validateAuth_)
 		{
-			return BuildJsonResponse(
-				503,
-				"Service Unavailable",
-				boost::json::object{
-					{ "error", "auth validator unavailable" }
-				}
+			responseCallback(
+				BuildJsonResponse(
+					503,
+					"Service Unavailable",
+					boost::json::object{
+						{ "error", "auth validator unavailable" }
+					}
+				)
 			);
+			return;
 		}
 
-		const auto validationResult = validateAuth_(account, password);
-		if (!validationResult.IsSuccess)
-		{
-			return BuildAuthValidationFailureResponse(serverId_, validationResult);
-		}
+		validateAuth_(
+			account,
+			password,
+			[this, responseCallback = std::move(responseCallback)](GateAuthValidationResult validationResult)
+			{
+				if (!validationResult.IsSuccess)
+				{
+					responseCallback(BuildAuthValidationFailureResponse(serverId_, validationResult));
+					return;
+				}
 
+				responseCallback(BuildAuthSuccessResponse());
+			}
+		);
+	}
+
+	HttpResponse GateHttpHandler::BuildAuthSuccessResponse() const
+	{
 		if (!allocateClientSession_)
 		{
 			return BuildJsonResponse(

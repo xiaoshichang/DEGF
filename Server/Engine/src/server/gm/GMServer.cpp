@@ -140,6 +140,10 @@ namespace de::server::engine
 			HandleGameReadyNtf(serverId);
 			return;
 
+		case network::MessageID::SS::StubDistributeGateAck:
+			HandleStubDistributeGateAck(serverId);
+			return;
+
 		case network::MessageID::SS::GmTotalEntityCountRsp:
 			HandleGmTotalEntityCountRsp(serverId, data);
 			return;
@@ -173,6 +177,19 @@ namespace de::server::engine
 	void GMServer::HandleGameReadyNtf(const std::string& serverId)
 	{
 		readyGameServerIds_.insert(serverId);
+		TryNotifyOpenGate();
+	}
+
+	void GMServer::HandleStubDistributeGateAck(const std::string& serverId)
+	{
+		if (config::FindGateConfig(GetClusterConfig(), serverId) == nullptr)
+		{
+			Logger::Warn("GMServer", "Ignored StubDistributeGateAck from non-gate node " + serverId + ".");
+			return;
+		}
+
+		stubDistributeReadyGateServerIds_.insert(serverId);
+		Logger::Info("GMServer", "Received StubDistributeGateAck from " + serverId + ".");
 		TryNotifyOpenGate();
 	}
 
@@ -212,6 +229,7 @@ namespace de::server::engine
 	{
 		registeredNodeServerIds_.erase(serverId);
 		readyGameServerIds_.erase(serverId);
+		stubDistributeReadyGateServerIds_.clear();
 		if (httpHandler_ != nullptr)
 		{
 			httpHandler_->ClearNodePerformanceSnapshot(serverId);
@@ -440,6 +458,9 @@ namespace de::server::engine
 			return;
 		}
 
+		readyGameServerIds_.clear();
+		stubDistributeReadyGateServerIds_.clear();
+
 		auto& innerNetwork = GetInnerNetwork();
 		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
 		{
@@ -495,6 +516,15 @@ namespace de::server::engine
 			}
 		}
 
+		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
+		{
+			(void)gateConfig;
+			if (stubDistributeReadyGateServerIds_.find(serverId) == stubDistributeReadyGateServerIds_.end())
+			{
+				return;
+			}
+		}
+
 		auto& innerNetwork = GetInnerNetwork();
 		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
 		{
@@ -507,7 +537,7 @@ namespace de::server::engine
 		}
 
 		openGateNotified_ = true;
-		Logger::Info("GMServer", "Sent OpenGateNtf to all gate nodes.");
+		Logger::Info("GMServer", "Sent OpenGateNtf to all gate nodes after all games ready and all gates acknowledged stub distribute table.");
 	}
 
 }

@@ -180,12 +180,23 @@ namespace de::server::engine
 			return;
 
 		case network::MessageID::SS::StubDistributeNtf:
-			if (auto* managedRuntimeService = GetManagedRuntimeService();
-				managedRuntimeService == nullptr || !managedRuntimeService->HandleStubDistribute(data))
+		{
+			auto* managedRuntimeService = GetManagedRuntimeService();
+			if (managedRuntimeService == nullptr || !managedRuntimeService->HandleStubDistribute(data))
 			{
 				Logger::Warn("GateServer", "Failed to process StubDistributeNtf payload in managed runtime.");
+				return;
 			}
+
+			if (!GetInnerNetwork().Send(serverId, static_cast<std::uint32_t>(network::MessageID::SS::StubDistributeGateAck), {}))
+			{
+				Logger::Warn("GateServer", "Failed to send StubDistributeGateAck to " + serverId + ".");
+				return;
+			}
+
+			Logger::Info("GateServer", "Sent StubDistributeGateAck to " + serverId + ".");
 			return;
+		}
 
 		case network::MessageID::SS::AvatarRpcNtf:
 			if (auto* managedRuntimeService = GetManagedRuntimeService();

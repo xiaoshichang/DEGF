@@ -35,6 +35,7 @@ namespace de::server::engine::network
 			ServerRpcNtf = 0x0002000Bu,
 			GmTotalEntityCountReq = 0x0002000Cu,
 			GmTotalEntityCountRsp = 0x0002000Du,
+			StubDistributeGateAck = 0x0002000Eu,
 		};
 
 		constexpr bool IsCS(std::uint32_t messageId)

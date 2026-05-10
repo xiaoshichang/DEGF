@@ -36,6 +36,7 @@ namespace Assets.Scripts.DE.Share
                 ServerRpcNtf = 0x0002000Bu,
                 GmTotalEntityCountReq = 0x0002000Cu,
                 GmTotalEntityCountRsp = 0x0002000Du,
+                StubDistributeGateAck = 0x0002000Eu,
             }
 
             public static bool IsCS(uint messageId)

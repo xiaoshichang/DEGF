@@ -31,6 +31,7 @@ namespace de::server::engine
 		TelnetCommandResult OnTelnetCommand(std::uint64_t sessionId, std::string_view commandLine) override;
 		void HandleHeartBeatWithDataNtf(const std::string& serverId, const std::vector<std::byte>& data);
 		void HandleGameReadyNtf(const std::string& serverId);
+		void HandleStubDistributeGateAck(const std::string& serverId);
 		void HandleGmTotalEntityCountRsp(const std::string& serverId, const std::vector<std::byte>& data);
 		void InitHttp();
 		void UninitHttp();
@@ -53,6 +54,7 @@ namespace de::server::engine
 		std::unique_ptr<HttpService> httpService_;
 		std::unordered_set<std::string> registeredNodeServerIds_;
 		std::unordered_set<std::string> readyGameServerIds_;
+		std::unordered_set<std::string> stubDistributeReadyGateServerIds_;
 		std::unordered_map<std::uint64_t, PendingGmCommand> pendingGmCommands_;
 		std::uint64_t nextGmCommandRequestId_ = 1;
 		bool allNodeReadyNotified_ = false;

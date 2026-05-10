@@ -62,9 +62,10 @@ namespace DE.Server.NativeBridge
                 return routeResult;
             }
 
-            using (var cancellation = DatabaseService.CreateOperationCancellation())
+            var databaseService = _managedRuntimeState.DatabaseService;
+            using (var cancellation = databaseService.CreateOperationCancellation())
             {
-                if (await AccountCollection.ExistsAsync(request.Account, cancellation.Token))
+                if (await AccountCollection.ExistsAsync(databaseService, request.Account, cancellation.Token))
                 {
                     return routeResult;
                 }

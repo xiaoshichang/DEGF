@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using DE.Server.Database;
 using DE.Server.Auth;
 
 namespace DE.Server.NativeBridge
@@ -149,7 +148,6 @@ namespace DE.Server.NativeBridge
                 NativeAPI.Initialize(info.NativeApi);
                 
                 ManagedRuntimeState.Initialize(info);
-                DatabaseService.Initialize(info.ConfigPath);
                 DELogger.Info("ManagedAPI", $"Managed runtime initialized for {ManagedRuntimeState.RequireCurrent().ServerId}");
                 return 0;
             }
@@ -659,7 +657,6 @@ namespace DE.Server.NativeBridge
                     DELogger.Info("ManagedAPI", $"Managed runtime uninitializing for {ManagedRuntimeState.RequireCurrent().ServerId}");
                 }
 
-                DatabaseService.Uninitialize();
                 ManagedRuntimeState.Uninitialize();
                 NativeAPI.Reset();
                 return 0;

@@ -9,15 +9,23 @@ namespace DE.Server.Auth
     {
         public const string CollectionName = "accounts";
 
-        public static async Task<bool> ExistsAsync(string account, CancellationToken cancellationToken = default)
+        public static async Task<bool> ExistsAsync(
+            DatabaseService databaseService,
+            string account,
+            CancellationToken cancellationToken = default)
         {
+            if (databaseService == null)
+            {
+                throw new System.ArgumentNullException(nameof(databaseService));
+            }
+
             var normalizedAccount = NormalizeAccount(account);
             if (string.IsNullOrEmpty(normalizedAccount))
             {
                 return false;
             }
 
-            var repository = DatabaseService.GetCollection<AccountDocument>(CollectionName);
+            var repository = databaseService.GetCollection<AccountDocument>(CollectionName);
             var filter = Builders<AccountDocument>.Filter.Eq(document => document.Id, normalizedAccount);
             var document = await repository.FindOneAsync(filter, cancellationToken);
             return document != null;

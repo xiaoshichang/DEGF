@@ -28,7 +28,7 @@ namespace DE.Server.Database
             {
                 if (!document.RootElement.TryGetProperty("database", out var databaseElement))
                 {
-                    return null;
+                    throw new InvalidOperationException("Database config section 'database' is missing.");
                 }
 
                 var config = JsonSerializer.Deserialize<DatabaseConfig>(

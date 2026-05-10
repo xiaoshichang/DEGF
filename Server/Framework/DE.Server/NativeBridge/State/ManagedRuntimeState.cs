@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Text.Json;
 using System.Threading.Tasks;
+using DE.Server.Database;
 using DE.Server.Entities;
 
 namespace DE.Server.NativeBridge
@@ -49,6 +50,7 @@ namespace DE.Server.NativeBridge
         public GmCommandRuntimeState GmCommandRuntimeState { get; private set; }
         public GateServerRuntimeState GateServerRuntimeState { get; private set; }
         public GameServerRuntimeState GameServerRuntimeState { get; private set; }
+        public DatabaseService DatabaseService { get; private set; }
         public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
 
         private ManagedRuntimeState()
@@ -560,6 +562,7 @@ namespace DE.Server.NativeBridge
 
             RegisterUnhandledExceptionHandlers();
             LoadGameplayAssemblies();
+            DatabaseService = new DatabaseService(ConfigPath);
 
             var assemblies = new[] { GameplayAssembly, Assembly.GetExecutingAssembly() };
             StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies);
@@ -589,6 +592,7 @@ namespace DE.Server.NativeBridge
             GateServerRuntimeState?.Uninitialize();
             GameServerRuntimeState?.Uninitialize();
 
+            DatabaseService = null;
             UnregisterUnhandledExceptionHandlers();
             UnregisterGameplayAssemblyResolver();
 

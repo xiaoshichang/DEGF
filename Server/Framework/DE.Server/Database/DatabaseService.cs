@@ -6,71 +6,34 @@ using MongoDB.Driver;
 
 namespace DE.Server.Database
 {
-    public static class DatabaseService
+    public sealed class DatabaseService
     {
-        private static readonly object s_syncRoot = new object();
-        private static DatabaseConfig s_config;
-        private static MongoClient s_client;
-        private static IMongoDatabase s_database;
+        private readonly DatabaseConfig _config;
+        private readonly MongoClient _client;
+        private readonly IMongoDatabase _database;
 
-        public static bool IsEnabled
+        public DatabaseService(string configPath)
         {
-            get
-            {
-                return s_config != null;
-            }
+            _config = DatabaseConfigLoader.Load(configPath);
+
+            var settings = MongoClientSettings.FromConnectionString(_config.ResolveConnectionString());
+            settings.MinConnectionPoolSize = _config.MinConnectionPoolSize;
+            settings.MaxConnectionPoolSize = _config.MaxConnectionPoolSize;
+            settings.ConnectTimeout = TimeSpan.FromMilliseconds(_config.ConnectTimeoutMs);
+            settings.ServerSelectionTimeout = TimeSpan.FromMilliseconds(_config.ServerSelectionTimeoutMs);
+            settings.WaitQueueTimeout = TimeSpan.FromMilliseconds(_config.WaitQueueTimeoutMs);
+
+            _client = new MongoClient(settings);
+            _database = _client.GetDatabase(_config.DatabaseName);
+
+            PingAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 
-        public static DatabaseConfig Config => s_config;
+        public DatabaseConfig Config => _config;
 
-        public static IMongoDatabase Database
-        {
-            get
-            {
-                if (!IsEnabled || s_database == null)
-                {
-                    throw new InvalidOperationException("Database service is not initialized.");
-                }
+        public IMongoDatabase Database => _database;
 
-                return s_database;
-            }
-        }
-
-        public static void Initialize(string configPath)
-        {
-            lock (s_syncRoot)
-            {
-                Uninitialize();
-
-                var config = DatabaseConfigLoader.Load(configPath);
-                s_config = config;
-                if (config == null)
-                {
-                    return;
-                }
-
-                var settings = MongoClientSettings.FromConnectionString(config.ResolveConnectionString());
-                settings.MinConnectionPoolSize = config.MinConnectionPoolSize;
-                settings.MaxConnectionPoolSize = config.MaxConnectionPoolSize;
-                settings.ConnectTimeout = TimeSpan.FromMilliseconds(config.ConnectTimeoutMs);
-                settings.ServerSelectionTimeout = TimeSpan.FromMilliseconds(config.ServerSelectionTimeoutMs);
-                settings.WaitQueueTimeout = TimeSpan.FromMilliseconds(config.WaitQueueTimeoutMs);
-
-                s_client = new MongoClient(settings);
-                s_database = s_client.GetDatabase(config.DatabaseName);
-
-                PingAsync(CancellationToken.None).GetAwaiter().GetResult();
-            }
-        }
-
-        public static void Uninitialize()
-        {
-            s_database = null;
-            s_client = null;
-            s_config = null;
-        }
-
-        public static MongoCollection<TDocument> GetCollection<TDocument>(string collectionName)
+        public MongoCollection<TDocument> GetCollection<TDocument>(string collectionName)
         {
             if (string.IsNullOrWhiteSpace(collectionName))
             {
@@ -80,22 +43,17 @@ namespace DE.Server.Database
             return new MongoCollection<TDocument>(Database.GetCollection<TDocument>(collectionName));
         }
 
-        public static CancellationTokenSource CreateOperationCancellation()
+        public CancellationTokenSource CreateOperationCancellation()
         {
-            if (!IsEnabled || s_config == null)
-            {
-                throw new InvalidOperationException("Database service is not initialized.");
-            }
-
-            return new CancellationTokenSource(TimeSpan.FromMilliseconds(s_config.OperationTimeoutMs));
+            return new CancellationTokenSource(TimeSpan.FromMilliseconds(_config.OperationTimeoutMs));
         }
 
-        private static async Task PingAsync(CancellationToken cancellationToken)
+        private async Task PingAsync(CancellationToken cancellationToken)
         {
-            using (var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(s_config.OperationTimeoutMs)))
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(_config.OperationTimeoutMs)))
             using (var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token))
             {
-                await s_database.RunCommandAsync((Command<BsonDocument>)"{ping:1}", cancellationToken: linked.Token);
+                await _database.RunCommandAsync((Command<BsonDocument>)"{ping:1}", cancellationToken: linked.Token);
             }
         }
     }

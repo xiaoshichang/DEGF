@@ -6,11 +6,11 @@ using MongoDB.Driver;
 
 namespace DE.Server.Database
 {
-    public sealed class MongoRepository<TDocument>
+    public sealed class MongoCollection<TDocument>
     {
         private readonly IMongoCollection<TDocument> _collection;
 
-        public MongoRepository(IMongoCollection<TDocument> collection)
+        public MongoCollection(IMongoCollection<TDocument> collection)
         {
             _collection = collection ?? throw new ArgumentNullException(nameof(collection));
         }

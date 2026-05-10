@@ -70,14 +70,14 @@ namespace DE.Server.Database
             s_config = null;
         }
 
-        public static MongoRepository<TDocument> GetCollection<TDocument>(string collectionName)
+        public static MongoCollection<TDocument> GetCollection<TDocument>(string collectionName)
         {
             if (string.IsNullOrWhiteSpace(collectionName))
             {
                 throw new ArgumentException("Collection name must not be empty.", nameof(collectionName));
             }
 
-            return new MongoRepository<TDocument>(Database.GetCollection<TDocument>(collectionName));
+            return new MongoCollection<TDocument>(Database.GetCollection<TDocument>(collectionName));
         }
 
         public static CancellationTokenSource CreateOperationCancellation()

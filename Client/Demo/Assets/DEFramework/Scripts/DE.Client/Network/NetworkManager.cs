@@ -1,12 +1,16 @@
 using Assets.Scripts.DE.Client.Core;
+using Assets.Scripts.DE.Share;
+using System;
 using System.Net;
 using kcp2k;
+using UnityEngine;
 
 namespace Assets.Scripts.DE.Client.Network
 {
     public class NetworkManager
     {
         private const string LogTag = "NetworkManager";
+        private const float HeartbeatIntervalSeconds = 30.0f;
 
         public static NetworkManager Instance;
 
@@ -53,6 +57,7 @@ namespace Assets.Scripts.DE.Client.Network
             {
                 _Session = new KcpSession(endPoint, conv, innerCallback);
                 _Session.Connect();
+                _NextHeartbeatRealtime = Time.realtimeSinceStartup + HeartbeatIntervalSeconds;
             }
             catch
             {
@@ -112,6 +117,7 @@ namespace Assets.Scripts.DE.Client.Network
 
             _Session = null;
             _Callback = null;
+            _NextHeartbeatRealtime = 0.0f;
         }
 
         public void TickIncoming()
@@ -122,6 +128,7 @@ namespace Assets.Scripts.DE.Client.Network
         public void TickOutgoing()
         {
             _Session?.TickOutgoing();
+            TickHeartbeat();
         }
 
         public void Disconnect()
@@ -145,8 +152,34 @@ namespace Assets.Scripts.DE.Client.Network
             _Session.Send(data);
         }
 
+        private void TickHeartbeat()
+        {
+            if (_Session == null || !_Session.IsRegistered)
+            {
+                return;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            if (now < _NextHeartbeatRealtime)
+            {
+                return;
+            }
+
+            _NextHeartbeatRealtime = now + HeartbeatIntervalSeconds;
+            _Session.Send(BuildEmptyClientFrame((uint)MessageDef.MessageID.CS.HeartBeatNtf));
+        }
+
+        private static byte[] BuildEmptyClientFrame(uint messageId)
+        {
+            byte[] header = MessageDef.Header.CreateClient(messageId, 0).Serialize();
+            byte[] frame = new byte[header.Length];
+            Buffer.BlockCopy(header, 0, frame, 0, header.Length);
+            return frame;
+        }
+
         private KcpSession _Session;
         private KcpSessionCallback _Callback;
+        private float _NextHeartbeatRealtime;
     }
 
 }

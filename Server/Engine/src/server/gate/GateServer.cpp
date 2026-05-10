@@ -17,6 +17,8 @@ namespace de::server::engine
 	namespace
 	{
 		constexpr auto kHeartBeatInterval = std::chrono::seconds(5);
+		constexpr auto kClientHeartbeatTimeout = std::chrono::minutes(2);
+		constexpr auto kClientHeartbeatCheckInterval = std::chrono::seconds(10);
 
 		std::string BuildInnerNetworkEndpoint(const config::EndpointConfig& endpointConfig)
 		{
@@ -139,9 +141,11 @@ namespace de::server::engine
 	{
 		Logger::Info("GateServer", "Uninit");
 		StopHeartbeatTimer();
+		StopClientSessionTimeoutTimer();
 		gmSessionId_.reset();
 		openGateReceived_ = false;
 		UninitClientNetwork();
+		clientSessionHeartbeats_.clear();
 
 		auto* managedRuntimeService = GetManagedRuntimeService();
 		if (managedRuntimeService != nullptr)
@@ -175,6 +179,7 @@ namespace de::server::engine
 			gmSessionId_.reset();
 			openGateReceived_ = false;
 			UninitClientNetwork();
+			clientSessionHeartbeats_.clear();
 		}
 
 		ServerBase::OnInnerDisconnect(serverId);
@@ -266,10 +271,14 @@ namespace de::server::engine
 			clientNetwork_.reset();
 			throw std::runtime_error("Failed to start client network.");
 		}
+
+		StartClientSessionTimeoutTimer();
 	}
 
 	void GateServer::UninitClientNetwork()
 	{
+		StopClientSessionTimeoutTimer();
+		clientSessionHeartbeats_.clear();
 		clientNetwork_.reset();
 	}
 
@@ -344,6 +353,7 @@ namespace de::server::engine
 
 	void GateServer::OnClientConnect(network::ClientNetworkSession::SessionId sessionId)
 	{
+		UpdateClientSessionHeartbeat(sessionId);
 		Logger::Info("GateServer", "Client session connected: " + std::to_string(sessionId));
 	}
 
@@ -355,6 +365,18 @@ namespace de::server::engine
 			+ ", messageId=" + std::to_string(messageId)
 			+ ", payload=" + std::to_string(data.size())
 		);
+
+		if (messageId == static_cast<std::uint32_t>(network::MessageID::CS::HeartBeatNtf))
+		{
+			if (!data.empty())
+			{
+				Logger::Warn("GateServer", "Received invalid client HeartBeatNtf payload.");
+				return;
+			}
+
+			UpdateClientSessionHeartbeat(sessionId);
+			return;
+		}
 
 		if (messageId == static_cast<std::uint32_t>(network::MessageID::CS::RpcNtf))
 		{
@@ -396,6 +418,7 @@ namespace de::server::engine
 
 	void GateServer::OnClientDisconnect(network::ClientNetworkSession::SessionId sessionId)
 	{
+		clientSessionHeartbeats_.erase(sessionId);
 		Logger::Info("GateServer", "Client session disconnected: " + std::to_string(sessionId));
 		auto* managedRuntimeService = GetManagedRuntimeService();
 		if (managedRuntimeService == nullptr)
@@ -406,6 +429,73 @@ namespace de::server::engine
 		if (!managedRuntimeService->HandleClientDisconnect(sessionId))
 		{
 			Logger::Warn("GateServer", "Failed to handle client disconnect in managed runtime.");
+		}
+	}
+
+	void GateServer::StartClientSessionTimeoutTimer()
+	{
+		if (clientSessionTimeoutTimerId_.has_value())
+		{
+			return;
+		}
+
+		clientSessionTimeoutTimerId_ = GetTimerManager().AddTimer(
+			std::chrono::duration_cast<std::chrono::milliseconds>(kClientHeartbeatCheckInterval),
+			[this](TimerManager::TimerID timerId)
+			{
+				OnClientSessionTimeoutTimer(timerId);
+			},
+			true
+		);
+	}
+
+	void GateServer::StopClientSessionTimeoutTimer()
+	{
+		if (!clientSessionTimeoutTimerId_.has_value())
+		{
+			return;
+		}
+
+		GetTimerManager().CancelTimer(*clientSessionTimeoutTimerId_);
+		clientSessionTimeoutTimerId_.reset();
+	}
+
+	void GateServer::OnClientSessionTimeoutTimer(TimerManager::TimerID timerId)
+	{
+		if (!clientSessionTimeoutTimerId_.has_value() || *clientSessionTimeoutTimerId_ != timerId)
+		{
+			return;
+		}
+
+		DisconnectExpiredClientSessions();
+	}
+
+	void GateServer::UpdateClientSessionHeartbeat(network::ClientNetworkSession::SessionId sessionId)
+	{
+		clientSessionHeartbeats_[sessionId] = std::chrono::steady_clock::now();
+	}
+
+	void GateServer::DisconnectExpiredClientSessions()
+	{
+		if (clientNetwork_ == nullptr)
+		{
+			return;
+		}
+
+		const auto now = std::chrono::steady_clock::now();
+		std::vector<network::ClientNetworkSession::SessionId> expiredSessionIds;
+		for (const auto& [sessionId, lastHeartbeat] : clientSessionHeartbeats_)
+		{
+			if (now - lastHeartbeat >= kClientHeartbeatTimeout)
+			{
+				expiredSessionIds.push_back(sessionId);
+			}
+		}
+
+		for (const auto sessionId : expiredSessionIds)
+		{
+			Logger::Warn("GateServer", "Client session heartbeat timeout, disconnecting sessionId=" + std::to_string(sessionId) + ".");
+			clientNetwork_->ActiveDisconnect(sessionId);
 		}
 	}
 

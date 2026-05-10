@@ -7,6 +7,8 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <chrono>
+#include <unordered_map>
 
 namespace de::server::engine
 {
@@ -44,6 +46,11 @@ public:
 		void StartHeartbeatTimer();
 		void StopHeartbeatTimer();
 		void OnHeartbeatTimer(TimerManager::TimerID timerId);
+		void StartClientSessionTimeoutTimer();
+		void StopClientSessionTimeoutTimer();
+		void OnClientSessionTimeoutTimer(TimerManager::TimerID timerId);
+		void UpdateClientSessionHeartbeat(network::ClientNetworkSession::SessionId sessionId);
+		void DisconnectExpiredClientSessions();
 
 		config::GateConfig config_;
 		std::unique_ptr<GateHttpHandler> httpHandler_;
@@ -51,6 +58,8 @@ public:
 		std::unique_ptr<network::ClientNetwork> clientNetwork_;
 		std::optional<network::InnerNetwork::SessionId> gmSessionId_;
 		std::optional<TimerManager::TimerID> heartbeatTimerId_;
+		std::optional<TimerManager::TimerID> clientSessionTimeoutTimerId_;
+		std::unordered_map<network::ClientNetworkSession::SessionId, std::chrono::steady_clock::time_point> clientSessionHeartbeats_;
 		bool openGateReceived_ = false;
 	};
 }

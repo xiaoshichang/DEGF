@@ -84,37 +84,6 @@ namespace Assets.Scripts.Demo.Client.UI
             avatar.CallServer("SetHeadIcon", headIcon);
         }
 
-        private Button _CreateSetRandomHeadIconButton()
-        {
-            var buttonNode = new GameObject("SetRandomHeadIconButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-            buttonNode.transform.SetParent(transform, false);
-            var rectTransform = buttonNode.GetComponent<RectTransform>();
-            rectTransform.anchorMin = new Vector2(0.5f, 1.0f);
-            rectTransform.anchorMax = new Vector2(0.5f, 1.0f);
-            rectTransform.pivot = new Vector2(0.5f, 0.5f);
-            rectTransform.anchoredPosition = new Vector2(0.0f, -420.0f);
-            rectTransform.sizeDelta = new Vector2(280.0f, 56.0f);
-
-            var image = buttonNode.GetComponent<Image>();
-            image.color = new Color(0.20f, 0.52f, 0.86f, 1.0f);
-
-            var textNode = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TMP_Text));
-            textNode.transform.SetParent(buttonNode.transform, false);
-            var textRectTransform = textNode.GetComponent<RectTransform>();
-            textRectTransform.anchorMin = Vector2.zero;
-            textRectTransform.anchorMax = Vector2.one;
-            textRectTransform.offsetMin = Vector2.zero;
-            textRectTransform.offsetMax = Vector2.zero;
-
-            var label = textNode.GetComponent<TMP_Text>();
-            label.text = "Random HeadIcon";
-            label.fontSize = 24.0f;
-            label.alignment = TextAlignmentOptions.Center;
-            label.color = Color.white;
-            label.raycastTarget = false;
-
-            return buttonNode.GetComponent<Button>();
-        }
 
         private static readonly string[] s_HeadIconCandidates =
         {

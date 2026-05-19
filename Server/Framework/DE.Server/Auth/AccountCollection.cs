@@ -25,9 +25,9 @@ namespace DE.Server.Auth
                 return false;
             }
 
-            var repository = databaseService.GetCollection<AccountDocument>(CollectionName);
+            var collection = databaseService.GetCollection<AccountDocument>(CollectionName);
             var filter = Builders<AccountDocument>.Filter.Eq(document => document.Id, normalizedAccount);
-            var document = await repository.FindOneAsync(filter, cancellationToken);
+            var document = await collection.FindOneAsync(filter, cancellationToken);
             return document != null;
         }
 

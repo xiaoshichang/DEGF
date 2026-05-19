@@ -28,6 +28,40 @@ def make_window_title(server_id: str) -> str:
     return f"DEGF-{server_id}"
 
 
+def make_windows_server_command(exe_path: Path, config_path: Path, server_id: str) -> str:
+    title = make_window_title(server_id)
+    return f'title {title} & "{exe_path}" "{config_path}" "{server_id}"'
+
+
+def make_windows_terminal_args(
+    wt_path: str,
+    server_ids: list[str],
+    exe_path: Path,
+    config_path: Path,
+) -> list[str]:
+    args = [wt_path, "--window", "new"]
+
+    for index, server_id in enumerate(server_ids):
+        if index > 0:
+            args.append(";")
+
+        title = make_window_title(server_id)
+        args.extend(
+            [
+                "new-tab",
+                "--title",
+                title,
+                "--startingDirectory",
+                str(ENGINE_DIR),
+                "cmd.exe",
+                "/k",
+                make_windows_server_command(exe_path, config_path, server_id),
+            ]
+        )
+
+    return args
+
+
 def resolve_default_exe_path() -> Path:
     for candidate in DEFAULT_EXE_CANDIDATES:
         if candidate.exists():
@@ -262,44 +296,41 @@ def start_cluster(config_path: Path, exe_path: Path) -> None:
 
     started_processes: list[subprocess.Popen[str]] = []
     try:
-        for server_id in server_ids:
-            title = make_window_title(server_id)
-            popen_kwargs: dict[str, object] = {"cwd": str(ENGINE_DIR)}
-
-            if sys.platform == "win32":
-                command = f'title {title} & "{exe_path}" "{config_path}" "{server_id}"'
-                wt_path = shutil.which("wt.exe")
-                if wt_path:
-                    popen_kwargs["args"] = [
-                        wt_path,
-                        "--window",
-                        "new",
-                        "new-tab",
-                        "--title",
-                        title,
-                        "--startingDirectory",
-                        str(ENGINE_DIR),
-                        "cmd.exe",
-                        "/k",
-                        command,
-                    ]
-                else:
-                    popen_kwargs["args"] = ["cmd.exe", "/k", command]
-                    popen_kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+        if sys.platform == "win32":
+            wt_path = shutil.which("wt.exe")
+            if wt_path:
+                process = subprocess.Popen(
+                    make_windows_terminal_args(wt_path, server_ids, exe_path, config_path),
+                    cwd=str(ENGINE_DIR),
+                )
+                started_processes.append(process)
+                for server_id in server_ids:
+                    print(f"Started {server_id} in tab {make_window_title(server_id)}")
             else:
-                popen_kwargs["args"] = [str(exe_path), str(config_path), server_id]
-                popen_kwargs["stdin"] = subprocess.DEVNULL
-                popen_kwargs["stdout"] = subprocess.DEVNULL
-                popen_kwargs["stderr"] = subprocess.DEVNULL
+                for server_id in server_ids:
+                    title = make_window_title(server_id)
+                    process = subprocess.Popen(
+                        ["cmd.exe", "/k", make_windows_server_command(exe_path, config_path, server_id)],
+                        cwd=str(ENGINE_DIR),
+                        creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    )
+                    started_processes.append(process)
+                    print(f"Started {server_id} in window {title}")
+                    time.sleep(0.2)
 
-            process = subprocess.Popen(
-                **popen_kwargs,
-            )
-            started_processes.append(process)
-            print(f"Started {server_id} in window {title}")
-            time.sleep(0.2)
-
-        arrange_windows_with_powershell(server_ids)
+                arrange_windows_with_powershell(server_ids)
+        else:
+            for server_id in server_ids:
+                process = subprocess.Popen(
+                    [str(exe_path), str(config_path), server_id],
+                    cwd=str(ENGINE_DIR),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                started_processes.append(process)
+                print(f"Started {server_id}")
+                time.sleep(0.2)
     except Exception:
         for process in started_processes:
             subprocess.run(

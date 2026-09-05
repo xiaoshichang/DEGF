@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace DE.Server.NativeBridge
@@ -76,6 +77,15 @@ namespace DE.Server.NativeBridge
         public static void Error(string message)
         {
             Log(NativeLogLevel.Error, string.Empty, message);
+        }
+
+        [Conditional("DEBUG")]
+        public static void Assert(bool condition, string message)
+        {
+            if (!condition)
+            {
+                Log(NativeLogLevel.Error, string.Empty, message);
+            }
         }
 
         private static void Log(NativeLogLevel level, string tag, string message)

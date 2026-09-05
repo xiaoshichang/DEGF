@@ -24,5 +24,8 @@
     <ProjectReference Include="..\DE.Share.EntityPropertySG\DE.Share.EntityPropertySG.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DE.Share.EntityRpcSG\DE.Share.EntityRpcSG.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

@@ -5,7 +5,7 @@ using DE.Share.Rpc;
 namespace Demo;
 
 
-public partial class BasicInfoComponent : EntityComponent
+public partial class BasicInfoComponent : AvatarComponent
 {
     [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.Persistent)]
     private string __HeadIcon = "xxx.png";
@@ -17,6 +17,6 @@ public partial class BasicInfoComponent : EntityComponent
     public void SetHeadIcon(string headIcon)
     {
         HeadIcon = headIcon ?? string.Empty;
-        ((AvatarEntity)Entity).CallClient("NotifyHeadIconChanged", HeadIcon);
+        OwnerAvatar.CallClient("NotifyHeadIconChanged", HeadIcon);
     }
 }

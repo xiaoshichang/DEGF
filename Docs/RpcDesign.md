@@ -4,7 +4,7 @@
 
 ## 设计结论
 
-第一版 RPC 只支持单向调用，不支持返回值、异常回传、超时、取消和自动重试。所有 RPC 方法必须通过 Attribute 显式暴露。RPC 调用代码和分发代码直接由现有 `DE.Share.EntityPropertySG` Source Generator 扩展生成，不采用运行时反射分发作为第一版机制。
+第一版 RPC 只支持单向调用，不支持返回值、异常回传、超时、取消和自动重试。所有 RPC 方法必须通过 Attribute 显式暴露。RPC 调用代码和分发代码由独立的 `DE.Share.EntityRpcSG` Source Generator 生成，不采用运行时反射分发作为第一版机制。
 
 服务器集群路由严格遵守 Game 节点之间不直连的架构约束。任何 Game 到 Game 的 RPC 都必须经过 Gate 转发。
 
@@ -104,7 +104,7 @@ namespace DE.Share.Rpc
 
 ## Source Generator 设计
 
-RPC 生成器直接扩展现有 `DE.Share.EntityPropertySG` 项目，而不是新增单独生成器项目。
+RPC 生成器位于独立的 `DE.Share.EntityRpcSG` 项目，与 `DE.Share.EntityPropertySG` 的实体属性生成职责分离。
 
 ### Generator 输入
 
@@ -529,7 +529,7 @@ Source Game -> OwnerGate -> Current Avatar Game
 1. RPC Attribute。
 2. `RpcEnvelope`。
 3. `RpcBinaryWriter` / `RpcBinaryReader`。
-4. `DE.Share.EntityPropertySG` 扩展生成 RPC dispatch 和强类型发送入口。
+4. `DE.Share.EntityRpcSG` 生成 RPC dispatch 和强类型发送入口。
 5. 单元测试覆盖 MethodId 稳定性、参数编码、非法方法诊断。
 
 该阶段不接网络，只验证生成代码可编译、可本地调用 dispatcher。

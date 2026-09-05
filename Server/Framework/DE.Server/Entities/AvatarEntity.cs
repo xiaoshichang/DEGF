@@ -57,4 +57,15 @@ namespace DE.Server.Entities
             DELogger.Info(nameof(AvatarEntity), $"Avatar client detached, avatarId={Guid}, clientSessionId={clientSessionId}, reason={reason}.");
         }
     }
+
+    public class AvatarComponent : EntityComponent
+    {
+        public AvatarEntity OwnerAvatar { get; private set; }
+
+        public override void Attach(Entity entity)
+        {
+            base.Attach(entity);
+            OwnerAvatar = (AvatarEntity)entity;
+        }
+    }
 }

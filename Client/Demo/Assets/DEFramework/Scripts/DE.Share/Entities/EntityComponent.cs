@@ -2,11 +2,11 @@ namespace DE.Share.Entities
 {
     public abstract class EntityComponent
     {
-        public Entity Entity { get; private set; }
+        public Entity OwnerEntity { get; private set; }
 
-        internal void Attach(Entity entity)
+        public virtual void Attach(Entity entity)
         {
-            Entity = entity;
+            OwnerEntity = entity;
         }
     }
 }

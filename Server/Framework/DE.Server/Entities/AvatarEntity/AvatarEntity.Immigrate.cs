@@ -35,12 +35,6 @@ namespace DE.Server.Entities
             return true;
         }
 
-        public bool Immigrate(EntityMailBox targetSpace)
-        {
-            return ManagedRuntimeState
-                .RequireCurrentGameServerRuntimeState()
-                .BeginAvatarImmigration(this, targetSpace);
-        }
 
         internal void SetImmigrationState(
             AvatarImmigrationState state,
@@ -49,6 +43,37 @@ namespace DE.Server.Entities
             string sourceGameServerId,
             string targetGameServerId)
         {
+            if (!IsValidImmigrationStateTransition(ImmigrationState, state))
+            {
+                var error = $"Invalid Avatar immigration state transition, avatarId={Guid}, migrationId={migrationId}, currentState={ImmigrationState}, targetState={state}.";
+                DELogger.Error(nameof(AvatarEntity), error);
+                throw new InvalidOperationException(error);
+            }
+
+            if (ImmigrationState != AvatarImmigrationState.Idle)
+            {
+                if (ImmigrationId != migrationId)
+                {
+                    var error = $"Avatar immigration state transition rejected because migration id changed, avatarId={Guid}, currentMigrationId={ImmigrationId}, incomingMigrationId={migrationId}, currentState={ImmigrationState}, targetState={state}.";
+                    DELogger.Error(nameof(AvatarEntity), error);
+                    throw new InvalidOperationException(error);
+                }
+
+                if (ImmigrationTargetSpace.EntityId != targetSpace.EntityId)
+                {
+                    var error = $"Avatar immigration state transition rejected because target Space id changed, avatarId={Guid}, migrationId={migrationId}, currentTargetSpaceId={ImmigrationTargetSpace.EntityId}, incomingTargetSpaceId={targetSpace.EntityId}.";
+                    DELogger.Error(nameof(AvatarEntity), error);
+                    throw new InvalidOperationException(error);
+                }
+
+                if (!string.Equals(ImmigrationTargetSpace.BindingGame, targetSpace.BindingGame, StringComparison.Ordinal))
+                {
+                    var error = $"Avatar immigration state transition rejected because target Game id changed, avatarId={Guid}, migrationId={migrationId}, currentTargetGameServerId={ImmigrationTargetSpace.BindingGame}, incomingTargetGameServerId={targetSpace.BindingGame}.";
+                    DELogger.Error(nameof(AvatarEntity), error);
+                    throw new InvalidOperationException(error);
+                }
+            }
+
             ImmigrationState = state;
             ImmigrationId = migrationId;
             ImmigrationTargetSpace = targetSpace;
@@ -58,26 +83,191 @@ namespace DE.Server.Entities
             );
         }
 
+        private static bool IsValidImmigrationStateTransition(
+            AvatarImmigrationState currentState,
+            AvatarImmigrationState targetState)
+        {
+            AvatarImmigrationState nextState;
+            switch (currentState)
+            {
+            case AvatarImmigrationState.Idle:
+                nextState = AvatarImmigrationState.FreezingRoute;
+                break;
+            case AvatarImmigrationState.FreezingRoute:
+                nextState = AvatarImmigrationState.Serializing;
+                break;
+            case AvatarImmigrationState.Serializing:
+                nextState = AvatarImmigrationState.PreparingTarget;
+                break;
+            case AvatarImmigrationState.PreparingTarget:
+                nextState = AvatarImmigrationState.TargetPrepared;
+                break;
+            case AvatarImmigrationState.TargetPrepared:
+                nextState = AvatarImmigrationState.ActivatingTarget;
+                break;
+            case AvatarImmigrationState.ActivatingTarget:
+                nextState = AvatarImmigrationState.TargetActivated;
+                break;
+            case AvatarImmigrationState.TargetActivated:
+                nextState = AvatarImmigrationState.CommittingRoute;
+                break;
+            case AvatarImmigrationState.CommittingRoute:
+                nextState = AvatarImmigrationState.CompletingTarget;
+                break;
+            case AvatarImmigrationState.CompletingTarget:
+                nextState = AvatarImmigrationState.Completed;
+                break;
+            case AvatarImmigrationState.RollingBack:
+                nextState = AvatarImmigrationState.Failed;
+                break;
+            default:
+                return false;
+            }
+
+            if (targetState == nextState)
+            {
+                return true;
+            }
+
+            switch (currentState)
+            {
+            case AvatarImmigrationState.Idle:
+                return targetState == AvatarImmigrationState.TargetPrepared;
+            case AvatarImmigrationState.FreezingRoute:
+                return targetState == AvatarImmigrationState.Failed;
+            case AvatarImmigrationState.Serializing:
+            case AvatarImmigrationState.PreparingTarget:
+            case AvatarImmigrationState.ActivatingTarget:
+            case AvatarImmigrationState.CommittingRoute:
+                return targetState == AvatarImmigrationState.RollingBack;
+            case AvatarImmigrationState.TargetPrepared:
+                if (targetState == AvatarImmigrationState.TargetActivated)
+                {
+                    return true;
+                }
+
+                return targetState == AvatarImmigrationState.Failed;
+            case AvatarImmigrationState.TargetActivated:
+                if (targetState == AvatarImmigrationState.Completed)
+                {
+                    return true;
+                }
+
+                return targetState == AvatarImmigrationState.Failed;
+            default:
+                return false;
+            }
+        }
+
     }
 }
 
 namespace DE.Server.NativeBridge
 {
+    /// <summary>
+    /// Avatar 迁移协议命令。
+    /// Source Game 是迁移开始时承载 Avatar 的 Game，Target Game 是目标 Space 所绑定的 Game，
+    /// Owner Gate 是 Avatar Proxy 所绑定并负责冻结、切换路由和缓存迁移期间消息的 Gate。
+    /// Game 之间不直连，因此 Source Game 与 Target Game 之间的命令和响应均由 Owner Gate 转发。
+    /// </summary>
     internal enum AvatarMigrationCommand : ushort
     {
+        /// <summary>
+        /// 含义：请求 Owner Gate 冻结 Avatar 当前路由，迁移期间相关 RPC 改为进入 Gate 缓存队列。
+        /// 方向：Source Game → Owner Gate。
+        /// 状态影响：Source Game 发送前进入 FreezingRoute；Gate 成功处理后创建 Gate 迁移上下文并保持原路由不变。
+        /// </summary>
         FreezeRoute = 1,
+
+        /// <summary>
+        /// 含义：Owner Gate 通知 Source Game，Avatar 路由已经冻结。
+        /// 方向：Owner Gate → Source Game。
+        /// 状态影响：成功时 Source Game 依次进入 Serializing 和 PreparingTarget，Avatar 离开原 Space 并生成迁移快照；失败时迁移进入 Failed。
+        /// </summary>
         RouteFrozen = 2,
+
+        /// <summary>
+        /// 含义：把 Avatar 迁移快照发送到 Target Game，要求创建尚未激活的目标 Avatar。
+        /// 方向：Source Game → Owner Gate → Target Game。
+        /// 状态影响：Source Game 保持 PreparingTarget；Target Game 成功反序列化后把目标 Avatar 置为 TargetPrepared，但暂不注册到本地实体表和目标 Space。
+        /// </summary>
         PrepareTarget = 3,
+
+        /// <summary>
+        /// 含义：Target Game 返回目标 Avatar 的准备结果。
+        /// 方向：Target Game → Owner Gate → Source Game。
+        /// 状态影响：成功时 Source Game 记录目标已准备，依次进入 TargetPrepared 和 ActivatingTarget；失败时进入 RollingBack。
+        /// </summary>
         TargetPrepared = 4,
+
+        /// <summary>
+        /// 含义：请求 Target Game 激活已经反序列化的 Avatar。
+        /// 方向：Source Game → Owner Gate → Target Game。
+        /// 状态影响：成功时 Target Game 注册 Avatar、恢复 Client Session 绑定、进入目标 Space，并把目标 Avatar 置为 TargetActivated。
+        /// </summary>
         ActivateTarget = 5,
+
+        /// <summary>
+        /// 含义：Target Game 返回目标 Avatar 的激活结果。
+        /// 方向：Target Game → Owner Gate → Source Game。
+        /// 状态影响：成功时 Source Game 依次进入 TargetActivated 和 CommittingRoute；失败时进入 RollingBack。
+        /// </summary>
         TargetActivated = 6,
+
+        /// <summary>
+        /// 含义：目标 Avatar 已可服务，请求 Owner Gate 将正式路由从 Source Game 切换到 Target Game。
+        /// 方向：Source Game → Owner Gate。
+        /// 状态影响：Gate 先把冻结期间缓存的消息按新路由发送，再更新账号路由到 Target Game，记录迁移已提交并解除冻结。
+        /// </summary>
         CommitRoute = 7,
+
+        /// <summary>
+        /// 含义：Owner Gate 返回 Avatar 路由提交结果。
+        /// 方向：Owner Gate → Source Game。
+        /// 状态影响：成功时 Source Game 注销原 Avatar，进入 CompletingTarget；失败时进入 RollingBack。
+        /// </summary>
         RouteCommitted = 8,
+
+        /// <summary>
+        /// 含义：路由已经切换，请求 Target Game 完成迁移并清理目标迁移上下文。
+        /// 方向：Source Game → Owner Gate → Target Game。
+        /// 状态影响：Target Game 把目标 Avatar 置为 Completed，记录完成的迁移编号并移除目标迁移上下文；Avatar 保持注册且留在目标 Space。
+        /// </summary>
         CompleteTarget = 9,
+
+        /// <summary>
+        /// 含义：Target Game 返回迁移完成结果。
+        /// 方向：Target Game → Owner Gate → Source Game。
+        /// 状态影响：成功时 Source Game 把迁移置为 Completed 并移除源迁移上下文；失败时保持 CompletingTarget，并记录错误等待外部处理。
+        /// </summary>
         TargetCompleted = 10,
+
+        /// <summary>
+        /// 含义：迁移未能提交，请求 Owner Gate 恢复 Source Game 路由。
+        /// 方向：Source Game → Owner Gate。
+        /// 状态影响：Gate 把缓存消息按原路由回放到 Source Game，丢弃仅由 Target Game 产生且不应回放的 Client RPC，恢复原路由并解除冻结。
+        /// </summary>
         RollbackRoute = 11,
+
+        /// <summary>
+        /// 含义：Owner Gate 返回 Avatar 路由回滚结果。
+        /// 方向：Owner Gate → Source Game。
+        /// 状态影响：Source Game 尝试让 Avatar 重新进入迁移前的 Space，随后把迁移置为 Failed 并移除源迁移上下文。
+        /// </summary>
         RouteRolledBack = 12,
+
+        /// <summary>
+        /// 含义：请求 Target Game 放弃已经准备或激活的目标 Avatar；目标清理完成后才能回滚 Gate 路由。
+        /// 方向：Source Game → Owner Gate → Target Game。
+        /// 状态影响：Target Game 从目标 Space 移除并注销已激活的 Avatar，把目标 Avatar 置为 Failed，记录中止编号并移除目标迁移上下文。
+        /// </summary>
         AbortTarget = 13,
+
+        /// <summary>
+        /// 含义：Target Game 返回目标 Avatar 的中止结果。
+        /// 方向：Target Game → Owner Gate → Source Game。
+        /// 状态影响：成功时 Source Game 确认目标已中止并发送 RollbackRoute；失败时保持 RollingBack，并记录错误等待外部处理。
+        /// </summary>
         TargetAborted = 14,
     }
 
@@ -180,9 +370,7 @@ namespace DE.Server.NativeBridge
         public EntityMailBox TargetSpace;
         public Guid SourceSpaceId;
         public byte[] AvatarData = Array.Empty<byte>();
-        public ulong RetryTimerId;
         public bool TargetWasPrepared;
-        public bool TargetWasAborted;
     }
 
     internal sealed class TargetAvatarMigrationContext
@@ -190,749 +378,6 @@ namespace DE.Server.NativeBridge
         public AvatarEntity Avatar;
         public AvatarMigrationMessage Message;
         public bool IsActivated;
-    }
-
-    public sealed partial class GameServerRuntimeState
-    {
-        private const int AvatarMigrationRetryMilliseconds = 3000;
-
-        private readonly Dictionary<Guid, SourceAvatarMigrationContext> _sourceAvatarMigrations =
-            new Dictionary<Guid, SourceAvatarMigrationContext>();
-        private readonly Dictionary<Guid, TargetAvatarMigrationContext> _targetAvatarMigrations =
-            new Dictionary<Guid, TargetAvatarMigrationContext>();
-        private readonly Dictionary<Guid, Guid> _lastAbortedTargetAvatarMigrations = new Dictionary<Guid, Guid>();
-        private readonly Dictionary<Guid, Guid> _lastCompletedTargetAvatarMigrations = new Dictionary<Guid, Guid>();
-
-        internal bool BeginAvatarImmigration(AvatarEntity avatar, EntityMailBox targetSpace)
-        {
-            if (avatar == null
-                || !avatar.IsAllowImmigrate()
-                || !avatar.MailBox.IsValid
-                || !avatar.Proxy.IsValid
-                || !targetSpace.IsValid
-                || !Avatars.TryGetValue(avatar.Guid, out var registeredAvatar)
-                || !ReferenceEquals(registeredAvatar, avatar))
-            {
-                return false;
-            }
-
-            if (avatar.ImmigrationState != AvatarImmigrationState.Idle
-                && avatar.ImmigrationState != AvatarImmigrationState.Completed
-                && avatar.ImmigrationState != AvatarImmigrationState.Failed)
-            {
-                DELogger.Warn(
-                    nameof(GameServerRuntimeState),
-                    $"Avatar immigration is already active, avatarId={avatar.Guid}, state={avatar.ImmigrationState}."
-                );
-                return false;
-            }
-
-            if (string.Equals(targetSpace.BindingGame, _managedRuntimeState.ServerId, StringComparison.Ordinal))
-            {
-                var localMigrationId = Guid.NewGuid();
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.Serializing,
-                    localMigrationId,
-                    targetSpace,
-                    _managedRuntimeState.ServerId,
-                    targetSpace.BindingGame
-                );
-                var entered = Entities.TryGetValue(targetSpace.EntityId, out var targetEntity)
-                    && targetEntity is SpaceEntity localTargetSpace
-                    && localTargetSpace.Enter(avatar);
-                avatar.SetImmigrationState(
-                    entered ? AvatarImmigrationState.Completed : AvatarImmigrationState.Failed,
-                    localMigrationId,
-                    targetSpace,
-                    _managedRuntimeState.ServerId,
-                    targetSpace.BindingGame
-                );
-                return entered;
-            }
-
-            var migrationId = Guid.NewGuid();
-            var message = new AvatarMigrationMessage
-            {
-                Command = AvatarMigrationCommand.FreezeRoute,
-                MigrationId = migrationId,
-                AvatarId = avatar.Guid,
-                TargetSpaceId = targetSpace.EntityId,
-                SourceGameServerId = _managedRuntimeState.ServerId,
-                TargetGameServerId = targetSpace.BindingGame,
-                GateServerId = avatar.Proxy.BindingGate,
-                ClientSessionId = AvatarClientSessionIds.TryGetValue(avatar.Guid, out var sessionId) ? sessionId : 0,
-            };
-            var context = new SourceAvatarMigrationContext
-            {
-                Avatar = avatar,
-                Message = message,
-                TargetSpace = targetSpace,
-                SourceSpaceId = avatar.CurrentSpaceId,
-            };
-            _sourceAvatarMigrations.Add(migrationId, context);
-            avatar.SetImmigrationState(
-                AvatarImmigrationState.FreezingRoute,
-                migrationId,
-                targetSpace,
-                message.SourceGameServerId,
-                message.TargetGameServerId
-            );
-            StartAvatarMigrationRetryTimer(context);
-            if (!SendGateMigrationMessage(context, AvatarMigrationCommand.FreezeRoute)
-                && context.RetryTimerId == 0)
-            {
-                FinishSourceMigration(context, AvatarImmigrationState.Failed);
-                return false;
-            }
-
-            return true;
-        }
-
-        internal bool HandleAvatarMigrationGameMessage(string sourceServerId, ServerRpcPayload rpc)
-        {
-            if (!AvatarMigrationProtocol.TryDeserialize(rpc, out var message)
-                || !string.Equals(sourceServerId, message.GateServerId, StringComparison.Ordinal)
-                || !string.Equals(rpc.TargetServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
-            {
-                DELogger.Warn(nameof(GameServerRuntimeState), "Received invalid Avatar migration Game message.");
-                return false;
-            }
-
-            switch (message.Command)
-            {
-            case AvatarMigrationCommand.PrepareTarget:
-                return HandlePrepareTarget(message);
-            case AvatarMigrationCommand.ActivateTarget:
-                return HandleActivateTarget(message);
-            case AvatarMigrationCommand.CompleteTarget:
-                return HandleCompleteTarget(message);
-            case AvatarMigrationCommand.AbortTarget:
-                return HandleAbortTarget(message);
-            case AvatarMigrationCommand.RouteFrozen:
-            case AvatarMigrationCommand.TargetPrepared:
-            case AvatarMigrationCommand.TargetActivated:
-            case AvatarMigrationCommand.RouteCommitted:
-            case AvatarMigrationCommand.TargetCompleted:
-            case AvatarMigrationCommand.TargetAborted:
-            case AvatarMigrationCommand.RouteRolledBack:
-                return HandleSourceMigrationResponse(message);
-            default:
-                return false;
-            }
-        }
-
-        internal bool UnregisterLocalEntity(ServerEntity entity)
-        {
-            if (entity == null)
-            {
-                return false;
-            }
-
-            var removed = false;
-            if (Entities.TryGetValue(entity.Guid, out var registeredEntity)
-                && ReferenceEquals(registeredEntity, entity))
-            {
-                Entities.Remove(entity.Guid);
-                removed = true;
-            }
-
-            if (entity is AvatarEntity avatar
-                && Avatars.TryGetValue(entity.Guid, out var registeredAvatar)
-                && ReferenceEquals(registeredAvatar, avatar))
-            {
-                Avatars.Remove(entity.Guid);
-                AvatarClientSessionIds.Remove(entity.Guid);
-                removed = true;
-            }
-
-            return removed;
-        }
-
-        internal void ClearAvatarImmigrations()
-        {
-            foreach (var context in _sourceAvatarMigrations.Values)
-            {
-                CancelAvatarMigrationRetryTimer(context);
-            }
-
-            _sourceAvatarMigrations.Clear();
-            _targetAvatarMigrations.Clear();
-            _lastAbortedTargetAvatarMigrations.Clear();
-            _lastCompletedTargetAvatarMigrations.Clear();
-        }
-
-        private bool HandleSourceMigrationResponse(AvatarMigrationMessage response)
-        {
-            if (!_sourceAvatarMigrations.TryGetValue(response.MigrationId, out var context)
-                || !IsSameMigration(context.Message, response))
-            {
-                return false;
-            }
-
-            var avatar = context.Avatar;
-            switch (response.Command)
-            {
-            case AvatarMigrationCommand.RouteFrozen:
-                if (!response.Success)
-                {
-                    FinishSourceMigration(context, AvatarImmigrationState.Failed);
-                    return true;
-                }
-
-                if (avatar.ImmigrationState != AvatarImmigrationState.FreezingRoute)
-                {
-                    return true;
-                }
-
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.Serializing,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                if (context.SourceSpaceId != Guid.Empty
-                    && Entities.TryGetValue(context.SourceSpaceId, out var frozenSourceEntity)
-                    && frozenSourceEntity is SpaceEntity frozenSourceSpace)
-                {
-                    frozenSourceSpace.Leave(avatar);
-                }
-
-                try
-                {
-                    context.AvatarData = EntitySerializer.Serialize(avatar, EntitySerializeReason.Migrate);
-                }
-                catch (Exception exception)
-                {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to serialize Avatar for immigration: {exception}");
-                    BeginAvatarMigrationRollback(context);
-                    return true;
-                }
-
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.PreparingTarget,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.PrepareTarget, true);
-                return true;
-
-            case AvatarMigrationCommand.TargetPrepared:
-                if (avatar.ImmigrationState != AvatarImmigrationState.PreparingTarget)
-                {
-                    return true;
-                }
-
-                if (!response.Success)
-                {
-                    DELogger.Warn(nameof(GameServerRuntimeState), $"Target rejected Avatar immigration preparation: {response.Error}");
-                    BeginAvatarMigrationRollback(context);
-                    return true;
-                }
-
-                context.TargetWasPrepared = true;
-                context.AvatarData = Array.Empty<byte>();
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.TargetPrepared,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.ActivatingTarget,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.ActivateTarget, false);
-                return true;
-
-            case AvatarMigrationCommand.TargetActivated:
-                if (avatar.ImmigrationState != AvatarImmigrationState.ActivatingTarget)
-                {
-                    return true;
-                }
-
-                if (!response.Success)
-                {
-                    DELogger.Warn(nameof(GameServerRuntimeState), $"Target failed to activate immigrating Avatar: {response.Error}");
-                    BeginAvatarMigrationRollback(context);
-                    return true;
-                }
-
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.TargetActivated,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.CommittingRoute,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                SendGateMigrationMessage(context, AvatarMigrationCommand.CommitRoute);
-                return true;
-
-            case AvatarMigrationCommand.RouteCommitted:
-                if (!response.Success)
-                {
-                    BeginAvatarMigrationRollback(context);
-                    return true;
-                }
-
-                if (avatar.ImmigrationState == AvatarImmigrationState.CompletingTarget)
-                {
-                    return true;
-                }
-
-                if (avatar.ImmigrationState != AvatarImmigrationState.CommittingRoute)
-                {
-                    return true;
-                }
-
-                UnregisterLocalEntity(avatar);
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.CompletingTarget,
-                    response.MigrationId,
-                    context.TargetSpace,
-                    response.SourceGameServerId,
-                    response.TargetGameServerId
-                );
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.CompleteTarget, false);
-                return true;
-
-            case AvatarMigrationCommand.TargetCompleted:
-                if (response.Success)
-                {
-                    FinishSourceMigration(context, AvatarImmigrationState.Completed);
-                }
-
-                return true;
-
-            case AvatarMigrationCommand.TargetAborted:
-                if (avatar.ImmigrationState == AvatarImmigrationState.RollingBack
-                    && response.Success)
-                {
-                    context.TargetWasAborted = true;
-                    SendGateMigrationMessage(context, AvatarMigrationCommand.RollbackRoute);
-                }
-
-                return true;
-
-            case AvatarMigrationCommand.RouteRolledBack:
-                if (context.SourceSpaceId != Guid.Empty
-                    && (!Entities.TryGetValue(context.SourceSpaceId, out var rollbackSourceEntity)
-                        || rollbackSourceEntity is not SpaceEntity rollbackSourceSpace
-                        || !rollbackSourceSpace.Enter(avatar)))
-                {
-                    DELogger.Error(
-                        nameof(GameServerRuntimeState),
-                        $"Failed to restore Avatar to source Space after immigration rollback, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}."
-                    );
-                }
-
-                FinishSourceMigration(context, AvatarImmigrationState.Failed);
-                return true;
-
-            default:
-                return false;
-            }
-        }
-
-        private bool HandlePrepareTarget(AvatarMigrationMessage request)
-        {
-            if (!string.Equals(request.TargetGameServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            if (_lastAbortedTargetAvatarMigrations.TryGetValue(request.AvatarId, out var abortedMigrationId)
-                && abortedMigrationId == request.MigrationId)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "migration was aborted");
-            }
-
-            if (_lastCompletedTargetAvatarMigrations.TryGetValue(request.AvatarId, out var completedMigrationId)
-                && completedMigrationId == request.MigrationId)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, true);
-            }
-
-            if (_targetAvatarMigrations.TryGetValue(request.MigrationId, out var existingContext))
-            {
-                var isSameMigration = IsSameMigration(existingContext.Message, request);
-                return SendTargetResponse(
-                    request,
-                    AvatarMigrationCommand.TargetPrepared,
-                    isSameMigration,
-                    isSameMigration ? string.Empty : "migration id collision"
-                );
-            }
-
-            if (request.TargetSpaceId == Guid.Empty
-                || !Entities.TryGetValue(request.TargetSpaceId, out var targetEntity)
-                || !(targetEntity is SpaceEntity))
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "target Space does not exist on target Game");
-            }
-
-            if (Entities.ContainsKey(request.AvatarId))
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "an entity with the Avatar id already exists on target Game");
-            }
-
-            _lastAbortedTargetAvatarMigrations.Remove(request.AvatarId);
-            _lastCompletedTargetAvatarMigrations.Remove(request.AvatarId);
-
-            AvatarEntity candidate = null;
-            try
-            {
-                candidate = CreateAvatarInstance();
-                if (candidate == null)
-                {
-                    return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "failed to construct target Avatar");
-                }
-
-                if (!EntitySerializer.TryDeserialize(candidate, EntitySerializeReason.Migrate, request.AvatarData)
-                    || candidate.Guid != request.AvatarId)
-                {
-                    return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "invalid Avatar migration snapshot");
-                }
-
-                candidate.AttachToGateServer(request.GateServerId);
-                request.AvatarData = Array.Empty<byte>();
-                var targetSpace = new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId);
-                candidate.SetImmigrationState(
-                    AvatarImmigrationState.TargetPrepared,
-                    request.MigrationId,
-                    targetSpace,
-                    request.SourceGameServerId,
-                    request.TargetGameServerId
-                );
-                _targetAvatarMigrations.Add(
-                    request.MigrationId,
-                    new TargetAvatarMigrationContext
-                    {
-                        Avatar = candidate,
-                        Message = request,
-                    }
-                );
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, true);
-            }
-            catch (Exception exception)
-            {
-                if (candidate != null)
-                {
-                    UnregisterLocalEntity(candidate);
-                }
-
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare immigrating Avatar: {exception}");
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, exception.Message);
-            }
-        }
-
-        private bool HandleActivateTarget(AvatarMigrationMessage request)
-        {
-            if (!_targetAvatarMigrations.TryGetValue(request.MigrationId, out var context)
-                || !IsSameMigration(context.Message, request))
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "target Avatar was not prepared");
-            }
-
-            if (context.IsActivated)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, true);
-            }
-
-            var avatar = context.Avatar;
-            if (Avatars.TryGetValue(avatar.Guid, out var existingAvatar)
-                && !ReferenceEquals(existingAvatar, avatar))
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "another Avatar instance is active on target Game");
-            }
-
-            try
-            {
-                RegisterLocalEntity(avatar);
-                if (request.ClientSessionId != 0)
-                {
-                    AvatarClientSessionIds[avatar.Guid] = request.ClientSessionId;
-                }
-
-                if (!Entities.TryGetValue(request.TargetSpaceId, out var targetEntity)
-                    || targetEntity is not SpaceEntity targetSpace
-                    || !targetSpace.Enter(avatar))
-                {
-                    UnregisterLocalEntity(avatar);
-                    return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "failed to enter target Space");
-                }
-
-                context.IsActivated = true;
-                avatar.SetImmigrationState(
-                    AvatarImmigrationState.TargetActivated,
-                    request.MigrationId,
-                    new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId),
-                    request.SourceGameServerId,
-                    request.TargetGameServerId
-                );
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, true);
-            }
-            catch (Exception exception)
-            {
-                if (Entities.TryGetValue(request.TargetSpaceId, out var targetEntity)
-                    && targetEntity is SpaceEntity targetSpace)
-                {
-                    targetSpace.Leave(avatar);
-                }
-
-                UnregisterLocalEntity(avatar);
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, exception.Message);
-            }
-        }
-
-        private bool HandleCompleteTarget(AvatarMigrationMessage request)
-        {
-            if (_lastCompletedTargetAvatarMigrations.TryGetValue(request.AvatarId, out var completedMigrationId)
-                && completedMigrationId == request.MigrationId)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, true);
-            }
-
-            if (!_targetAvatarMigrations.TryGetValue(request.MigrationId, out var context)
-                || !IsSameMigration(context.Message, request)
-                || !context.IsActivated)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, false, "target Avatar is not active");
-            }
-
-            context.Avatar.SetImmigrationState(
-                AvatarImmigrationState.Completed,
-                request.MigrationId,
-                new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId),
-                request.SourceGameServerId,
-                request.TargetGameServerId
-            );
-            _lastCompletedTargetAvatarMigrations[request.AvatarId] = request.MigrationId;
-            _lastAbortedTargetAvatarMigrations.Remove(request.AvatarId);
-            _targetAvatarMigrations.Remove(request.MigrationId);
-
-            return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, true);
-        }
-
-        private bool HandleAbortTarget(AvatarMigrationMessage request)
-        {
-            if (_lastCompletedTargetAvatarMigrations.TryGetValue(request.AvatarId, out var completedMigrationId)
-                && completedMigrationId == request.MigrationId)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, false, "target migration is already completed");
-            }
-
-            if (_lastAbortedTargetAvatarMigrations.TryGetValue(request.AvatarId, out var abortedMigrationId)
-                && abortedMigrationId == request.MigrationId)
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, true);
-            }
-
-            _lastAbortedTargetAvatarMigrations[request.AvatarId] = request.MigrationId;
-            if (!_targetAvatarMigrations.TryGetValue(request.MigrationId, out var context)
-                || !IsSameMigration(context.Message, request))
-            {
-                return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, true);
-            }
-
-            if (context.IsActivated)
-            {
-                if (Entities.TryGetValue(request.TargetSpaceId, out var targetEntity)
-                    && targetEntity is SpaceEntity targetSpace)
-                {
-                    targetSpace.Leave(context.Avatar);
-                }
-
-                UnregisterLocalEntity(context.Avatar);
-            }
-
-            context.Avatar.SetImmigrationState(
-                AvatarImmigrationState.Failed,
-                request.MigrationId,
-                new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId),
-                request.SourceGameServerId,
-                request.TargetGameServerId
-            );
-            _targetAvatarMigrations.Remove(request.MigrationId);
-            return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, true);
-        }
-
-        private void BeginAvatarMigrationRollback(SourceAvatarMigrationContext context)
-        {
-            context.Avatar.SetImmigrationState(
-                AvatarImmigrationState.RollingBack,
-                context.Message.MigrationId,
-                context.TargetSpace,
-                context.Message.SourceGameServerId,
-                context.Message.TargetGameServerId
-            );
-            if (context.TargetWasPrepared)
-            {
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.AbortTarget, false);
-                return;
-            }
-
-            SendGateMigrationMessage(context, AvatarMigrationCommand.RollbackRoute);
-        }
-
-        private AvatarEntity CreateAvatarInstance()
-        {
-            return Activator.CreateInstance(AvatarType) as AvatarEntity;
-        }
-
-        private void RetryAvatarMigration(Guid migrationId)
-        {
-            if (!_sourceAvatarMigrations.TryGetValue(migrationId, out var context))
-            {
-                return;
-            }
-
-            switch (context.Avatar.ImmigrationState)
-            {
-            case AvatarImmigrationState.FreezingRoute:
-                SendGateMigrationMessage(context, AvatarMigrationCommand.FreezeRoute);
-                break;
-            case AvatarImmigrationState.PreparingTarget:
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.PrepareTarget, true);
-                break;
-            case AvatarImmigrationState.ActivatingTarget:
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.ActivateTarget, false);
-                break;
-            case AvatarImmigrationState.CommittingRoute:
-                SendGateMigrationMessage(context, AvatarMigrationCommand.CommitRoute);
-                break;
-            case AvatarImmigrationState.CompletingTarget:
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.CompleteTarget, false);
-                break;
-            case AvatarImmigrationState.RollingBack:
-                if (context.TargetWasPrepared && !context.TargetWasAborted)
-                {
-                    SendTargetMigrationMessage(context, AvatarMigrationCommand.AbortTarget, false);
-                    break;
-                }
-
-                SendGateMigrationMessage(context, AvatarMigrationCommand.RollbackRoute);
-                break;
-            }
-        }
-
-        private bool SendGateMigrationMessage(SourceAvatarMigrationContext context, AvatarMigrationCommand command)
-        {
-            var message = CopyMessage(context.Message, command);
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGate,
-                string.Empty,
-                message
-            );
-            return NativeAPI.SendServerRpcToServer(message.GateServerId, payload);
-        }
-
-        private bool SendTargetMigrationMessage(
-            SourceAvatarMigrationContext context,
-            AvatarMigrationCommand command,
-            bool includeAvatarData)
-        {
-            var message = CopyMessage(context.Message, command);
-            message.AvatarData = includeAvatarData ? context.AvatarData : Array.Empty<byte>();
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
-                message.TargetGameServerId,
-                message
-            );
-            return NativeAPI.SendServerRpcToServer(message.GateServerId, payload);
-        }
-
-        private bool SendTargetResponse(
-            AvatarMigrationMessage request,
-            AvatarMigrationCommand command,
-            bool success,
-            string error = null)
-        {
-            var response = request.CreateResponse(command, success, error);
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
-                request.SourceGameServerId,
-                response
-            );
-            return NativeAPI.SendServerRpcToServer(request.GateServerId, payload);
-        }
-
-        private void StartAvatarMigrationRetryTimer(SourceAvatarMigrationContext context)
-        {
-            try
-            {
-                context.RetryTimerId = DETimer.AddTimer(
-                    AvatarMigrationRetryMilliseconds,
-                    () => RetryAvatarMigration(context.Message.MigrationId),
-                    true
-                );
-            }
-            catch (Exception exception)
-            {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to start Avatar immigration retry timer: {exception}");
-            }
-        }
-
-        private static void CancelAvatarMigrationRetryTimer(SourceAvatarMigrationContext context)
-        {
-            if (context.RetryTimerId != 0)
-            {
-                DETimer.CancelTimer(context.RetryTimerId);
-                context.RetryTimerId = 0;
-            }
-        }
-
-        private void FinishSourceMigration(SourceAvatarMigrationContext context, AvatarImmigrationState state)
-        {
-            CancelAvatarMigrationRetryTimer(context);
-            context.Avatar.SetImmigrationState(
-                state,
-                context.Message.MigrationId,
-                context.TargetSpace,
-                context.Message.SourceGameServerId,
-                context.Message.TargetGameServerId
-            );
-            _sourceAvatarMigrations.Remove(context.Message.MigrationId);
-        }
-
-        private static AvatarMigrationMessage CopyMessage(AvatarMigrationMessage source, AvatarMigrationCommand command)
-        {
-            return new AvatarMigrationMessage
-            {
-                Command = command,
-                MigrationId = source.MigrationId,
-                AvatarId = source.AvatarId,
-                TargetSpaceId = source.TargetSpaceId,
-                SourceGameServerId = source.SourceGameServerId,
-                TargetGameServerId = source.TargetGameServerId,
-                GateServerId = source.GateServerId,
-                ClientSessionId = source.ClientSessionId,
-            };
-        }
-
-        internal static bool IsSameMigration(AvatarMigrationMessage left, AvatarMigrationMessage right)
-        {
-            return left.MigrationId == right.MigrationId
-                && left.AvatarId == right.AvatarId
-                && left.TargetSpaceId == right.TargetSpaceId
-                && left.ClientSessionId == right.ClientSessionId
-                && string.Equals(left.SourceGameServerId, right.SourceGameServerId, StringComparison.Ordinal)
-                && string.Equals(left.TargetGameServerId, right.TargetGameServerId, StringComparison.Ordinal)
-                && string.Equals(left.GateServerId, right.GateServerId, StringComparison.Ordinal);
-        }
     }
 
     internal enum QueuedAvatarMigrationMessageKind
@@ -953,262 +398,5 @@ namespace DE.Server.NativeBridge
     {
         public AvatarMigrationMessage Message;
         public readonly Queue<QueuedAvatarMigrationMessage> Messages = new Queue<QueuedAvatarMigrationMessage>();
-    }
-
-    public sealed partial class GateServerRuntimeState
-    {
-        private readonly Dictionary<Guid, GateAvatarMigrationContext> _gateAvatarMigrations =
-            new Dictionary<Guid, GateAvatarMigrationContext>();
-
-        internal bool HandleAvatarMigrationGateMessage(string sourceServerId, ServerRpcPayload rpc)
-        {
-            if (!AvatarMigrationProtocol.TryDeserialize(rpc, out var message)
-                || !string.Equals(sourceServerId, message.SourceGameServerId, StringComparison.Ordinal)
-                || !string.Equals(message.GateServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            switch (message.Command)
-            {
-            case AvatarMigrationCommand.FreezeRoute:
-                return HandleFreezeRoute(message);
-            case AvatarMigrationCommand.CommitRoute:
-                return HandleCommitRoute(message);
-            case AvatarMigrationCommand.RollbackRoute:
-                return HandleRollbackRoute(message);
-            default:
-                return false;
-            }
-        }
-
-        internal bool TryQueueClientAvatarRpc(Guid avatarId, byte[] payload)
-        {
-            return TryQueueAvatarMessage(
-                avatarId,
-                QueuedAvatarMigrationMessageKind.AvatarRpcToGame,
-                string.Empty,
-                payload
-            );
-        }
-
-        internal bool TryQueueAvatarProxyRpc(Guid avatarId, string sourceServerId, byte[] payload)
-        {
-            return TryQueueAvatarMessage(
-                avatarId,
-                QueuedAvatarMigrationMessageKind.ServerRpcToGame,
-                sourceServerId,
-                payload
-            );
-        }
-
-        internal bool TryQueueServerAvatarRpc(Guid avatarId, string sourceServerId, byte[] payload)
-        {
-            return TryQueueAvatarMessage(
-                avatarId,
-                QueuedAvatarMigrationMessageKind.AvatarRpcToClient,
-                sourceServerId,
-                payload
-            );
-        }
-
-        internal void ClearGateAvatarImmigrations()
-        {
-            _gateAvatarMigrations.Clear();
-        }
-
-        internal bool IsAvatarMigrationRouteFrozen(Guid avatarId)
-        {
-            return _gateAvatarMigrations.ContainsKey(avatarId);
-        }
-
-        private bool HandleFreezeRoute(AvatarMigrationMessage request)
-        {
-            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account))
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteFrozen, false, "Avatar route does not exist");
-            }
-
-            if (account.LastMigrationId == request.MigrationId)
-            {
-                var command = account.LastMigrationCommitted
-                    ? AvatarMigrationCommand.RouteCommitted
-                    : AvatarMigrationCommand.RouteRolledBack;
-                return SendGateResponse(request, command, true);
-            }
-
-            if (_gateAvatarMigrations.TryGetValue(request.AvatarId, out var existingContext))
-            {
-                var isSameMigration = GameServerRuntimeState.IsSameMigration(existingContext.Message, request);
-                return SendGateResponse(
-                    request,
-                    AvatarMigrationCommand.RouteFrozen,
-                    isSameMigration,
-                    isSameMigration ? string.Empty : "another migration is active"
-                );
-            }
-
-            if (!string.Equals(account.GameServerId, request.SourceGameServerId, StringComparison.Ordinal))
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteFrozen, false, "source Game is not the current Avatar route");
-            }
-
-            _gateAvatarMigrations.Add(
-                request.AvatarId,
-                new GateAvatarMigrationContext
-                {
-                    Message = request,
-                }
-            );
-            return SendGateResponse(request, AvatarMigrationCommand.RouteFrozen, true);
-        }
-
-        private bool HandleCommitRoute(AvatarMigrationMessage request)
-        {
-            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account))
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, false, "Avatar route does not exist");
-            }
-
-            if (account.LastMigrationId == request.MigrationId && account.LastMigrationCommitted)
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, true);
-            }
-
-            if (!_gateAvatarMigrations.TryGetValue(request.AvatarId, out var context)
-                || !GameServerRuntimeState.IsSameMigration(context.Message, request))
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, false, "migration route is not frozen");
-            }
-
-            if (!FlushGateQueue(context, true, account.ClientSessionId))
-            {
-                return false;
-            }
-
-            account.GameServerId = request.TargetGameServerId;
-            account.LastMigrationId = request.MigrationId;
-            account.LastMigrationCommitted = true;
-            _gateAvatarMigrations.Remove(request.AvatarId);
-            return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, true);
-        }
-
-        private bool HandleRollbackRoute(AvatarMigrationMessage request)
-        {
-            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account))
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, false, "Avatar route does not exist");
-            }
-
-            if (account.LastMigrationId == request.MigrationId && !account.LastMigrationCommitted)
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, true);
-            }
-
-            if (!_gateAvatarMigrations.TryGetValue(request.AvatarId, out var context)
-                || !GameServerRuntimeState.IsSameMigration(context.Message, request))
-            {
-                return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, false, "migration route is not frozen");
-            }
-
-            if (!FlushGateQueue(context, false, account.ClientSessionId))
-            {
-                return false;
-            }
-
-            account.GameServerId = request.SourceGameServerId;
-            account.LastMigrationId = request.MigrationId;
-            account.LastMigrationCommitted = false;
-            _gateAvatarMigrations.Remove(request.AvatarId);
-            return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, true);
-        }
-
-        private bool TryQueueAvatarMessage(
-            Guid avatarId,
-            QueuedAvatarMigrationMessageKind kind,
-            string sourceServerId,
-            byte[] payload)
-        {
-            if (!_gateAvatarMigrations.TryGetValue(avatarId, out var context))
-            {
-                return false;
-            }
-
-            context.Messages.Enqueue(
-                new QueuedAvatarMigrationMessage
-                {
-                    Kind = kind,
-                    SourceServerId = sourceServerId ?? string.Empty,
-                    Payload = payload == null ? Array.Empty<byte>() : (byte[])payload.Clone(),
-                }
-            );
-            return true;
-        }
-
-        private bool FlushGateQueue(GateAvatarMigrationContext context, bool commit, ulong clientSessionId)
-        {
-            while (context.Messages.Count > 0)
-            {
-                var message = context.Messages.Peek();
-                bool sent;
-                switch (message.Kind)
-                {
-                case QueuedAvatarMigrationMessageKind.AvatarRpcToGame:
-                    sent = NativeAPI.SendAvatarRpcToServer(
-                        commit ? context.Message.TargetGameServerId : context.Message.SourceGameServerId,
-                        message.Payload
-                    );
-                    break;
-                case QueuedAvatarMigrationMessageKind.ServerRpcToGame:
-                    sent = NativeAPI.SendServerRpcToServer(
-                        commit ? context.Message.TargetGameServerId : context.Message.SourceGameServerId,
-                        message.Payload
-                    );
-                    break;
-                case QueuedAvatarMigrationMessageKind.AvatarRpcToClient:
-                    if (clientSessionId == 0)
-                    {
-                        context.Messages.Dequeue();
-                        continue;
-                    }
-
-                    if (!commit
-                        && !string.Equals(message.SourceServerId, context.Message.SourceGameServerId, StringComparison.Ordinal))
-                    {
-                        context.Messages.Dequeue();
-                        continue;
-                    }
-
-                    sent = NativeAPI.SendAvatarRpcToClient(clientSessionId, message.Payload);
-                    break;
-                default:
-                    return false;
-                }
-
-                if (!sent)
-                {
-                    return false;
-                }
-
-                context.Messages.Dequeue();
-            }
-
-            return true;
-        }
-
-        private bool SendGateResponse(
-            AvatarMigrationMessage request,
-            AvatarMigrationCommand command,
-            bool success,
-            string error = null)
-        {
-            var response = request.CreateResponse(command, success, error);
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
-                request.SourceGameServerId,
-                response
-            );
-            return NativeAPI.SendServerRpcToServer(request.SourceGameServerId, payload);
-        }
     }
 }

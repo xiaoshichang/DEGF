@@ -69,28 +69,14 @@ namespace DE.Server.Entities
                     return false;
                 }
 
-                return true;
+                DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar is already in the Space, avatarId={avatar.Guid}, spaceId={Guid}.");
+                return false;
             }
 
             if (avatar.CurrentSpaceId != Guid.Empty)
             {
-                if (!runtime.Entities.TryGetValue(avatar.CurrentSpaceId, out var currentEntity))
-                {
-                    DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar CurrentSpaceId does not resolve to a local Entity, avatarId={avatar.Guid}, targetSpaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
-                    return false;
-                }
-
-                if (currentEntity is not SpaceEntity currentSpace)
-                {
-                    DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar CurrentSpaceId resolves to a non-Space Entity, avatarId={avatar.Guid}, targetSpaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}, currentEntityType={currentEntity?.GetType().FullName ?? "<null>"}.");
-                    return false;
-                }
-
-                if (!currentSpace.Leave(avatar))
-                {
-                    DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar could not leave its current Space, avatarId={avatar.Guid}, targetSpaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
-                    return false;
-                }
+                DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar must explicitly leave its current Space first, avatarId={avatar.Guid}, targetSpaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
+                return false;
             }
 
             _avatars.Add(avatar.Guid, avatar);

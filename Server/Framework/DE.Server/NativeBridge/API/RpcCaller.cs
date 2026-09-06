@@ -10,6 +10,8 @@ namespace DE.Server.NativeBridge
         Entity = 1,
         Stub = 2,
         AvatarProxy = 3,
+        AvatarMigrationGame = 4,
+        AvatarMigrationGate = 5,
     }
 
     public struct ServerRpcPayload

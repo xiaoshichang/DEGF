@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using DE.Server.NativeBridge;
 using DE.Share.Entities;
 using DE.Share.Rpc;
 
@@ -10,12 +7,10 @@ namespace DE.Server.Entities
     {
         protected ServerEntity()
         {
-            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
 
         protected ServerEntity(object entityDocument) : base(entityDocument)
         {
-            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
 
         public EntityMailBox MailBox { get; private set; }

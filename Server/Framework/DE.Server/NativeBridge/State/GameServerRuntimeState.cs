@@ -9,7 +9,7 @@ using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge
 {
-    public sealed class GameServerRuntimeState
+    public sealed partial class GameServerRuntimeState
     {
         private readonly ManagedRuntimeState _managedRuntimeState;
 
@@ -78,6 +78,7 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
+            ClearAvatarImmigrations();
             ReadyStubs.Clear();
             StubInstances.Clear();
             Avatars.Clear();
@@ -141,6 +142,19 @@ namespace DE.Server.NativeBridge
             if (entity.Guid == Guid.Empty)
             {
                 throw new InvalidOperationException("Cannot register an entity with an empty guid.");
+            }
+
+            if (Entities.TryGetValue(entity.Guid, out var existingEntity)
+                && !ReferenceEquals(existingEntity, entity))
+            {
+                throw new InvalidOperationException($"Another entity with guid {entity.Guid} is already registered.");
+            }
+
+            if (entity is AvatarEntity registeringAvatar
+                && Avatars.TryGetValue(entity.Guid, out var existingAvatar)
+                && !ReferenceEquals(existingAvatar, registeringAvatar))
+            {
+                throw new InvalidOperationException($"Another avatar with guid {entity.Guid} is already registered.");
             }
 
             entity.AttachToGameServer(_managedRuntimeState.ServerId);
@@ -208,6 +222,8 @@ namespace DE.Server.NativeBridge
                 return InvokeEntityRpc(sourceServerId, rpc);
             case ServerRpcTargetKind.AvatarProxy:
                 return InvokeAvatarProxyRpc(sourceServerId, rpc);
+            case ServerRpcTargetKind.AvatarMigrationGame:
+                return HandleAvatarMigrationGameMessage(sourceServerId, rpc);
             default:
                 DELogger.Warn(nameof(GameServerRuntimeState), $"Unknown server RPC target kind {rpc.TargetKind}, sourceServerId={sourceServerId}.");
                 return false;
@@ -339,13 +355,19 @@ namespace DE.Server.NativeBridge
                 );
             }
 
-            var avatar = Activator.CreateInstance(AvatarType) as AvatarEntity;
+            if (Entities.ContainsKey(avatarId))
+            {
+                return new CreateAvatarResult(false, 409, "another entity uses the avatar id", Array.Empty<byte>());
+            }
+
+            var avatar = CreateAvatarInstance();
             if (avatar == null)
             {
                 return new CreateAvatarResult(false, 500, "failed to create avatar entity", Array.Empty<byte>());
             }
 
             avatar.Guid = avatarId;
+            RegisterLocalEntity(avatar);
             avatar.AttachToGateServer(gateServerId);
             NotifyAvatarClientAttached(avatar, clientSessionId);
 

@@ -16,9 +16,11 @@ namespace DE.Server.NativeBridge
         public ulong ClientSessionId { get; set; }
         public string GameServerId { get; set; } = string.Empty;
         public bool CreateAvatarPending { get; set; }
+        public Guid LastMigrationId { get; set; }
+        public bool LastMigrationCommitted { get; set; }
     }
 
-    public sealed class GateServerRuntimeState
+    public sealed partial class GateServerRuntimeState
     {
         private const int ReplacedByNewLoginStatusCode = 409;
 
@@ -85,28 +87,51 @@ namespace DE.Server.NativeBridge
                 : account.Trim();
             var avatarId = GenerateStableAvatarId(accountName);
 
+            if (AccountToAvatarId.TryGetValue(accountName, out var migratingAvatarId)
+                && IsAvatarMigrationRouteFrozen(migratingAvatarId))
+            {
+                return NativeAPI.SendAvatarLoginRsp(
+                    clientSessionId,
+                    migratingAvatarId,
+                    false,
+                    ReplacedByNewLoginStatusCode,
+                    "Avatar migration is in progress",
+                    Array.Empty<byte>()
+                );
+            }
+
             var createAvatarPending = false;
+            var existingGameServerId = string.Empty;
+            var lastMigrationId = Guid.Empty;
+            var lastMigrationCommitted = false;
             if (AccountToAvatarId.TryGetValue(accountName, out var existedAvatarId)
                 && AvatarIdToAccount.TryGetValue(existedAvatarId, out var existedAccount))
             {
                 createAvatarPending = existedAccount.CreateAvatarPending;
+                existingGameServerId = existedAccount.GameServerId;
+                lastMigrationId = existedAccount.LastMigrationId;
+                lastMigrationCommitted = existedAccount.LastMigrationCommitted;
                 if (existedAccount.ClientSessionId != clientSessionId)
                 {
-                    if (!existedAccount.CreateAvatarPending)
+                    if (existedAccount.ClientSessionId != 0 && !existedAccount.CreateAvatarPending)
                     {
                         NotifyAvatarClientDetached(existedAccount, AvatarClientDetachReason.ReplacedByNewLogin);
                     }
 
-                    NativeAPI.SendAvatarLoginRsp(
-                        existedAccount.ClientSessionId,
-                        avatarId,
-                        false,
-                        ReplacedByNewLoginStatusCode,
-                        "account logged in from another client",
-                        Array.Empty<byte>()
-                    );
-                    ClientSessionIdToAvatarId.Remove(existedAccount.ClientSessionId);
-                    NativeAPI.ActiveDisconnectClient(existedAccount.ClientSessionId);
+                    if (existedAccount.ClientSessionId != 0)
+                    {
+                        NativeAPI.SendAvatarLoginRsp(
+                            existedAccount.ClientSessionId,
+                            avatarId,
+                            false,
+                            ReplacedByNewLoginStatusCode,
+                            "account logged in from another client",
+                            Array.Empty<byte>()
+                        );
+                        ClientSessionIdToAvatarId.Remove(existedAccount.ClientSessionId);
+                        NativeAPI.ActiveDisconnectClient(existedAccount.ClientSessionId);
+                    }
+
                     DELogger.Info(
                         nameof(GateServerRuntimeState),
                         $"Kicked previous login session, account={accountName}, oldClientSessionId={existedAccount.ClientSessionId}, newClientSessionId={clientSessionId}, avatarId={avatarId}."
@@ -119,7 +144,10 @@ namespace DE.Server.NativeBridge
                 AvatarId = avatarId,
                 Account = accountName,
                 ClientSessionId = clientSessionId,
+                GameServerId = existingGameServerId,
                 CreateAvatarPending = createAvatarPending,
+                LastMigrationId = lastMigrationId,
+                LastMigrationCommitted = lastMigrationCommitted,
             };
             AvatarIdToAccount[avatarId] = avatarAccount;
             AccountToAvatarId[accountName] = avatarId;
@@ -149,7 +177,10 @@ namespace DE.Server.NativeBridge
                 return NativeAPI.SendAvatarLoginRsp(0, Guid.Empty, false, 400, "avatar id is empty", Array.Empty<byte>());
             }
 
-            var gameServerId = _managedRuntimeState.SelectGameServerId(avatarId);
+            AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount);
+            var gameServerId = avatarAccount == null || string.IsNullOrWhiteSpace(avatarAccount.GameServerId)
+                ? _managedRuntimeState.SelectGameServerId(avatarId)
+                : avatarAccount.GameServerId;
             if (string.IsNullOrWhiteSpace(gameServerId))
             {
                 var sent = TrySendLoginRspByAvatarId(avatarId, false, 503, "no game server is available");
@@ -161,7 +192,7 @@ namespace DE.Server.NativeBridge
                 return sent;
             }
 
-            if (AvatarIdToAccount.TryGetValue(avatarId, out var avatarAccount))
+            if (avatarAccount != null)
             {
                 avatarAccount.GameServerId = gameServerId;
             }
@@ -244,6 +275,16 @@ namespace DE.Server.NativeBridge
                 NotifyAvatarClientDetached(avatarAccount, AvatarClientDetachReason.Disconnected);
             }
 
+            if (IsAvatarMigrationRouteFrozen(avatarId))
+            {
+                avatarAccount.ClientSessionId = 0;
+                DELogger.Info(
+                    nameof(GateServerRuntimeState),
+                    $"Kept Avatar route while disconnected client is migrating, account={avatarAccount.Account}, clientSessionId={clientSessionId}, avatarId={avatarId}."
+                );
+                return true;
+            }
+
             ClearAvatarAccount(avatarAccount);
 
             DELogger.Info(
@@ -275,6 +316,11 @@ namespace DE.Server.NativeBridge
             }
 
             var managedPayload = EnsureAvatarIdInPayload(avatarId, payload);
+            if (TryQueueClientAvatarRpc(avatarId, managedPayload))
+            {
+                return true;
+            }
+
             return NativeAPI.SendAvatarRpcToServer(avatarAccount.GameServerId, managedPayload);
         }
 
@@ -290,6 +336,11 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
+            if (TryQueueServerAvatarRpc(avatarId, sourceServerId, payload))
+            {
+                return true;
+            }
+
             return NativeAPI.SendAvatarRpcToClient(avatarAccount.ClientSessionId, payload);
         }
 
@@ -301,11 +352,17 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
+            if (serverRpc.TargetKind == ServerRpcTargetKind.AvatarMigrationGate)
+            {
+                return HandleAvatarMigrationGateMessage(sourceServerId, serverRpc);
+            }
+
             return HandleServerRpcRelay(sourceServerId, serverRpc, payload);
         }
 
         public void Uninitialize()
         {
+            ClearGateAvatarImmigrations();
             AvatarIdToAccount.Clear();
             ClientSessionIdToAvatarId.Clear();
             AccountToAvatarId.Clear();
@@ -338,7 +395,7 @@ namespace DE.Server.NativeBridge
             }
         }
 
-        private static bool NotifyAvatarClientDetached(AvatarAccount avatarAccount, AvatarClientDetachReason reason)
+        private bool NotifyAvatarClientDetached(AvatarAccount avatarAccount, AvatarClientDetachReason reason)
         {
             if (avatarAccount == null || string.IsNullOrWhiteSpace(avatarAccount.GameServerId))
             {
@@ -353,12 +410,19 @@ namespace DE.Server.NativeBridge
                 "OnAvatarClientDetached",
                 new object[] { avatarAccount.ClientSessionId, reason }
             );
+            if (TryQueueAvatarProxyRpc(avatarAccount.AvatarId, _managedRuntimeState.ServerId, payload))
+            {
+                return true;
+            }
+
             return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, payload);
         }
 
         private bool HandleServerRpcRelay(string sourceServerId, ServerRpcPayload serverRpc, byte[] payload)
         {
-            if (serverRpc.TargetKind == ServerRpcTargetKind.Stub || serverRpc.TargetKind == ServerRpcTargetKind.Entity)
+            if (serverRpc.TargetKind == ServerRpcTargetKind.Stub
+                || serverRpc.TargetKind == ServerRpcTargetKind.Entity
+                || serverRpc.TargetKind == ServerRpcTargetKind.AvatarMigrationGame)
             {
                 if (string.IsNullOrWhiteSpace(serverRpc.TargetServerId))
                 {
@@ -389,6 +453,11 @@ namespace DE.Server.NativeBridge
                     $"Received avatar proxy RPC for unknown avatar route, avatarId={serverRpc.EntityId}, sourceServerId={sourceServerId}."
                 );
                 return false;
+            }
+
+            if (TryQueueAvatarProxyRpc(serverRpc.EntityId, sourceServerId, payload))
+            {
+                return true;
             }
 
             return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, payload);

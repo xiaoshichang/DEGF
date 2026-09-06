@@ -14,12 +14,10 @@ namespace DE.Server.Entities
     {
         public AvatarEntity()
         {
-            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
 
         public AvatarEntity(object entityDocument) : base(entityDocument)
         {
-            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
         
         public EntityProxy Proxy { get; private set; }

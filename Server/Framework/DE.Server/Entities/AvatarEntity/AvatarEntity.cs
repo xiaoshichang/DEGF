@@ -19,12 +19,7 @@ namespace DE.Server.Entities
         public AvatarEntity(object entityDocument) : base(entityDocument)
         {
         }
-
-        public override bool IsMigratable()
-        {
-            return true;
-        }
-
+        
         public EntityProxy Proxy { get; private set; }
 
         internal void AttachToGateServer(string bindingGate)

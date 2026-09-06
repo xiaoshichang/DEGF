@@ -18,7 +18,7 @@ namespace DE.Server.Entities
 
         public EntityMailBox MailBox { get; private set; }
 
-        public abstract bool IsMigratable();
+        public abstract bool IsImmigratable();
 
         internal void AttachToGameServer(string bindingGame)
         {

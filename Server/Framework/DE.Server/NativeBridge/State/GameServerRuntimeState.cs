@@ -350,7 +350,7 @@ namespace DE.Server.NativeBridge
             RegisterLocalEntity(avatar);
             NotifyAvatarClientAttached(avatar, clientSessionId);
 
-            StubCaller.Call("LoginStub", "OnAvatarLogin", avatar.Proxy);
+            ServerStubCaller.Call("LoginStub", "OnAvatarLogin", avatar.Proxy);
 
             DELogger.Info(
                 nameof(GameServerRuntimeState),

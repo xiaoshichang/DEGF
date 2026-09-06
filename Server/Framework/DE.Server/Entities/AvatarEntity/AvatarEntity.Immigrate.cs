@@ -2,7 +2,7 @@
 {
     public partial class AvatarEntity
     {
-        public override bool IsImmigratable()
+        public override bool IsAllowImmigrate()
         {
             return true;
         }

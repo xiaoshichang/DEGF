@@ -14,10 +14,12 @@ namespace DE.Server.Entities
     {
         public AvatarEntity()
         {
+            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
 
         public AvatarEntity(object entityDocument) : base(entityDocument)
         {
+            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
         
         public EntityProxy Proxy { get; private set; }
@@ -37,19 +39,25 @@ namespace DE.Server.Entities
         [ServerRpc]
         public virtual void OnAvatarLoginFinish()
         {
+#if DEBUG
             DELogger.Info(nameof(AvatarEntity), $"Avatar login registration finished, avatarId={Guid}.");
+#endif
         }
 
         [ServerRpc]
         public virtual void OnAvatarClientAttached(ulong clientSessionId)
         {
+#if DEBUG
             DELogger.Info(nameof(AvatarEntity), $"Avatar client attached, avatarId={Guid}, clientSessionId={clientSessionId}.");
+#endif
         }
 
         [ServerRpc]
         public virtual void OnAvatarClientDetached(ulong clientSessionId, AvatarClientDetachReason reason)
         {
+#if DEBUG
             DELogger.Info(nameof(AvatarEntity), $"Avatar client detached, avatarId={Guid}, clientSessionId={clientSessionId}, reason={reason}.");
+#endif
         }
     }
 

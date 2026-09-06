@@ -10,24 +10,21 @@ namespace DE.Server.Entities
     {
         protected ServerEntity()
         {
+            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
 
         protected ServerEntity(object entityDocument) : base(entityDocument)
         {
+            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
 
         public EntityMailBox MailBox { get; private set; }
 
-        public abstract bool IsImmigratable();
+        public abstract bool IsAllowImmigrate();
 
         internal void AttachToGameServer(string bindingGame)
         {
             MailBox = new EntityMailBox(Guid, bindingGame);
-        }
-
-        protected void RegisterLocalEntity()
-        {
-            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().RegisterLocalEntity(this);
         }
     }
 }

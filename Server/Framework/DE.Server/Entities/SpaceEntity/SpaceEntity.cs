@@ -10,7 +10,7 @@
         {
         }
     
-        public override bool IsImmigratable()
+        public override bool IsAllowImmigrate()
         {
             return false;
         }  

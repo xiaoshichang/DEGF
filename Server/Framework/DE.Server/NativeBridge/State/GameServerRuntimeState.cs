@@ -347,7 +347,6 @@ namespace DE.Server.NativeBridge
 
             avatar.Guid = avatarId;
             avatar.AttachToGateServer(gateServerId);
-            RegisterLocalEntity(avatar);
             NotifyAvatarClientAttached(avatar, clientSessionId);
 
             ServerStubCaller.Call("LoginStub", "OnAvatarLogin", avatar.Proxy);

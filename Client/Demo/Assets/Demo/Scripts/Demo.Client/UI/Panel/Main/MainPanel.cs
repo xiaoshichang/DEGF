@@ -7,7 +7,7 @@ using UnityEngine.UI;
 
 namespace Assets.Scripts.Demo.Client.UI
 {
-    [Panel("Demo/Asb/UI/Main/MainPanel.prefab")]
+    [PanelMeta("Demo/Asb/UI/Main/MainPanel.prefab")]
     public class MainPanel : PanelBase
     {
         protected override void Bind()

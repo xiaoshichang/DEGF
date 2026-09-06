@@ -7,7 +7,7 @@ namespace DE.Server.NativeBridge
 {
     public class ServerStubDistributeTable
     {
-        public Dictionary<string, List<string>> NodeToStubTypeKeys { get; set; } = new Dictionary<string, List<string>>();
+        public Dictionary<string, List<string>> NodeToStubTypeKeys { get; set; } = new();
 
         public IReadOnlyList<string> GetAssignedStubTypeKeys(string serverId)
         {

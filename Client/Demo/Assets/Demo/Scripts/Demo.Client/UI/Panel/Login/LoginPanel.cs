@@ -7,7 +7,7 @@ using UnityEngine.UI;
 
 namespace Assets.Scripts.Demo.Client.UI
 {
-    [Panel("Demo/Asb/UI/Login/LoginPanel.prefab")]
+    [PanelMeta("Demo/Asb/UI/Login/LoginPanel.prefab")]
     public class LoginPanel : PanelBase
     {
         protected override void Bind()

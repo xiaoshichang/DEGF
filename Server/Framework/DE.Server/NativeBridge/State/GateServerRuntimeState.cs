@@ -31,9 +31,9 @@ namespace DE.Server.NativeBridge
             _managedRuntimeState = managedRuntimeState ?? throw new ArgumentNullException(nameof(managedRuntimeState));
         }
 
-        public Dictionary<Guid, AvatarAccount> AvatarIdToAccount { get; } = new Dictionary<Guid, AvatarAccount>();
-        public Dictionary<ulong, Guid> ClientSessionIdToAvatarId { get; } = new Dictionary<ulong, Guid>();
-        public Dictionary<string, Guid> AccountToAvatarId { get; } = new Dictionary<string, Guid>(StringComparer.Ordinal);
+        public Dictionary<Guid, AvatarAccount> AvatarIdToAccount { get; } = new();
+        public Dictionary<ulong, Guid> ClientSessionIdToAvatarId { get; } = new();
+        public Dictionary<string, Guid> AccountToAvatarId { get; } = new(StringComparer.Ordinal);
 
         public GateAuthValidationResult ValidateAuth(GateAuthValidationRequest request)
         {

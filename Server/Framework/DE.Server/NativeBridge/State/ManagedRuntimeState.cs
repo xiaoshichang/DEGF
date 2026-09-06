@@ -46,13 +46,13 @@ namespace DE.Server.NativeBridge
         public string GameplayDllPath { get; private set; } = string.Empty;
         public Assembly GameplayAssembly { get; private set; }
         public ManagedClusterConfig ClusterConfig { get; private set; }
-        public List<Type> StubTypes { get; private set; } = new List<Type>();
+        public List<Type> StubTypes { get; private set; } = new();
         public ManagedRuntimeServerType ServerType { get; private set; }
         public GmCommandRuntimeState GmCommandRuntimeState { get; private set; }
         public GateServerRuntimeState GateServerRuntimeState { get; private set; }
         public GameServerRuntimeState GameServerRuntimeState { get; private set; }
         public DatabaseService DatabaseService { get; private set; }
-        public ServerStubDistributeTable StubDistributeTable { get; private set; } = new ServerStubDistributeTable();
+        public ServerStubDistributeTable StubDistributeTable { get; private set; } = new();
 
         private ManagedRuntimeState()
         {

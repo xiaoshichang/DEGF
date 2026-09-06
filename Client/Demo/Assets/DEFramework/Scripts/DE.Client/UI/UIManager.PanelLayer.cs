@@ -150,7 +150,7 @@ namespace Assets.Scripts.DE.Client.UI
                         continue;
                     }
 
-                    var attribute = type.GetCustomAttribute<PanelAttribute>(false);
+                    var attribute = type.GetCustomAttribute<PanelMetaAttribute>(false);
                     if (attribute == null)
                     {
                         DELogger.Warn("UIManager", "Ignore panel without PanelAttribute, panelType=" + type.FullName + ".");

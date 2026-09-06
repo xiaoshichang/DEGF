@@ -9,7 +9,7 @@ namespace DE.Server.NativeBridge
 {
     public sealed class ManagedClusterConfig
     {
-        private static readonly JsonSerializerOptions s_jsonSerializerOptions = new JsonSerializerOptions
+        private static readonly JsonSerializerOptions s_jsonSerializerOptions = new()
         {
             PropertyNameCaseInsensitive = true,
         };
@@ -18,10 +18,10 @@ namespace DE.Server.NativeBridge
         public DatabaseConfig Database { get; set; }
 
         [JsonPropertyName("gate")]
-        public Dictionary<string, JsonElement> Gate { get; set; } = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        public Dictionary<string, JsonElement> Gate { get; set; } = new(StringComparer.Ordinal);
 
         [JsonPropertyName("game")]
-        public Dictionary<string, JsonElement> Game { get; set; } = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        public Dictionary<string, JsonElement> Game { get; set; } = new(StringComparer.Ordinal);
 
         public static ManagedClusterConfig Load(string configPath)
         {

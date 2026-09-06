@@ -4,9 +4,9 @@ using UnityEngine;
 namespace Assets.Scripts.DE.Client.UI
 {
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-    public sealed class PanelAttribute : Attribute
+    public sealed class PanelMetaAttribute : Attribute
     {
-        public PanelAttribute(string prefabPath)
+        public PanelMetaAttribute(string prefabPath)
         {
             PrefabPath = prefabPath;
         }

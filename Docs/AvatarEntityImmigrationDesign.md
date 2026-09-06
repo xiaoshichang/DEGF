@@ -14,7 +14,7 @@
 4. 目标 Game 先反序列化出不可寻址的候选 Avatar，验证目标 Space 后再激活候选 Avatar并进入目标 Space。
 5. 只有目标 Avatar 激活并进入 Space 成功后，OwnerGate 才原子切换路由，并把迁移期间暂存的消息发往目标 Game或 Client。
 6. OwnerGate 的路由切换是提交点。提交前失败可以回滚到源 Avatar；提交后所有动态寻址都只到目标 Avatar。
-7. 每条迁移控制消息都携带全局唯一的 `MigrationId`，各阶段处理必须幂等；源 Game 会定时重发当前阶段的请求。
+7. 每条迁移控制消息都携带全局唯一的 `MigrationId`，各阶段处理必须幂等，并且只能在协议规定的精确状态下推进。
 
 ## 范围
 
@@ -26,7 +26,7 @@
 - 其他服务器通过 Avatar Proxy 发往 Avatar 的 RPC 在迁移期间不丢失。
 - Avatar 发往 Client 的 RPC 在路由冻结期间暂存，并在提交或回滚后按顺序发送。
 - 目标 Space 的存在性验证、目标端进入 Space、回滚时退出目标 Space。
-- 控制消息幂等和源端阶段超时重试。
+- 控制消息的幂等处理。
 
 第一版不覆盖：
 
@@ -38,11 +38,13 @@
 
 ## 公共 API
 
-Avatar 使用目标 Space 的 Mailbox 发起迁移：
+`GameServerRuntimeState` 提供统一的 Avatar 传送入口：
 
 ```csharp
-bool accepted = avatar.Immigrate(targetSpace.MailBox);
+bool result = gameRuntimeState.Teleport(avatar, targetSpace.MailBox);
 ```
+
+`Teleport` 根据目标 Space 的 `BindingGame` 自动选择流程：目标 Space 在当前 Game 时显式调用旧 Space 的 `Leave`，成功后再调用目标 Space 的 `Enter`；目标 Space 在其他 Game 时才启动 Avatar 迁移协议。Avatar 本身不再提供 `Immigrate` 入口。
 
 同一 Game 内的场景关系由 Space 统一维护：
 
@@ -52,15 +54,16 @@ space.Leave(avatar);
 IReadOnlyDictionary<Guid, AvatarEntity> avatars = space.Avatars;
 ```
 
-进入和退出成功后分别调用 Avatar 的 `OnEnterSpace(SpaceEntity)` 与 `OnLeaveSpace(SpaceEntity)` 虚方法。重复进入同一个 Space 不会重复触发回调。
+进入和退出成功后分别调用 Avatar 的 `OnEnterSpace(SpaceEntity)` 与 `OnLeaveSpace(SpaceEntity)` 虚方法。`SpaceEntity.Enter` 不会隐式退出旧 Space；Avatar 尚未离开旧 Space，或者重复进入同一个 Space 时，操作会记录 `Error` 并返回失败。
 
 约束：
 
 - `targetSpace` 必须有效，且实体 ID 是目标 Game 上已注册的 `SpaceEntity`。
-- Avatar 必须已绑定有效的 `MailBox` 和 `Proxy`。
-- 同一 Avatar 同一时间只允许一个迁移。
-- 如果目标 Space 与 Avatar 已在同一个 Game，则不经过跨 Game 协议，直接进入该 Space。
-- 返回 `true` 表示迁移请求已被框架接受，不代表迁移已经完成。调用方可检查 `ImmigrationState`。
+- Avatar 必须是当前 `GameServerRuntimeState` 中注册的同一对象实例。
+- 本地传送不要求 Avatar 具有 Mailbox 或 Proxy；跨 Game 迁移要求 Avatar 具有有效的 Proxy，以便 OwnerGate 冻结和切换路由。
+- 本地传送在 `Enter` 完成后返回 `true`，此时 Avatar 已进入目标 Space。
+- 跨 Game 传送只允许处于 `Idle` 的 Avatar；返回 `true` 仅表示迁移请求已被框架接受，不代表迁移已经完成，调用方可检查 `ImmigrationState`。
+- 迁移中的 Avatar 禁止本地传送；`Completed` 或 `Failed` 等稳定状态仍可在当前 Game 内直接进入其他 Space。
 
 迁移状态：
 
@@ -76,10 +79,19 @@ Idle
   -> CompletingTarget
   -> Completed
 
-任一提交前阶段 -> RollingBack -> Failed
+FreezingRoute -> Failed
+Serializing / PreparingTarget / ActivatingTarget / CommittingRoute
+  -> RollingBack
+  -> Failed
+
+目标 Game 候选对象：
+Idle -> TargetPrepared -> TargetActivated -> Completed
+TargetPrepared / TargetActivated -> Failed
 ```
 
-`Completed` 和 `Failed` 都是稳定终态，允许再次调用 `Immigrate`。新一次迁移会生成新的 `MigrationId` 并重新进入 `FreezingRoute`。
+跨 Game 的 `Teleport` 最终进入内部 `BeginAvatarImmigration`，该流程只接受处于 `Idle` 的 Avatar。`Completed` 和 `Failed` 都是稳定终态，不能再次启动跨 Game 迁移；其他迁移中状态同样禁止重入，违规调用记录 `Error` 并返回失败。如果未来需要让终态 Avatar 再次跨 Game 迁移，必须新增显式且可审计的生命周期重置流程，不能由 `Teleport` 隐式重置状态。
+
+状态转换采用白名单控制。每条协议响应只能在其对应的精确状态下处理；迁移期间 `MigrationId`、目标 Space 和目标 Game 必须保持不变。任何越级、回退、跨迁移编号或更换目标的状态修改都会记录 `Error` 并被拒绝。
 
 ## 控制协议
 
@@ -198,7 +210,7 @@ OwnerGate 先按缓存顺序发送所有消息：
 - Client RPC 和 Proxy RPC 发送到目标 Game。
 - 源、目标 Game 发往 Client 的 Avatar RPC 发送到当前 Client 会话。
 
-每条消息只有在底层发送函数确认接收后才从队列移除。发送失败时保留队首，等待源 Game 重试 `CommitRoute`，避免静默丢失。
+每条消息只有在底层发送函数确认接收后才从队列移除。发送失败时保留队首并返回失败，避免静默丢失；当前版本不会由源 Game 定时重发 `CommitRoute`，需要通过日志和外部恢复流程处理。
 
 缓存清空后，Gate 将 Avatar 的 `GameServerId` 原子更新为目标 Game，记录最近一次已提交的 `MigrationId`，删除活动迁移上下文，然后返回 `RouteCommitted`。后续 Client RPC 和 Proxy RPC 直接去目标 Game。
 
@@ -228,30 +240,21 @@ OwnerGate 在冻结期间使用一个统一 FIFO 队列记录以下消息：
 - 目标 Avatar 激活或进入 Space 失败。
 - 协议字段与当前迁移上下文不一致。
 
-源 Game先向目标 Game 发送幂等 `AbortTarget`。目标 Avatar 退出目标 Space、完成 `OnLeaveSpace` 后返回 `TargetAborted`；该确认与回调产生的 RPC 共用同一有序连接，因此源 Game 只在收到确认后向 OwnerGate 发送 `RollbackRoute`。OwnerGate 保持源路由，把缓存的输入 RPC 重新发往源 Game，把源端输出 RPC 发往 Client，并丢弃目标候选产生的推测性输出；全部成功后删除迁移上下文并返回 `RouteRolledBack`。源 Avatar 随后重新进入原 Space、触发 `OnEnterSpace` 并进入 `Failed`，可以再次发起迁移。
+源 Game先向目标 Game 发送幂等 `AbortTarget`。目标 Avatar 退出目标 Space、完成 `OnLeaveSpace` 后返回 `TargetAborted`；该确认与回调产生的 RPC 共用同一有序连接，因此源 Game 只在收到确认后向 OwnerGate 发送 `RollbackRoute`。OwnerGate 保持源路由，把缓存的输入 RPC 重新发往源 Game，把源端输出 RPC 发往 Client，并丢弃目标候选产生的推测性输出；全部成功后删除迁移上下文并返回 `RouteRolledBack`。源 Avatar 随后重新进入原 Space、触发 `OnEnterSpace` 并进入 `Failed`。`Failed` 是不可重入的终态，再次通过 `Teleport` 发起跨 Game 迁移会被当作错误拒绝。
 
 在收到 `RouteRolledBack` 前不能把源 Avatar 标记为恢复完成，否则 Gate 中仍可能存在尚未释放的消息。
 
-## 重试和幂等
+## 幂等和发送失败
 
-源 Game 为活动迁移维护一个定时器，超时后根据当前状态重发对应请求：
+当前版本不维护迁移重试定时器，也不会按状态自动重发控制命令。控制消息发送失败时记录 `Error`；如果失败发生在首次 `FreezeRoute`，源迁移直接进入 `Failed` 并返回失败。后续阶段发送失败时保留当前状态和迁移上下文，交由外部监控与恢复流程处理。
 
-- `FreezingRoute` 重发 `FreezeRoute`。
-- `PreparingTarget` 重发同一份快照的 `PrepareTarget`。
-- `ActivatingTarget` 重发 `ActivateTarget`。
-- `CommittingRoute` 重发 `CommitRoute`。
-- `CompletingTarget` 重发 `CompleteTarget`。
-- `RollingBack` 在收到 `TargetAborted` 前重发 `AbortTarget`，收到后重发 `RollbackRoute`。
-
-所有接收端用 `MigrationId` 去重。Gate 额外记录最近一次提交或回滚结果，以便活动上下文已经删除后仍可回答重复请求。目标 Game 对重复 Prepare、Activate、Complete 和 Abort 返回与第一次一致的结果。
-
-当前版本不设置自动放弃次数：控制消息暂时发送失败时迁移保持在当前安全状态并继续重试，从而优先保证消息不丢失。运维层可以通过日志和状态监控发现长时间未完成的迁移。
+接收端仍使用 `MigrationId` 处理重复消息。Gate 额外记录最近一次提交或回滚结果，以便活动上下文已经删除后仍可回答重复请求。目标 Game 只在迁移编号、协议字段和当前状态一致时接受重复的 Prepare、Activate、Complete 或 Abort；不一致的重入请求记录 `Error` 并返回失败。
 
 ## Space 关系
 
 `AvatarEntity.CurrentSpaceId` 是仅服务端属性。`SpaceEntity` 在本地使用 `IReadOnlyDictionary<Guid, AvatarEntity> Avatars` 对外暴露场景成员，不序列化整个成员集合。
 
-- 本地进入 Space：旧 Space 先 `Leave`，新 Space 再 `Enter`，依次触发 `OnLeaveSpace`、`OnEnterSpace`。
+- 本地传送：由 `GameServerRuntimeState.Teleport` 显式调用旧 Space 的 `Leave`，成功后再调用新 Space 的 `Enter`，依次触发 `OnLeaveSpace`、`OnEnterSpace`。
 - 跨 Game 迁移：路由冻结后源 Avatar 退出旧 Space，目标激活时进入目标 Space。
 - 回滚目标：目标 Avatar 退出目标 Space并注销；Gate 回滚完成后源 Avatar 重新进入旧 Space。
 - 提交完成：源 Avatar 已离开旧 Space，只需注销；目标 Avatar 保留在目标 Space。

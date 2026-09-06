@@ -19,11 +19,11 @@ namespace DE.Server.NativeBridge
             SearchImportEntityTypeFromGameplayDll();
         }
 
-        public Dictionary<Type, DateTime> ReadyStubs { get; } = new Dictionary<Type, DateTime>();
-        public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new Dictionary<Type, ServerStubEntity>();
-        public Dictionary<Guid, AvatarEntity> Avatars { get; } = new Dictionary<Guid, AvatarEntity>();
-        public Dictionary<Guid, ServerEntity> Entities { get; } = new Dictionary<Guid, ServerEntity>();
-        public Dictionary<Guid, ulong> AvatarClientSessionIds { get; } = new Dictionary<Guid, ulong>();
+        public Dictionary<Type, DateTime> ReadyStubs { get; } = new();
+        public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new();
+        public Dictionary<Guid, AvatarEntity> Avatars { get; } = new();
+        public Dictionary<Guid, ServerEntity> Entities { get; } = new();
+        public Dictionary<Guid, ulong> AvatarClientSessionIds { get; } = new();
 
         public Type AvatarType { get; private set; }
         public Type NpcType { get; private set; }

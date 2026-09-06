@@ -31,7 +31,7 @@ namespace DE.Server.NativeBridge
         };
 
         private readonly ManagedRuntimeState _managedRuntimeState;
-        private readonly Dictionary<ulong, PendingTotalEntityCountCommand> _pendingTotalEntityCountCommands = new Dictionary<ulong, PendingTotalEntityCountCommand>();
+        private readonly Dictionary<ulong, PendingTotalEntityCountCommand> _pendingTotalEntityCountCommands = new();
 
         public GmCommandRuntimeState(ManagedRuntimeState managedRuntimeState)
         {

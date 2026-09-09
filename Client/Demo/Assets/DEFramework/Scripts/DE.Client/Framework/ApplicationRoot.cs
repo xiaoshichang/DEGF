@@ -3,7 +3,6 @@ using Assets.Scripts.DE.Client.Core;
 using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Client.UI;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
@@ -14,29 +13,51 @@ namespace Assets.Scripts.DE.Client.Framework
 
     public class ApplicationRoot : MonoBehaviour
     {
+        public static void RegisterGameplay(Assembly assembly, Func<GameInstance> factory)
+        {
+            if (assembly == null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
+            }
+
+            if (factory == null)
+            {
+                throw new ArgumentNullException(nameof(factory));
+            }
+
+            if (_GameInstanceFactory != null)
+            {
+                throw new InvalidOperationException("Gameplay is already registered.");
+            }
+
+            _RegisteredGameplayAssembly = assembly;
+            _GameInstanceFactory = factory;
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetGameplayRegistration()
+        {
+            _RegisteredGameplayAssembly = null;
+            _GameInstanceFactory = null;
+        }
+
         private void _CollectAssemblies()
         {
-            _Assemblies.Clear();
-            _GameplayAssemblies.Clear();
-
-            var frameworkAssembly = Assembly.GetExecutingAssembly();
-            _Assemblies.Add(frameworkAssembly);
-
-            foreach (string name in AssemblyNameList)
+            if (_RegisteredGameplayAssembly == null || _GameInstanceFactory == null)
             {
-                if (string.IsNullOrWhiteSpace(name))
-                {
-                    DELogger.Warn("ApplicationRoot", "Ignore empty gameplay assembly name.");
-                    continue;
-                }
+                throw new InvalidOperationException(
+                    "Gameplay has not been registered. Call ApplicationRoot.RegisterGameplay before Awake.");
+            }
 
-                var gameplayAssembly = Assembly.Load(name);
-                _Assemblies.Add(gameplayAssembly);
-                _GameplayAssemblies.Add(gameplayAssembly);
+            _Assemblies.Clear();
+            _Assemblies.Add(typeof(ApplicationRoot).Assembly);
+
+            if (!_Assemblies.Contains(_RegisteredGameplayAssembly))
+            {
+                _Assemblies.Add(_RegisteredGameplayAssembly);
             }
 
             DELogger.Info("ApplicationRoot", $"{_Assemblies.Count} assemblies collected.");
-            DELogger.Info("ApplicationRoot", $"{_GameplayAssemblies.Count} gameplay assemblies collected.");
         }
 
         private void _InitLogger()
@@ -56,54 +77,12 @@ namespace Assets.Scripts.DE.Client.Framework
             DELogger.Uninit();
         }
 
-        private void _SearchGameInstanceType()
-        {
-            _GameInstanceType = null;
-
-            foreach (var assembly in _GameplayAssemblies)
-            {
-                foreach (var type in _GetAssemblyTypes(assembly))
-                {
-                    if (type == null || type.IsAbstract || type.IsGenericTypeDefinition)
-                    {
-                        continue;
-                    }
-
-                    if (!typeof(GameInstance).IsAssignableFrom(type))
-                    {
-                        continue;
-                    }
-
-                    if (_GameInstanceType != null)
-                    {
-                        throw new InvalidOperationException(
-                            "Multiple GameInstance types found. first="
-                            + _GameInstanceType.FullName
-                            + ", second="
-                            + type.FullName
-                            + ".");
-                    }
-
-                    _GameInstanceType = type;
-                }
-            }
-
-            if (_GameInstanceType == null)
-            {
-                throw new InvalidOperationException("No GameInstance type found in gameplay assemblies.");
-            }
-
-            DELogger.Info("ApplicationRoot", "GameInstance type found: " + _GameInstanceType.FullName + ".");
-        }
-
         private void _InitGameInstance()
         {
-            _SearchGameInstanceType();
-
-            _GameInstance = Activator.CreateInstance(_GameInstanceType) as GameInstance;
+            _GameInstance = _GameInstanceFactory();
             if (_GameInstance == null)
             {
-                throw new InvalidOperationException("Create GameInstance failed, type=" + _GameInstanceType.FullName + ".");
+                throw new InvalidOperationException("GameInstance factory returned null.");
             }
 
             GameInstance.Instance = _GameInstance;
@@ -124,43 +103,9 @@ namespace Assets.Scripts.DE.Client.Framework
             AuthSystem.Instance = _AuthSystem;
         }
 
-        private IEnumerable<Type> _GetAssemblyTypes(Assembly assembly)
-        {
-            if (assembly == null)
-            {
-                yield break;
-            }
-
-            Type[] types = null;
-            try
-            {
-                types = assembly.GetTypes();
-            }
-            catch (ReflectionTypeLoadException exception)
-            {
-                types = exception.Types;
-                DELogger.Warn("ApplicationRoot", $"Load types from assembly '{assembly.FullName}' partially failed: {exception.Message}");
-            }
-
-            if (types == null)
-            {
-                yield break;
-            }
-
-            foreach (var type in types)
-            {
-                if (type != null)
-                {
-                    yield return type;
-                }
-            }
-
-        }
-
         private void _UninitGameInstance()
         {
-            _GameInstance.UnInit();
-            GameInstance.Instance = _GameInstance;
+            _GameInstance?.UnInit();
             _GameInstance = null;
             GameInstance.Instance = null;
         }
@@ -198,7 +143,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void _UninitUIManager()
         {
-            _UIManager.UnInit();
+            _UIManager?.UnInit();
             _UIManager = null;
         }
 
@@ -211,7 +156,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void _UninitAssetManager()
         {
-            _AssetManager.UnInit();
+            _AssetManager?.UnInit();
             _AssetManager = null;
             AssetManager.Instance = null;
         }
@@ -225,7 +170,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void _UninitGMSystem()
         {
-            _GMSystem.UnInit();
+            _GMSystem?.UnInit();
             _GMSystem = null;
         }
 
@@ -252,7 +197,7 @@ namespace Assets.Scripts.DE.Client.Framework
         void Update()
         {
             _NetworkManager?.TickIncoming();
-            _GameInstance.Update();
+            _GameInstance?.Update();
             _NetworkManager?.TickOutgoing();
         }
 
@@ -270,15 +215,14 @@ namespace Assets.Scripts.DE.Client.Framework
         }
 
 
-        public List<string> AssemblyNameList = new List<string>();
+        private static Assembly _RegisteredGameplayAssembly;
+        private static Func<GameInstance> _GameInstanceFactory;
         private List<Assembly> _Assemblies = new List<Assembly>();
-        private List<Assembly> _GameplayAssemblies = new List<Assembly>();
         private UIManager _UIManager;
         private AssetManager _AssetManager;
         private NetworkManager _NetworkManager;
         private AuthSystem _AuthSystem;
         private GameInstance _GameInstance;
         private GMSystem _GMSystem;
-        private Type _GameInstanceType;
     }
 }

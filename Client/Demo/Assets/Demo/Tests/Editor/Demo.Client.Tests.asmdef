@@ -1,0 +1,23 @@
+{
+    "name": "Demo.Client.Tests",
+    "rootNamespace": "Demo.Client.Tests",
+    "references": [
+        "GUID:5e104883ee2674c438adb49241689f44",
+        "GUID:75c45f592151dbf43a46252d97362e35"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

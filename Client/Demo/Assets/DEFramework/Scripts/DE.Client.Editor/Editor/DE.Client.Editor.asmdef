@@ -2,6 +2,7 @@
     "name": "DE.Client.Editor",
     "rootNamespace": "",
     "references": [
+        "GUID:f6abea08383143929dd3c2ba6be4858c",
         "GUID:5e104883ee2674c438adb49241689f44"
     ],
     "includePlatforms": [

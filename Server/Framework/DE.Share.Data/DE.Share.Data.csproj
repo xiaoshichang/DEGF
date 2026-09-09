@@ -1,20 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <AssemblyName>DE.Share.Foundation</AssemblyName>
-    <RootNamespace>DE.Share.Foundation</RootNamespace>
+    <AssemblyName>DE.Share.Data</AssemblyName>
+    <RootNamespace>DE.Share.Data</RootNamespace>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Client\Demo\Assets\DEFramework\Scripts\DE.Share.Foundation\**\*.cs">
+    <Compile Include="..\..\..\Client\Demo\Assets\DEFramework\Scripts\DE.Share.Data\**\*.cs">
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
   </ItemGroup>
 </Project>

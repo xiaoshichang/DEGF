@@ -1,10 +1,7 @@
 {
-    "name": "DE.Share",
-    "rootNamespace": "",
-    "references": [
-        "GUID:f6abea08383143929dd3c2ba6be4858c",
-        "GUID:92ff8e2e248f9b84aa78bb8086b94280"
-    ],
+    "name": "DE.Share.Data",
+    "rootNamespace": "DE.Share.Data",
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
@@ -13,5 +10,5 @@
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],
-    "noEngineReferences": false
+    "noEngineReferences": true
 }

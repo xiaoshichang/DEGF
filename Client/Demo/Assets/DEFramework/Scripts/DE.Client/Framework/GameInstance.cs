@@ -1,6 +1,7 @@
 
 
 using Assets.Scripts.DE.Client.Core;
+using UnityEngine.Scripting;
 
 namespace Assets.Scripts.DE.Client.Framework
 {
@@ -24,12 +25,14 @@ namespace Assets.Scripts.DE.Client.Framework
         }
 
 
+        [Preserve]
         [GMCommand("Test GM command")]
         public static void TestGM(int a, float b, string c)
         {
             DELogger.Info($"TestGM executed. a: {a}, b: {b}, c: {c}");
         }
 
+        [Preserve]
         [GMCommand("Test GM command 2")]
         public static void TestGM2(int a, float b)
         {

@@ -1,3 +1,6 @@
 {
-	"name": "DE.Share.Foundation"
+	"name": "DE.Share.Foundation",
+	"references": [
+		"GUID:f6abea08383143929dd3c2ba6be4858c"
+	]
 }

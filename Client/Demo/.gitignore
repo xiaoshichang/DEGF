@@ -11,6 +11,7 @@
 
 # Asset import pipeline
 /[Aa]ssets/AssetStoreTools*
+/Assets/StreamingAssets/Asb
 
 # Visual Studio / Rider / VS Code
 /.vs/

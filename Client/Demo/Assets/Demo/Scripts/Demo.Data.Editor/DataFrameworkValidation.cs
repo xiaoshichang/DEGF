@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using DE.Share.Data;
 using DE.Share.Data.DataProvider;
 using UnityEditor;
@@ -14,8 +15,8 @@ namespace Demo.Data.Editor
         {
             string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "../../.."));
             string rootDirectory = Path.Combine(repositoryRoot, "Data", "Excel");
-            var first = LoadSample(rootDirectory);
-            var second = LoadSample(rootDirectory);
+            var first = LoadSample(rootDirectory, false);
+            var second = LoadSample(rootDirectory, true);
             if (ReferenceEquals(first, second))
             {
                 throw new InvalidOperationException("Shutdown did not clear the cached table.");
@@ -24,16 +25,19 @@ namespace Demo.Data.Editor
             {
                 throw new InvalidOperationException("Shutdown invalidated an existing table snapshot.");
             }
-            Debug.Log("Data framework validation passed: 2 SpaceData rows; GetRow(FromInt32(1001)) = MainCity, 200. Static cache and reinitialization verified.");
+            Debug.Log("Data framework validation passed: 2 SpaceData rows; GetRow(FromInt32(1001)) = MainCity, 200. Synchronous and caller-scheduled prewarm, static cache and reinitialization verified.");
         }
 
-        private static SpaceDataTable LoadSample(string rootDirectory)
+        private static SpaceDataTable LoadSample(string rootDirectory, bool useWorker)
         {
             DataRuntime.Initialize(new ExcelDataProvider());
             try
             {
                 DataRuntime.SetRootDirectory(rootDirectory);
-                var table = DataRuntime.GetTable<SpaceDataTable>();
+                // Exclusive initialization: finish the worker before accessing tables or shutting down.
+                var table = useWorker
+                    ? Task.Run(() => DataRuntime.Prewarm<SpaceDataTable>()).GetAwaiter().GetResult()
+                    : DataRuntime.Prewarm<SpaceDataTable>();
                 var row = table.GetRow(DataTableKey.FromInt32(1001));
                 if (table.Count != 2 || row.Name != "MainCity" || row.MaxPlayers != 200)
                 {
@@ -42,6 +46,10 @@ namespace Demo.Data.Editor
                 if (!ReferenceEquals(table, DataRuntime.GetTable<SpaceDataTable>()))
                 {
                     throw new InvalidOperationException("DataRuntime did not reuse the cached table.");
+                }
+                if (!ReferenceEquals(table, DataRuntime.Prewarm<SpaceDataTable>()))
+                {
+                    throw new InvalidOperationException("Prewarm did not reuse the cached table.");
                 }
                 return table;
             }

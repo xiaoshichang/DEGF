@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -46,6 +47,33 @@ namespace DE.Share.DataTableSG
                 {
                     row.SheetName = argument.Value.Value as string ?? string.Empty;
                 }
+                else if (argument.Key == "Load")
+                {
+                    row.Load = argument.Value.Value is int load ? load : -1;
+                }
+                else if (argument.Key == "Cache")
+                {
+                    row.Cache = argument.Value.Value is int cache ? cache : -1;
+                }
+                else if (argument.Key == "CacheCapacity")
+                {
+                    row.CacheCapacity = argument.Value.Value is int cacheCapacity ? cacheCapacity : -1;
+                }
+            }
+            if (row.Load != 0 && row.Load != 1)
+            {
+                Report(GeneratorDiagnostics.InvalidPolicy, symbol, "Load", symbol.Name, row.Load.ToString(CultureInfo.InvariantCulture),
+                    "use DataLoadPolicy.Full or DataLoadPolicy.Row");
+            }
+            if (row.Cache < 0 || row.Cache > 1)
+            {
+                Report(GeneratorDiagnostics.InvalidPolicy, symbol, "Cache", symbol.Name, row.Cache.ToString(CultureInfo.InvariantCulture),
+                    "use DataCachePolicy.KeepAlive or DataCachePolicy.Lru");
+            }
+            if (row.CacheCapacity <= 0)
+            {
+                Report(GeneratorDiagnostics.InvalidPolicy, symbol, "CacheCapacity", symbol.Name, row.CacheCapacity.ToString(CultureInfo.InvariantCulture),
+                    "CacheCapacity must be a positive integer");
             }
             if (string.IsNullOrWhiteSpace(row.SheetName))
             {

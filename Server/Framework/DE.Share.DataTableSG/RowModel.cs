@@ -17,6 +17,9 @@ namespace DE.Share.DataTableSG
         public string TableName { get; }
         public string SourceName { get; set; }
         public string SheetName { get; set; }
+        public int Load { get; set; }
+        public int Cache { get; set; }
+        public int CacheCapacity { get; set; } = 1024;
         public string TableTypeName => Symbol.Name.Substring(0, Symbol.Name.Length - "DataRow".Length) + "DataTable";
         public List<ColumnModel> Columns { get; } = new List<ColumnModel>();
     }

@@ -10,6 +10,30 @@ namespace DE.Share.Data
         public static Dictionary<DataTableKey, TRow> LoadRows<TRow>(IDataProvider provider, string rootDirectory,
             DataTableDescribe describe, Func<IDataTableReader, TRow> materialize) where TRow : DataRow
         {
+            return LoadRows(provider, rootDirectory, describe, materialize, null, out _);
+        }
+
+        internal static Dictionary<DataTableKey, TRow> LoadRows<TRow>(IDataProvider provider, string rootDirectory,
+            DataTableDescribe describe, Func<IDataTableReader, TRow> materialize,
+            Func<DataTableKey, bool> includeRow, out int count) where TRow : DataRow
+        {
+            if (materialize == null)
+            {
+                throw new ArgumentNullException(nameof(materialize));
+            }
+            return ScanRows(provider, rootDirectory, describe, materialize, includeRow, out count);
+        }
+
+        internal static int CountRows(IDataProvider provider, string rootDirectory, DataTableDescribe describe)
+        {
+            ScanRows<DataRow>(provider, rootDirectory, describe, null, null, out int count);
+            return count;
+        }
+
+        private static Dictionary<DataTableKey, TRow> ScanRows<TRow>(IDataProvider provider, string rootDirectory,
+            DataTableDescribe describe, Func<IDataTableReader, TRow> materialize,
+            Func<DataTableKey, bool> includeRow, out int count) where TRow : DataRow
+        {
             if (provider == null)
             {
                 throw new ArgumentNullException(nameof(provider));
@@ -17,10 +41,6 @@ namespace DE.Share.Data
             if (describe == null)
             {
                 throw new ArgumentNullException(nameof(describe));
-            }
-            if (materialize == null)
-            {
-                throw new ArgumentNullException(nameof(materialize));
             }
             using (var reader = provider.OpenTable(rootDirectory, describe))
             {
@@ -34,19 +54,24 @@ namespace DE.Share.Data
                 {
                     while (reader.Read())
                     {
-                        var row = materialize(reader);
-                        if (row == null)
+                        var key = DataTableKey.FromInt32(reader.GetInt32(0));
+                        if (positions.TryGetValue(key, out long previousRow))
                         {
-                            throw new InvalidOperationException("The row factory returned null.");
-                        }
-                        if (positions.TryGetValue(row.Id, out long previousRow))
-                        {
-                            throw new DataLoadException($"Duplicate key '{row.Id}' in table '{describe.TableName}'; first seen at row {previousRow}.",
+                            throw new DataLoadException($"Duplicate key '{key}' in table '{describe.TableName}'; first seen at row {previousRow}.",
                                 reader.SourcePath, reader.SheetName, reader.RowNumber, describe.Columns[0].ColumnName);
                         }
-                        rows.Add(row.Id, row);
-                        positions.Add(row.Id, reader.RowNumber);
+                        positions.Add(key, reader.RowNumber);
+                        if (materialize != null && (includeRow == null || includeRow(key)))
+                        {
+                            var row = materialize(reader);
+                            if (row == null || row.Id != key)
+                            {
+                                throw new InvalidOperationException("The row factory must return a non-null row with the source key.");
+                            }
+                            rows.Add(key, row);
+                        }
                     }
+                    count = positions.Count;
                     return rows;
                 }
                 catch (Exception error) when (!(error is DataLoadException))

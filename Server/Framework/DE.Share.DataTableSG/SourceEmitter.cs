@@ -33,7 +33,8 @@ namespace DE.Share.DataTableSG
             var rowName = "@" + row.Symbol.Name;
             var rowType = row.Symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var tableName = "@" + row.TableTypeName;
-            var dictionary = "global::System.Collections.Generic.Dictionary<" + Data + "DataTableKey, " + rowType + ">";
+            var loadPolicy = row.Load == 0 ? "Full" : "Row";
+            var cachePolicy = row.Cache == 0 ? "KeepAlive" : "Lru";
             builder.Append("    public sealed partial class ").Append(rowName).Append("\n    {\n")
                 .Append("        internal static ").Append(rowType).Append(' ').Append(FactoryName)
                 .Append('(').Append(Provider).Append("IDataTableReader reader)\n        {\n")
@@ -60,6 +61,9 @@ namespace DE.Share.DataTableSG
                 .Append("        public static readonly ").Append(Describe).Append("DataTableDescribe TableDescribe = new ").Append(Describe).Append("DataTableDescribe(\n")
                 .Append("            ").Append(Literal(row.TableName)).Append(", ").Append(Literal(row.SourceName)).Append(", ").Append(Literal(row.SheetName)).Append(", ")
                 .Append(Literal(row.Symbol.ToDisplayString(new SymbolDisplayFormat(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces)))).Append(",\n")
+                .Append("            ").Append(Data).Append("DataLoadPolicy.").Append(loadPolicy).Append(", ")
+                .Append(Data).Append("DataCachePolicy.").Append(cachePolicy).Append(", ")
+                .Append(row.CacheCapacity.ToString(CultureInfo.InvariantCulture)).Append(",\n")
                 .Append("            new ").Append(Describe).Append("DataColumnDescribe(\"Id\", \"Id\", ").Append(Describe).Append("DataValueKind.Int32, isKey: true)");
             foreach (var column in row.Columns)
             {
@@ -74,10 +78,10 @@ namespace DE.Share.DataTableSG
             }
             builder.Append(");\n\n        static ").Append(tableName).Append("()\n        {\n")
                 .Append("            InitializeFactory(TableDescribe, Load);\n        }\n\n")
-                .Append("        private ").Append(tableName).Append('(').Append(dictionary).Append(" rows) : base(TableDescribe, rows)\n        {\n        }\n\n")
+                .Append("        private ").Append(tableName).Append('(').Append(Provider).Append("IDataProvider provider, string rootDirectory)\n")
+                .Append("            : base(TableDescribe, provider, rootDirectory, ").Append(rowType).Append('.').Append(FactoryName).Append(")\n        {\n        }\n\n")
                 .Append("        private static ").Append(tableName).Append(" Load(").Append(Provider).Append("IDataProvider provider, string rootDirectory)\n        {\n")
-                .Append("            return new ").Append(tableName).Append('(').Append(Data).Append("DataTableLoader.LoadRows(provider, rootDirectory, TableDescribe, ")
-                .Append(rowType).Append('.').Append(FactoryName).Append("));\n        }\n    }\n");
+                .Append("            return new ").Append(tableName).Append("(provider, rootDirectory);\n        }\n    }\n");
             if (hasNamespace)
             {
                 builder.Append("}\n");

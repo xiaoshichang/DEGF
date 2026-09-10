@@ -7,7 +7,8 @@ using DE.Share.Data.DataProvider;
 namespace DE.Share.Data
 {
     /// <summary>
-    /// Shares data configuration and cached tables across the process. Use all members on one thread.
+    /// Shares data configuration and cached tables across the process. Serialize all access;
+    /// caller-scheduled prewarm must finish before any other data operation.
     /// </summary>
     public static class DataRuntime
     {
@@ -60,6 +61,7 @@ namespace DE.Share.Data
             }
             if (_Tables.TryGetValue(type, out var cached))
             {
+                (cached as IDataTableState)?.ThrowIfUnavailable();
                 return (TTable)cached;
             }
             if (_LoadFailures.TryGetValue(type, out var failure))
@@ -97,11 +99,37 @@ namespace DE.Share.Data
             }
         }
 
+        /// <summary>
+        /// Loads a Full + KeepAlive table now. Call directly or schedule it in an exclusive
+        /// initialization phase and await completion before any other data operations.
+        /// </summary>
+        public static TTable Prewarm<TTable>() where TTable : class, IDataTable
+        {
+            ThrowIfNotInitialized();
+            var describe = DataTableFactory<TTable>.Describe;
+            if (describe.Load != DataLoadPolicy.Full || describe.Cache != DataCachePolicy.KeepAlive)
+            {
+                throw new InvalidOperationException($"Only Full + KeepAlive tables support prewarming; table '{describe.TableName}' uses {describe.Load} + {describe.Cache}.");
+            }
+            return GetTable<TTable>();
+        }
+
         public static void Shutdown()
         {
             if (_Loading.Count != 0)
             {
                 throw new InvalidOperationException("DataRuntime cannot shut down while a table is loading.");
+            }
+            foreach (var table in _Tables.Values)
+            {
+                if (table is IDataTableState state && state.IsLoading)
+                {
+                    throw new InvalidOperationException("DataRuntime cannot shut down while a table is loading.");
+                }
+            }
+            foreach (var table in _Tables.Values)
+            {
+                (table as IDataTableState)?.Detach();
             }
             _Tables.Clear();
             _LoadFailures.Clear();

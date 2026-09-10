@@ -7,7 +7,26 @@ namespace DE.Share.Data.DataDescribe
     {
         public DataTableDescribe(string tableName, string sourceName, string sheetName, string rowTypeName,
             params DataColumnDescribe[] columns)
+            : this(tableName, sourceName, sheetName, rowTypeName, DataLoadPolicy.Full, DataCachePolicy.KeepAlive, 1024, columns)
         {
+        }
+
+        public DataTableDescribe(string tableName, string sourceName, string sheetName, string rowTypeName,
+            DataLoadPolicy load, DataCachePolicy cache, int cacheCapacity,
+            params DataColumnDescribe[] columns)
+        {
+            if (load != DataLoadPolicy.Full && load != DataLoadPolicy.Row)
+            {
+                throw new ArgumentOutOfRangeException(nameof(load));
+            }
+            if (cache != DataCachePolicy.KeepAlive && cache != DataCachePolicy.Lru)
+            {
+                throw new ArgumentOutOfRangeException(nameof(cache));
+            }
+            if (cacheCapacity <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(cacheCapacity), "Cache capacity must be positive.");
+            }
             if (string.IsNullOrWhiteSpace(tableName))
             {
                 throw new ArgumentException("A table name is required.", nameof(tableName));
@@ -39,6 +58,9 @@ namespace DE.Share.Data.DataDescribe
             SourceName = sourceName.Replace('\\', '/');
             SheetName = sheetName;
             RowTypeName = rowTypeName;
+            Load = load;
+            Cache = cache;
+            CacheCapacity = cacheCapacity;
             Columns = Array.AsReadOnly((DataColumnDescribe[])columns.Clone());
         }
 
@@ -46,6 +68,9 @@ namespace DE.Share.Data.DataDescribe
         public string SourceName { get; }
         public string SheetName { get; }
         public string RowTypeName { get; }
+        public DataLoadPolicy Load { get; }
+        public DataCachePolicy Cache { get; }
+        public int CacheCapacity { get; }
         public IReadOnlyList<DataColumnDescribe> Columns { get; }
 
         private static void ValidateSourceName(string sourceName)

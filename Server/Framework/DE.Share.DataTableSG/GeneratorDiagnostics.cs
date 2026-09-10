@@ -22,6 +22,8 @@ namespace DE.Share.DataTableSG
             "Logical table name '{0}' is declared by multiple data rows in this compilation");
         public static readonly DiagnosticDescriptor GeneratedConflict = Create("DSG009", "Generated name conflicts with existing declaration",
             "Generated name '{0}' conflicts with an existing declaration; rename the declaration or the data row");
+        public static readonly DiagnosticDescriptor InvalidPolicy = Create("DSG010", "Invalid data table policy",
+            "Data policy '{0}' on row '{1}' has invalid value '{2}'; {3}");
 
         private static DiagnosticDescriptor Create(string id, string title, string message)
         {

@@ -1,0 +1,16 @@
+{
+    "name": "Demo.Share.Data",
+    "rootNamespace": "Demo.Share.Data",
+    "references": [
+        "GUID:f6abea08383143929dd3c2ba6be4858c"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

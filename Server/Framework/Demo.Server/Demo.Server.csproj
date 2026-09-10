@@ -9,7 +9,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
-      <ProjectReference Include="..\Demo.Server.Data\Demo.Server.Data.csproj" />
+      <ProjectReference Include="..\Demo.Share.Data\Demo.Share.Data.csproj" />
       <ProjectReference Include="..\DE.Server.Foundation\DE.Server.Foundation.csproj" />
       <ProjectReference Include="..\DE.Server\DE.Server.csproj" />
       <ProjectReference Include="..\DE.Share.Foundation\DE.Share.Foundation.csproj" />

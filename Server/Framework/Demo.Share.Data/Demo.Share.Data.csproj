@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <AssemblyName>DE.Share.Data</AssemblyName>
-    <RootNamespace>DE.Share.Data</RootNamespace>
+    <AssemblyName>Demo.Share.Data</AssemblyName>
+    <RootNamespace>Demo.Share.Data</RootNamespace>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -10,21 +10,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Client\Demo\Assets\DEFramework\Scripts\DE.Share.Data\**\*.cs">
+    <Compile Include="..\..\..\Client\Demo\Assets\Demo\Scripts\Demo.Share.Data\**\*.cs">
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="ExcelDataReader" Version="3.8.0" />
+    <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
     <ProjectReference Include="..\DE.Share.DataTableSG\DE.Share.DataTableSG.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="DataProvider\" />
-    <Folder Include="DataDescribe\" />
-    <Folder Include="Space\" />
   </ItemGroup>
 </Project>

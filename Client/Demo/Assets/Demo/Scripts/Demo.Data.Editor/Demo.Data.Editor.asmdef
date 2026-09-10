@@ -1,16 +1,16 @@
 {
-    "name": "Demo.Client.Data",
-    "rootNamespace": "Demo.Client.Data",
+    "name": "Demo.Data.Editor",
+    "rootNamespace": "Demo.Data.Editor",
     "references": [
         "GUID:f6abea08383143929dd3c2ba6be4858c"
     ],
-    "includePlatforms": [],
+    "includePlatforms": ["Editor"],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
+    "overrideReferences": true,
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [],
     "versionDefines": [],
-    "noEngineReferences": true
+    "noEngineReferences": false
 }

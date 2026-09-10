@@ -28,6 +28,7 @@
     "frameworkDll": "../Framework/DE.Server/bin/Debug/net10.0/DE.Server.dll",
     "gameplayDll": "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll"
   },
+  "dataRoot": "../../Data/Excel",
   "database": {
     "provider": "MongoDB",
     "connectionString": "mongodb://127.0.0.1:27017",

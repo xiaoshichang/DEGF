@@ -17,6 +17,9 @@ namespace DE.Server.NativeBridge
         [JsonPropertyName("database")]
         public DatabaseConfig Database { get; set; }
 
+        [JsonPropertyName("dataRoot")]
+        public string DataRoot { get; set; } = string.Empty;
+
         [JsonPropertyName("gate")]
         public Dictionary<string, JsonElement> Gate { get; set; } = new(StringComparer.Ordinal);
 
@@ -40,6 +43,18 @@ namespace DE.Server.NativeBridge
             if (config == null)
             {
                 throw new InvalidOperationException("Managed cluster config is invalid.");
+            }
+
+            if (string.IsNullOrWhiteSpace(config.DataRoot))
+            {
+                throw new InvalidOperationException("Managed cluster config field 'dataRoot' is missing or empty.");
+            }
+
+            string configDirectory = Path.GetDirectoryName(Path.GetFullPath(configPath));
+            config.DataRoot = Path.GetFullPath(Path.Combine(configDirectory, config.DataRoot));
+            if (!Directory.Exists(config.DataRoot))
+            {
+                throw new DirectoryNotFoundException($"Managed cluster config dataRoot directory '{config.DataRoot}' does not exist.");
             }
 
             if (config.Database == null)

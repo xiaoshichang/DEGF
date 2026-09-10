@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);DE_SERVER</DefineConstants>
+  </PropertyGroup>
+</Project>

@@ -82,7 +82,7 @@ using DE.Share.Data;
 using DE.Share.Data.DataProvider;
 
 // 启动时初始化一次。
-DataRuntime.Initialize(new ExcelDataProvider());
+DataRuntime.Initialize(() => new ExcelDataProvider());
 DataRuntime.SetRootDirectory(Path.GetFullPath("Data/Excel"));
 
 // 其他位置直接通过静态入口获取。
@@ -90,6 +90,8 @@ SpaceDataTable spaces = DataRuntime.GetTable<SpaceDataTable>();
 DataTableKey key = DataTableKey.FromInt32(1001);
 SpaceDataRow row = spaces.GetRow(key);
 ```
+
+Initialize 接收 Provider 工厂，每次调用必须返回新实例；每张表独立持有并释放自己的 Provider。Excel 文件在首次读取时打开，后续缓存未命中通过 Reset 复用同一 Reader 和文件句柄，直到加载失败或 Shutdown 时关闭。IDataTableReader 不再负责 Dispose，释放入口统一为 IDataProvider.Dispose。Shutdown 会尝试释放全部表，完成清理后再报告释放异常。
 
 仓库的 `Data/Excel/SpaceData.xlsx` 是可直接读取的示例，工作表名为 `SpaceData`。默认资源名和 Sheet 名均为 attribute 的表名；可以用 `[DataTable("SpaceData", Source = "World/SpaceData", Sheet = "SpaceData")]` 指定映射。Source 不含扩展名。第 1 行是列名，第 2 行开始是数据，列名默认匹配属性名，也可以用 `[DataColumn("DisplayName")]` 覆盖映射。
 
@@ -128,7 +130,7 @@ SpaceDataTable warmed = await System.Threading.Tasks.Task.Run(
     () => DataRuntime.Prewarm<SpaceDataTable>());
 ```
 
-预热只允许 Full + KeepAlive；重复调用复用表，错误不会自动重试。运行时仍不提供并发访问保证：后台预热期间不能调用其他数据入口，必须等待 await 完成后再读取或 Shutdown；多表在一个任务中顺序预热。集群 `_InitDataRuntime()` 仍只初始化 Provider 和根目录，预热时机由用户决定。
+预热只允许 Full + KeepAlive；重复调用复用表，错误不会自动重试。运行时仍不提供并发访问保证：后台预热期间不能调用其他数据入口，必须等待 await 完成后再读取或 Shutdown；多表在一个任务中顺序预热。集群 `_InitDataRuntime()` 仍只配置 Provider 工厂和根目录，预热时机由用户决定。
 
 ## 集群启动配置
 
@@ -140,7 +142,7 @@ SpaceDataTable warmed = await System.Threading.Tasks.Task.Run(
 
 相对路径以集群配置文件所在目录为基准，也支持绝对路径。该字段必填，目录必须存在；ManagedClusterConfig.Load 将它规范化为绝对路径。现有启动脚本和 native bridge 已传递配置文件路径，无需再增加命令行参数。
 
-ManagedRuntimeState 的 `_InitDataRuntime()` 使用该路径初始化 ExcelDataProvider 并设置 DataRuntime 根目录，随后框架逻辑可直接调用 `DataRuntime.GetTable<SpaceDataTable>()`。框架表和项目自定义表都在首次访问时按策略自动加载，无需在启动代码中维护表清单。各节点进程拥有自己的静态 DataRuntime；节点退出或初始化失败时，清理本次启动创建的数据运行时状态。
+ManagedRuntimeState 的 `_InitDataRuntime()` 使用该路径配置 ExcelDataProvider 工厂并设置 DataRuntime 根目录，随后框架逻辑可直接调用 `DataRuntime.GetTable<SpaceDataTable>()`。框架表和项目自定义表都在首次访问时按策略自动加载，无需在启动代码中维护表清单。各节点进程拥有自己的静态 DataRuntime；节点退出或初始化失败时，清理本次启动创建的数据运行时状态。
 
 ## 构建与 Unity 接入
 

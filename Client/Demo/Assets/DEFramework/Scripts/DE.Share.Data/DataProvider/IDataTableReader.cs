@@ -2,12 +2,14 @@ using System;
 
 namespace DE.Share.Data.DataProvider
 {
-    public interface IDataTableReader : IDisposable
+    public interface IDataTableReader
     {
         string SourcePath { get; }
         string SheetName { get; }
         long RowNumber { get; }
 
+        // Return to the position before the first data row of the original worksheet.
+        void Reset();
         bool Read();
         bool IsNull(int columnIndex);
         int GetInt32(int columnIndex);

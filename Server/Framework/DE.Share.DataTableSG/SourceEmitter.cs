@@ -78,10 +78,10 @@ namespace DE.Share.DataTableSG
             }
             builder.Append(");\n\n        static ").Append(tableName).Append("()\n        {\n")
                 .Append("            InitializeFactory(TableDescribe, Load);\n        }\n\n")
-                .Append("        private ").Append(tableName).Append('(').Append(Provider).Append("IDataProvider provider, string rootDirectory)\n")
-                .Append("            : base(TableDescribe, provider, rootDirectory, ").Append(rowType).Append('.').Append(FactoryName).Append(")\n        {\n        }\n\n")
-                .Append("        private static ").Append(tableName).Append(" Load(").Append(Provider).Append("IDataProvider provider, string rootDirectory)\n        {\n")
-                .Append("            return new ").Append(tableName).Append("(provider, rootDirectory);\n        }\n    }\n");
+                .Append("        private ").Append(tableName).Append("(global::System.Func<").Append(Provider).Append("IDataProvider> providerFactory, string rootDirectory)\n")
+                .Append("            : base(TableDescribe, providerFactory, rootDirectory, ").Append(rowType).Append('.').Append(FactoryName).Append(")\n        {\n        }\n\n")
+                .Append("        private static ").Append(tableName).Append(" Load(global::System.Func<").Append(Provider).Append("IDataProvider> providerFactory, string rootDirectory)\n        {\n")
+                .Append("            return new ").Append(tableName).Append("(providerFactory, rootDirectory);\n        }\n    }\n");
             if (hasNamespace)
             {
                 builder.Append("}\n");

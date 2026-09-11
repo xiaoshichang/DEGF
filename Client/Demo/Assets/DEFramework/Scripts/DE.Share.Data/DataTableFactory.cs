@@ -8,7 +8,7 @@ namespace DE.Share.Data
     internal static class DataTableFactory<TTable> where TTable : class, IDataTable
     {
         private static DataTableDescribe _Describe;
-        private static Func<IDataProvider, string, TTable> _Loader;
+        private static Func<Func<IDataProvider>, string, TTable> _Loader;
 
         internal static DataTableDescribe Describe
         {
@@ -19,7 +19,7 @@ namespace DE.Share.Data
             }
         }
 
-        internal static void Initialize(DataTableDescribe describe, Func<IDataProvider, string, TTable> loader)
+        internal static void Initialize(DataTableDescribe describe, Func<Func<IDataProvider>, string, TTable> loader)
         {
             if (describe == null)
             {
@@ -37,10 +37,10 @@ namespace DE.Share.Data
             _Loader = loader;
         }
 
-        internal static TTable Load(IDataProvider provider, string rootDirectory)
+        internal static TTable Load(Func<IDataProvider> providerFactory, string rootDirectory)
         {
             EnsureInitialized();
-            return _Loader(provider, rootDirectory);
+            return _Loader(providerFactory, rootDirectory);
         }
 
         private static void EnsureInitialized()

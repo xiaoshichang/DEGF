@@ -658,13 +658,16 @@ namespace DE.Server.NativeBridge
                 }
 
                 ManagedRuntimeState.Uninitialize();
-                NativeAPI.Reset();
                 return 0;
             }
             catch (Exception exception)
             {
                 _LogManagedEntryException(nameof(UninitializeNative), exception);
                 return -1;
+            }
+            finally
+            {
+                NativeAPI.Reset();
             }
         }
     }

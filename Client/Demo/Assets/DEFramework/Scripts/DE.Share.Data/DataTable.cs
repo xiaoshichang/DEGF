@@ -12,19 +12,24 @@ namespace DE.Share.Data
         private readonly DataRowCache<TRow> _Rows;
         private readonly Func<IDataTableReader, TRow> _Materialize;
         private IDataProvider _Provider;
+        private IDataTableReader _Reader;
         private string _RootDirectory;
         private int? _Count;
         private bool _IsLoading;
         private ExceptionDispatchInfo _LoadFailure;
 
-        protected DataTable(DataTableDescribe describe, IDataProvider provider, string rootDirectory,
+        protected DataTable(DataTableDescribe describe, Func<IDataProvider> providerFactory, string rootDirectory,
             Func<IDataTableReader, TRow> materialize)
         {
             Describe = describe ?? throw new ArgumentNullException(nameof(describe));
-            _Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            if (providerFactory == null)
+            {
+                throw new ArgumentNullException(nameof(providerFactory));
+            }
             _RootDirectory = rootDirectory ?? throw new ArgumentNullException(nameof(rootDirectory));
             _Materialize = materialize ?? throw new ArgumentNullException(nameof(materialize));
             _Rows = new DataRowCache<TRow>(describe.Cache, describe.CacheCapacity);
+            _Provider = providerFactory() ?? throw new InvalidOperationException("The data provider factory returned null.");
             if (describe.Load == DataLoadPolicy.Full)
             {
                 LoadRows(null);
@@ -45,11 +50,12 @@ namespace DE.Share.Data
                     _IsLoading = true;
                     try
                     {
-                        _Count = DataTableLoader.CountRows(_Provider, _RootDirectory, Describe);
+                        ScanRows(null, false, out int count);
+                        _Count = count;
                     }
                     catch (Exception error)
                     {
-                        _LoadFailure = ExceptionDispatchInfo.Capture(error);
+                        RecordLoadFailure(error);
                         throw;
                     }
                     finally
@@ -61,7 +67,7 @@ namespace DE.Share.Data
             }
         }
 
-        protected static void InitializeFactory<TTable>(DataTableDescribe describe, Func<IDataProvider, string, TTable> loader)
+        protected static void InitializeFactory<TTable>(DataTableDescribe describe, Func<Func<IDataProvider>, string, TTable> loader)
             where TTable : DataTable<TRow>
         {
             DataTableFactory<TTable>.Initialize(describe, loader);
@@ -94,8 +100,7 @@ namespace DE.Share.Data
 
         void IDataTableState.Detach()
         {
-            _Provider = null;
-            _RootDirectory = null;
+            DisposeProvider();
         }
 
         private void LoadRows(DataTableKey? key)
@@ -105,15 +110,14 @@ namespace DE.Share.Data
             _IsLoading = true;
             try
             {
-                var rows = DataTableLoader.LoadRows(_Provider, _RootDirectory, Describe, _Materialize,
-                    CreateFilter(key), out int count);
-                // Publish only after the complete scan and disposal have succeeded.
+                var rows = ScanRows(key, true, out int count);
+                // Publish only after the complete scan has succeeded; the provider keeps the reader open.
                 _Rows.AddRows(rows, key);
                 _Count = count;
             }
             catch (Exception error)
             {
-                _LoadFailure = ExceptionDispatchInfo.Capture(error);
+                RecordLoadFailure(error);
                 throw;
             }
             finally
@@ -122,14 +126,69 @@ namespace DE.Share.Data
             }
         }
 
-        private Func<DataTableKey, bool> CreateFilter(DataTableKey? key)
+        private Dictionary<DataTableKey, TRow> ScanRows(DataTableKey? key, bool materialize, out int count)
         {
-            if (Describe.Load == DataLoadPolicy.Full)
+            if (_Reader == null)
             {
-                return null;
+                _Reader = _Provider.OpenTable(_RootDirectory, Describe)
+                    ?? throw new InvalidOperationException("The data provider returned a null reader.");
             }
-            var requested = key.Value;
-            return candidate => candidate == requested;
+            var rows = new Dictionary<DataTableKey, TRow>();
+            var positions = new Dictionary<DataTableKey, long>();
+            try
+            {
+                // Reset also makes the first scan independent of the provider's current cursor position.
+                _Reader.Reset();
+                while (_Reader.Read())
+                {
+                    var sourceKey = DataTableKey.FromInt32(_Reader.GetInt32(0));
+                    if (positions.TryGetValue(sourceKey, out long previousRow))
+                    {
+                        throw new DataLoadException($"Duplicate key '{sourceKey}' in table '{Describe.TableName}'; first seen at row {previousRow}.",
+                            _Reader.SourcePath, _Reader.SheetName, _Reader.RowNumber, Describe.Columns[0].ColumnName);
+                    }
+                    positions.Add(sourceKey, _Reader.RowNumber);
+                    if (materialize && (Describe.Load == DataLoadPolicy.Full || key == sourceKey))
+                    {
+                        var row = _Materialize(_Reader);
+                        if (row == null || row.Id != sourceKey)
+                        {
+                            throw new InvalidOperationException("The row factory must return a non-null row with the source key.");
+                        }
+                        rows.Add(sourceKey, row);
+                    }
+                }
+                count = positions.Count;
+                return rows;
+            }
+            catch (Exception error) when (!(error is DataLoadException))
+            {
+                throw new DataLoadException($"Could not load table '{Describe.TableName}': {error.Message}",
+                    _Reader.SourcePath, _Reader.SheetName, _Reader.RowNumber, innerException: error);
+            }
+        }
+
+        private void RecordLoadFailure(Exception error)
+        {
+            _LoadFailure = ExceptionDispatchInfo.Capture(error);
+            try
+            {
+                DisposeProvider();
+            }
+            catch (Exception disposeError)
+            {
+                // Cleanup must not replace the first failure that subsequent reads rethrow.
+                error.Data["DataProvider.DisposeException"] = disposeError;
+            }
+        }
+
+        private void DisposeProvider()
+        {
+            var provider = _Provider;
+            _Provider = null;
+            _Reader = null;
+            _RootDirectory = null;
+            provider?.Dispose();
         }
 
         private void ThrowIfUnavailable()

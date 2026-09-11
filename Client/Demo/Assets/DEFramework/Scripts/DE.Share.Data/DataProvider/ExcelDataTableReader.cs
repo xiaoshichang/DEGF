@@ -5,9 +5,9 @@ using ExcelDataReader;
 
 namespace DE.Share.Data.DataProvider
 {
-    internal sealed class ExcelDataTableReader : IDataTableReader
+    internal sealed class ExcelDataTableReader : IDataTableReader, IDisposable
     {
-        private readonly IExcelDataReader reader;
+        private IExcelDataReader reader;
         private readonly DataTableDescribe describe;
         private readonly int[] columnMap;
         private readonly string[] headers;
@@ -21,13 +21,7 @@ namespace DE.Share.Data.DataProvider
             this.describe = describe;
             SourcePath = sourcePath;
             SheetName = describe.SheetName;
-            while (!string.Equals(reader.Name, SheetName, StringComparison.Ordinal))
-            {
-                if (!reader.NextResult())
-                {
-                    throw Error("The specified worksheet does not exist.");
-                }
-            }
+            SelectWorksheet();
             if (reader.MergeCells != null && reader.MergeCells.Length > 0)
             {
                 throw Error("Merged cells are not supported in data worksheets.");
@@ -74,6 +68,27 @@ namespace DE.Share.Data.DataProvider
         public string SourcePath { get; }
         public string SheetName { get; }
         public long RowNumber { get; private set; }
+
+        public void Reset()
+        {
+            ThrowIfDisposed();
+            hasCurrentRow = false;
+            RowNumber = 0;
+            try
+            {
+                reader.Reset();
+                SelectWorksheet();
+                if (!reader.Read())
+                {
+                    throw Error("The worksheet has no header row.");
+                }
+                RowNumber = reader.Depth + 1L;
+            }
+            catch (Exception exception) when (!(exception is DataLoadException))
+            {
+                throw Error("Could not reset the worksheet.", innerException: exception);
+            }
+        }
 
         public bool Read()
         {
@@ -175,10 +190,25 @@ namespace DE.Share.Data.DataProvider
 
         public void Dispose()
         {
-            if (!disposed)
+            if (disposed)
             {
-                disposed = true;
-                reader.Dispose();
+                return;
+            }
+            disposed = true;
+            hasCurrentRow = false;
+            var ownedReader = reader;
+            reader = null;
+            ownedReader.Dispose();
+        }
+
+        private void SelectWorksheet()
+        {
+            while (!string.Equals(reader.Name, SheetName, StringComparison.Ordinal))
+            {
+                if (!reader.NextResult())
+                {
+                    throw Error("The specified worksheet does not exist.");
+                }
             }
         }
 

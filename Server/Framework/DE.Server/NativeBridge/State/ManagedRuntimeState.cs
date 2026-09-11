@@ -65,9 +65,16 @@ namespace DE.Server.NativeBridge
             {
                 runtimeState.InitializeCore(info);
             }
-            catch
+            catch (Exception error)
             {
-                runtimeState.UninitializeCore();
+                try
+                {
+                    runtimeState.UninitializeCore();
+                }
+                catch (Exception cleanupError)
+                {
+                    error.Data["ManagedRuntimeState.UninitializeException"] = cleanupError;
+                }
                 throw;
             }
             Current = runtimeState;
@@ -79,8 +86,14 @@ namespace DE.Server.NativeBridge
             {
                 return;
             }
-            Current.UninitializeCore();
-            Current = null;
+            try
+            {
+                Current.UninitializeCore();
+            }
+            finally
+            {
+                Current = null;
+            }
         }
 
         public static ManagedRuntimeState RequireCurrent()
@@ -510,7 +523,7 @@ namespace DE.Server.NativeBridge
 
         private void _InitDataRuntime()
         {
-            DataRuntime.Initialize(new ExcelDataProvider());
+            DataRuntime.Initialize(() => new ExcelDataProvider());
             DataRuntime.SetRootDirectory(ClusterConfig.DataRoot);
         }
 
@@ -558,22 +571,27 @@ namespace DE.Server.NativeBridge
             finally
             {
                 DatabaseService = null;
-                _UnregisterUnhandledExceptionHandlers();
-                UnregisterGameplayAssemblyResolver();
-                DataRuntime.Shutdown();
-
-                GmCommandRuntimeState = null;
-                GateServerRuntimeState = null;
-                GameServerRuntimeState = null;
-                ClusterConfig = null;
-                StubDistributeTable = new ServerStubDistributeTable();
-                StubTypes = new List<Type>();
-                GameplayAssembly = null;
-                ServerType = ManagedRuntimeServerType.Unknown;
-                ServerId = string.Empty;
-                ConfigPath = string.Empty;
-                FrameworkDllPath = string.Empty;
-                GameplayDllPath = string.Empty;
+                try
+                {
+                    _UnregisterUnhandledExceptionHandlers();
+                    UnregisterGameplayAssemblyResolver();
+                    DataRuntime.Shutdown();
+                }
+                finally
+                {
+                    GmCommandRuntimeState = null;
+                    GateServerRuntimeState = null;
+                    GameServerRuntimeState = null;
+                    ClusterConfig = null;
+                    StubDistributeTable = new ServerStubDistributeTable();
+                    StubTypes = new List<Type>();
+                    GameplayAssembly = null;
+                    ServerType = ManagedRuntimeServerType.Unknown;
+                    ServerId = string.Empty;
+                    ConfigPath = string.Empty;
+                    FrameworkDllPath = string.Empty;
+                    GameplayDllPath = string.Empty;
+                }
             }
         }
 

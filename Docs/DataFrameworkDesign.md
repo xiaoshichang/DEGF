@@ -46,7 +46,6 @@ DE.Share.Data/
         SpaceDataRow.cs
     DataTable.cs
     DataTableFactory.cs
-    DataTableLoader.cs
     DataRowCache.cs
     IDataTableState.cs
     IDataTable.cs
@@ -146,19 +145,20 @@ SG 在 `SpaceDataRow` 的 partial 部分生成内部静态行工厂，通过直�
 抽象接口：
 
 ```csharp
-public interface IDataProvider
+public interface IDataProvider : System.IDisposable
 {
     IDataTableReader OpenTable(
         string rootDirectory,
         DataTableDescribe describe);
 }
 
-public interface IDataTableReader : System.IDisposable
+public interface IDataTableReader
 {
     string SourcePath { get; }
     string SheetName { get; }
     long RowNumber { get; }
 
+    void Reset();
     bool Read();
     bool IsNull(int columnIndex);
     int GetInt32(int columnIndex);
@@ -177,7 +177,11 @@ public interface IDataTableReader : System.IDisposable
 
 Getter 必须按目标类型做校验和转换，不能简单透传 Excel 库的同名 getter。缺失值、溢出和格式错误统一带上文件、工作表、实际行号、列名、目标类型上下文；原始异常作为 InnerException 保留。可空值由生成的代码先调用 `IsNull`。
 
-Provider 只创建独立 Reader，不缓存表或持有共享游标。`DataRuntime` 传入本次固定的根目录，Provider 无需访问进程级静态路径。Excel Reader 拥有文件流；生成的表加载方法使用 `using`，成功或失败都关闭 Reader 和流。打开 Reader 过程中失败时，也必须关闭已经创建的流。
+每张 DataTable 独占一个 Provider，由 Initialize 指定的工厂在表构造时创建；工厂每次必须返回新实例。Runtime 只保存工厂和根目录。Provider 拥有 Reader、工作簿和文件句柄，OpenTable 返回借用的 Reader；表只调用 Read/Reset，不单独释放 Reader。扫描、计数和主键校验由 DataTable 内部完成。
+
+ExcelDataProvider 在首次读取时打开文件并绑定描述；同一绑定再次 OpenTable 返回原 Reader，不重新打开也不重置游标，禁止重新绑定到其他描述或根目录。DataTable 只调用一次 OpenTable，之后通过 Reset 回到指定 Sheet 的首条数据之前。Reset 复用工作簿和列映射，文件句柄保持到表失败或 Shutdown；此期间源文件应保持不变，Excel 仍需顺序扫描。
+
+Provider.Dispose 统一释放资源且可重复调用。任何打开、重置或读表失败都立即释放该表的 Provider，并保存首个错误；清理错误不会覆盖首个读取错误。Shutdown 即使遇到某张表的释放异常也继续释放其余表，清空 Runtime 后通过 AggregateException 报告清理错误。
 
 首版使用 ExcelDataReader 3.8.0 的底层 Reader API，不引入 `AsDataSet()`。其官方说明列出了 `.xlsx` 支持和 .NET Standard 2.0 目标；Unity 兼容性通过本项目实际编译和运行验收。[ExcelDataReader 官方说明](https://github.com/ExcelDataReader/ExcelDataReader)
 
@@ -211,7 +215,7 @@ SG 扫描当前编译程序集内标记 `[DataTable]` 的行类，使用 Roslyn 
 | `SpaceDataRow` 的 partial 行工厂 | 读取强类型值并直接赋值 |
 | `SpaceDataTable.TableDescribe` | 静态不可变表描述 |
 | `SpaceDataTable` | 继承 `DataTable<SpaceDataRow>` 的具体表，提供 GetRow 查询 |
-| 内部加载方法 | 将 Provider、根目录与行工厂交给基类，由基类按描述执行加载策略 |
+| 内部加载方法 | 将 Provider 工厂、根目录与行工厂交给基类，由基类按描述执行加载策略 |
 | `SpaceDataTable` 静态构造函数 | 自动为内部泛型工厂绑定表描述和强类型加载委托，不读取文件 |
 
 `DataTable<TRow>` 的行类型约束为 `where TRow : DataRow`，实现非泛型契约 `IDataTable`；后者暴露 `Describe` 和 `Count`，供 Runtime 约束表类型。泛型基类保存私有字典，并提供唯一的按键查询入口：
@@ -232,12 +236,12 @@ SG 的编译错误至少覆盖：错误基类、非 partial/sealed 类型、嵌�
 
 ## 8. DataRuntime 与加载流程
 
-`DataRuntime` 是静态类，统一持有 Provider、根目录、已占用表名及表缓存。各处通过静态方法读取数据，无需传递实例或逐表注册。当前按单线程使用，不实现锁或多线程同步，也不反射扫描程序集。
+`DataRuntime` 是静态类，统一持有 Provider 工厂、根目录、已占用表名及表缓存。各处通过静态方法读取数据，无需传递实例或逐表注册。当前按单线程使用，不实现锁或多线程同步，也不反射扫描程序集。
 
 核心入口：
 
 ```csharp
-public static void Initialize(IDataProvider provider);
+public static void Initialize(Func<IDataProvider> providerFactory);
 
 public static void SetRootDirectory(string rootDirectory);
 
@@ -257,7 +261,7 @@ using DE.Share.Data;
 using DE.Share.Data.DataProvider;
 
 // 启动时执行一次。
-DataRuntime.Initialize(new ExcelDataProvider());
+DataRuntime.Initialize(() => new ExcelDataProvider());
 DataRuntime.SetRootDirectory(configRootDirectory);
 
 // 任意业务位置读取配置。
@@ -275,13 +279,13 @@ DataRuntime.Shutdown();
 
 1. 检查 Runtime 已初始化、根目录已配置。
 2. 已有表句柄先检查失败和重入状态，再返回同一实例。
-3. 自动准备该类型的工厂，检查并预留逻辑表名，调用加载委托，由 Provider 打开对应文件并绑定列。
+3. 自动准备该类型的工厂，检查并预留逻辑表名，调用生成的构造委托，表创建独立 Provider，再首次打开对应文件并绑定列。
 4. 生成的行工厂构建 `SpaceDataRow`，逐条加入临时字典。
-5. 完整读取、校验和关闭 Reader 成功后，发布行缓存，构造完成的 `SpaceDataTable` 进入 Runtime 缓存。上述是 Full 策略的流程；Row 在 GetTable 时只构造句柄，GetRow 未命中时才读取对应批次。
+5. 完整读取和校验成功后，发布行缓存，构造完成的 `SpaceDataTable` 进入 Runtime 缓存。上述是 Full 策略的流程；Row 在 GetTable 时只构造句柄，GetRow 未命中时才读取对应批次。
 
 加载接口同步执行，同一张表始终复用句柄。所有入口需要串行使用，不提供并发访问保证；可以在独占的初始化阶段由调用方把 Prewarm 放到后台任务，并等待结束后再访问数据。递归读取同一张表会明确报错；不提供并发加载、取消或自动重试。
 
-任一批次或 Count 扫描失败都记录整张表的首个异常及原始上下文，不发布失败批次，保留已经占用的逻辑表名。当前运行周期内不可重试：后续 `GetTable`、`GetRow` 和 `Count` 直接重新抛出记录的错误，包括此前缓存成功的行，不再调用工厂或打开数据源，也不能通过同名的另一种表类型绕过失败状态。其他表仍可正常加载。空表在表头合法时成功，缺失文件或 Sheet 不能当作空表返回。`Shutdown` 清空表名占用、已加载表和失败状态，并重置 Provider、根目录，允许随后重新初始化。类型工厂的描述和加载方法跨 Shutdown 保留，不依赖静态构造函数再次执行。重复 Shutdown 安全；加载期间调用会报错，避免重入清理。未重新初始化前不能使用其他入口；旧句柄保留已缓存的行和已知 Count，但与 Provider、根目录断开，无法加载未缓存的行。Full + KeepAlive 的完整快照仍可读取；调用方已持有的行不受淘汰或 Shutdown 影响。新运行周期需要重新 GetTable 获取句柄。
+任一批次或 Count 扫描失败都记录整张表的首个异常及原始上下文，不发布失败批次，立即释放该表的 Provider，保留已经占用的逻辑表名。当前运行周期内不可重试：后续 `GetTable`、`GetRow` 和 `Count` 直接重新抛出记录的错误，包括此前缓存成功的行，不再调用工厂或打开数据源，也不能通过同名的另一种表类型绕过失败状态。其他表仍可正常加载。空表在表头合法时成功，缺失文件或 Sheet 不能当作空表返回。`Shutdown` 清空表名占用、已加载表和失败状态，并重置 Provider 工厂、根目录，允许随后重新初始化。类型工厂的描述和加载方法跨 Shutdown 保留，不依赖静态构造函数再次执行。重复 Shutdown 安全；加载期间调用会报错，避免重入清理。未重新初始化前不能使用其他入口；旧句柄保留已缓存的行和已知 Count，但与 Provider、根目录断开，无法加载未缓存的行。Full + KeepAlive 的完整快照仍可读取；调用方已持有的行不受淘汰或 Shutdown 影响。新运行周期需要重新 GetTable 获取句柄。
 
 ## 9. Excel 约定与类型校验
 
@@ -345,7 +349,7 @@ Full 在首次 GetTable 时全量加载。Row 的 GetTable 不打开文件；Get
 
 Lru 按用户实际 GetRow 访问维护最近顺序；预取但未访问的新行排在已有缓存行之后，当前请求行最后提升为最近访问，随后淘汰到容量限制。已有缓存行保持对象身份和原有访问顺序。Full + Lru 在缓存未命中时重新读取整张表；Row + Lru 只构建目标行。每次读取都原子发布，加载批次超过容量时仍保证本次请求行被保留。容量仅限制长期缓存行数，不限制临时批次、扫描主键或调用方已持有行的内存。
 
-当前 Excel Provider 是顺序 Reader：每次缓存未命中仍扫描工作表，校验结构和全表主键，但只构建目标批次的 DataRow；不宣称 Excel 随机读取性能。非目标行的普通值转换推迟到该行被加载时。Count 表示源表总行数，首次访问可能扫描一次主键；之后复用最近成功扫描的总数。数据文件在一个运行周期内应保持不变，自动刷新和热更新不在本次范围内。
+当前 Excel Provider 持有可重置的顺序 Reader：每次缓存未命中复用已打开的文件并重新扫描工作表，校验结构和全表主键，但只构建目标批次的 DataRow；不宣称 Excel 随机读取性能。非目标行的普通值转换推迟到该行被加载时。Count 表示源表总行数，首次访问可能扫描一次主键；之后复用最近成功扫描的总数。数据文件在一个运行周期内应保持不变，自动刷新和热更新不在本次范围内。
 
 `DataRuntime.Prewarm<TTable>()` 只接受 Full + KeepAlive，返回完整表；重复预热复用成功缓存，失败则沿用不可重试规则。其他组合在读取前报错。接口不枚举所有表、不增加注册步骤，也不在集群初始化时自动触发。
 
@@ -380,7 +384,7 @@ SpaceDataTable warmed = await System.Threading.Tasks.Task.Run(
 | Excel | 真实 xlsx 的表头乱序、字符串、整数、空值、额外列；缺 Sheet/列、重复表头/Id、错误类型、溢出和大整数文本 |
 | Runtime | 静态入口重复请求返回缓存实例；加载失败后直接报错，不再次加载；失败不发布半表；Shutdown 后可重新初始化，旧缓存和失败状态不混入新配置 |
 | 根目录 | 未配置报错；成功设置后禁止再次设置，失败可重试；Shutdown 后可重新设置；拒绝越界资源名；文件路径与 Sheet 报错可定位 |
-| 资源释放 | 成功和失败后均能重新打开文件；Shutdown 后未重新初始化的调用报错，已返回行和缓存内容仍可查询，旧句柄不得访问数据源 |
+| 资源释放 | 成功读取后复用同一文件句柄；失败或 Shutdown 后释放句柄；Shutdown 后未重新初始化的调用报错，已返回行和缓存内容仍可查询，旧句柄不得访问数据源 |
 | Provider 替换 | 测试内存 Provider 通过同一 Reader 契约生成相同表，确认加载器不依赖 Excel 专有对象 |
 | 服务端 | 构建实际 `Server/Framework/Framework.sln`；首版实现时已验证数据模块和 SG，按用户要求暂不保留新增的两个测试工程 |
 | Unity | 导入运行时依赖和 SG 后由 Unity 实际编译，并读取同一份示例 xlsx；有 IL2CPP 发布需求时在目标构建中验证，服务端通过不能替代该验收 |

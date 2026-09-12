@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DE.Share\DE.Share.csproj" />
+    <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
     <ProjectReference Include="..\DE.Share.EntityPropertySG\DE.Share.EntityPropertySG.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

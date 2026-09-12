@@ -12,26 +12,19 @@ namespace DE.Share.Data
     /// </summary>
     public static class DataRuntime
     {
-        private static readonly Dictionary<Type, IDataTable> _Tables = new Dictionary<Type, IDataTable>();
-        private static readonly Dictionary<Type, ExceptionDispatchInfo> _LoadFailures = new Dictionary<Type, ExceptionDispatchInfo>();
-        private static readonly Dictionary<string, Type> _TableNames = new Dictionary<string, Type>(StringComparer.Ordinal);
-        private static readonly HashSet<Type> _Loading = new HashSet<Type>();
+        private static readonly Dictionary<Type, IDataTable> _Tables = new();
+        private static readonly Dictionary<string, Type> _TableNames = new(StringComparer.Ordinal);
         private static Func<IDataProvider> _ProviderFactory;
         private static string _RootDirectory;
-        private static bool _ShuttingDown;
 
         /// <summary>The factory must return a new independently owned provider for each table.</summary>
         public static void Initialize(Func<IDataProvider> providerFactory)
         {
-            if (providerFactory == null)
-            {
-                throw new ArgumentNullException(nameof(providerFactory));
-            }
             if (_ProviderFactory != null)
             {
                 throw new InvalidOperationException("DataRuntime is already initialized. Call Shutdown before initializing it again.");
             }
-            _ProviderFactory = providerFactory;
+            _ProviderFactory = providerFactory ?? throw new ArgumentNullException(nameof(providerFactory));
         }
 
         public static void SetRootDirectory(string rootDirectory)
@@ -63,42 +56,22 @@ namespace DE.Share.Data
             }
             if (_Tables.TryGetValue(type, out var cached))
             {
-                (cached as IDataTableState)?.ThrowIfUnavailable();
                 return (TTable)cached;
             }
-            if (_LoadFailures.TryGetValue(type, out var failure))
+
+            var describe = DataTableFactory<TTable>.Describe;
+            if (_TableNames.TryGetValue(describe.TableName, out var existingType))
             {
-                failure.Throw();
+                throw new InvalidOperationException($"Table name '{describe.TableName}' is already used by '{existingType.FullName}' and cannot be used by '{type.FullName}'.");
             }
-            if (!_Loading.Add(type))
+            _TableNames.Add(describe.TableName, type);
+            var table = DataTableFactory<TTable>.Load(_ProviderFactory, _RootDirectory);
+            if (table == null || !ReferenceEquals(table.Describe, describe))
             {
-                throw new InvalidOperationException($"Recursive loading of table type '{type.FullName}' is not supported.");
+                throw new InvalidOperationException("The table loader must return a table with its factory description.");
             }
-            try
-            {
-                var describe = DataTableFactory<TTable>.Describe;
-                if (_TableNames.TryGetValue(describe.TableName, out var existingType))
-                {
-                    throw new InvalidOperationException($"Table name '{describe.TableName}' is already used by '{existingType.FullName}' and cannot be used by '{type.FullName}'.");
-                }
-                _TableNames.Add(describe.TableName, type);
-                var table = DataTableFactory<TTable>.Load(_ProviderFactory, _RootDirectory);
-                if (table == null || !ReferenceEquals(table.Describe, describe))
-                {
-                    throw new InvalidOperationException("The table loader must return a table with its factory description.");
-                }
-                _Tables.Add(type, table);
-                return (TTable)table;
-            }
-            catch (Exception error)
-            {
-                _LoadFailures.Add(type, ExceptionDispatchInfo.Capture(error));
-                throw;
-            }
-            finally
-            {
-                _Loading.Remove(type);
-            }
+            _Tables.Add(type, table);
+            return table;
         }
 
         /// <summary>
@@ -118,58 +91,14 @@ namespace DE.Share.Data
 
         public static void Shutdown()
         {
-            if (_ShuttingDown)
-            {
-                throw new InvalidOperationException("DataRuntime is already shutting down.");
-            }
-            if (_Loading.Count != 0)
-            {
-                throw new InvalidOperationException("DataRuntime cannot shut down while a table is loading.");
-            }
-            foreach (var table in _Tables.Values)
-            {
-                if (table is IDataTableState state && state.IsLoading)
-                {
-                    throw new InvalidOperationException("DataRuntime cannot shut down while a table is loading.");
-                }
-            }
-            var errors = new List<Exception>();
-            _ShuttingDown = true;
-            try
-            {
-                foreach (var table in _Tables.Values)
-                {
-                    try
-                    {
-                        (table as IDataTableState)?.Detach();
-                    }
-                    catch (Exception error)
-                    {
-                        errors.Add(error);
-                    }
-                }
-            }
-            finally
-            {
-                _Tables.Clear();
-                _LoadFailures.Clear();
-                _TableNames.Clear();
-                _ProviderFactory = null;
-                _RootDirectory = null;
-                _ShuttingDown = false;
-            }
-            if (errors.Count != 0)
-            {
-                throw new AggregateException("One or more data providers could not be disposed.", errors);
-            }
+            _Tables.Clear();
+            _TableNames.Clear();
+            _ProviderFactory = null;
+            _RootDirectory = null;
         }
 
         private static void ThrowIfNotInitialized()
         {
-            if (_ShuttingDown)
-            {
-                throw new InvalidOperationException("DataRuntime is shutting down.");
-            }
             if (_ProviderFactory == null)
             {
                 throw new InvalidOperationException("Call DataRuntime.Initialize before using data tables.");

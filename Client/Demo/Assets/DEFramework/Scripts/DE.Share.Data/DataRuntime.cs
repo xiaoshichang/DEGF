@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
-using System.Runtime.ExceptionServices;
 using DE.Share.Data.DataProvider;
 
 namespace DE.Share.Data
@@ -14,6 +14,7 @@ namespace DE.Share.Data
     {
         private static readonly Dictionary<Type, IDataTable> _Tables = new();
         private static readonly Dictionary<string, Type> _TableNames = new(StringComparer.Ordinal);
+        private static readonly Dictionary<Type, Func<IDataTable>> _GeneratedTableLoaders = new();
         private static Func<IDataProvider> _ProviderFactory;
         private static string _RootDirectory;
 
@@ -87,6 +88,71 @@ namespace DE.Share.Data
                 throw new InvalidOperationException($"Only Full + KeepAlive tables support prewarming; table '{describe.TableName}' uses {describe.Load} + {describe.Cache}.");
             }
             return GetTable<TTable>();
+        }
+
+        /// <summary>
+        /// Registers a generated data table loader. This method is reserved for DataTable source-generator output.
+        /// </summary>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public static void RegisterGeneratedTable<TTable>() where TTable : class, IDataTable
+        {
+            var type = typeof(TTable);
+            if (_GeneratedTableLoaders.ContainsKey(type))
+            {
+                return;
+            }
+
+            _GeneratedTableLoaders.Add(type, GetTable<TTable>);
+        }
+
+        /// <summary>
+        /// Creates missing table handles from the source-generated table catalog and prints statistics
+        /// for every registered table.
+        /// </summary>
+        /// <remarks>
+        /// Each detail line contains the logical table name, table type, total source row count and current
+        /// cached row count. Creating a table handle applies that table's configured load policy, so a Full table
+        /// may materialize rows during this call. Reading a total row count scans the source when necessary, while
+        /// a Row table that has not otherwise been queried retains zero materialized rows in its cache.
+        /// </remarks>
+        /// <returns>The summary followed by one line per table ordered by logical name.</returns>
+        public static string PrintTableStatistics()
+        {
+            ThrowIfNotInitialized();
+            LoadAllTableHandles();
+            var tables = new List<KeyValuePair<Type, IDataTable>>(_Tables);
+            tables.Sort((left, right) =>
+                StringComparer.Ordinal.Compare(left.Value.Describe.TableName, right.Value.Describe.TableName));
+
+            var details = new List<string>(tables.Count);
+            long totalRowCount = 0;
+            long totalCachedRowCount = 0;
+            foreach (var pair in tables)
+            {
+                var table = pair.Value;
+                var rowCount = table.Count;
+                var cachedRowCount = table.CachedRowCount;
+                totalRowCount += rowCount;
+                totalCachedRowCount += cachedRowCount;
+                details.Add(
+                    $"tableName={table.Describe.TableName}, tableType={pair.Key.FullName}, rowCount={rowCount}, cachedRowCount={cachedRowCount}."
+                );
+            }
+
+            details.Insert(
+                0,
+                $"DataRuntime table statistics: tableCount={tables.Count}, rowCount={totalRowCount}, cachedRowCount={totalCachedRowCount}."
+            );
+            return string.Join(Environment.NewLine, details);
+        }
+
+        private static void LoadAllTableHandles()
+        {
+            var loaders = new List<Func<IDataTable>>(_GeneratedTableLoaders.Values);
+            foreach (var load in loaders)
+            {
+                load();
+            }
         }
 
         public static void Shutdown()

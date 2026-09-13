@@ -5,8 +5,10 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using DE.Server.Entities;
+using DE.Share.Data;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
+using Microsoft.CodeAnalysis.Scripting.Hosting;
 
 namespace DE.Server.NativeBridge
 {
@@ -34,13 +36,27 @@ namespace DE.Server.NativeBridge
         {
             var runtimeState = ManagedRuntimeState.RequireCurrent();
             var globals = new TelnetCSharpGlobals(runtimeState);
-            return CSharpScript
-                .EvaluateAsync<object>(code, CreateScriptOptions(runtimeState), globals, typeof(TelnetCSharpGlobals))
+            var assemblies = CollectScriptAssemblies(runtimeState);
+            var assemblyLoader = new InteractiveAssemblyLoader();
+            foreach (var assembly in assemblies)
+            {
+                assemblyLoader.RegisterDependency(assembly);
+            }
+
+            var script = CSharpScript.Create<object>(
+                code,
+                CreateScriptOptions(assemblies),
+                typeof(TelnetCSharpGlobals),
+                assemblyLoader
+            );
+            return script
+                .RunAsync(globals)
                 .GetAwaiter()
-                .GetResult();
+                .GetResult()
+                .ReturnValue;
         }
 
-        private static ScriptOptions CreateScriptOptions(ManagedRuntimeState runtimeState)
+        private static List<Assembly> CollectScriptAssemblies(ManagedRuntimeState runtimeState)
         {
             var assemblies = new List<Assembly>
             {
@@ -49,6 +65,7 @@ namespace DE.Server.NativeBridge
                 typeof(Dictionary<,>).Assembly,
                 typeof(ManagedRuntimeState).Assembly,
                 typeof(ServerEntity).Assembly,
+                typeof(DataRuntime).Assembly,
             };
 
             if (runtimeState.GameplayAssembly != null)
@@ -56,14 +73,21 @@ namespace DE.Server.NativeBridge
                 assemblies.Add(runtimeState.GameplayAssembly);
             }
 
+            assemblies.AddRange(runtimeState.PreloadedAssemblies);
+            return assemblies.Distinct().ToList();
+        }
+
+        private static ScriptOptions CreateScriptOptions(IReadOnlyList<Assembly> assemblies)
+        {
             return ScriptOptions.Default
-                .WithReferences(assemblies.Distinct())
+                .WithReferences(assemblies)
                 .WithImports(
                     "System",
                     "System.Collections.Generic",
                     "System.Linq",
                     "DE.Server.Entities",
-                    "DE.Server.NativeBridge"
+                    "DE.Server.NativeBridge",
+                    "DE.Share.Data"
                 );
         }
 
@@ -145,6 +169,18 @@ namespace DE.Server.NativeBridge
                 get
                 {
                     return GameServerRuntimeState?.StubInstances;
+                }
+            }
+
+            /// <summary>
+            /// Gets the full statistics report for every data table currently loaded in this process.
+            /// Enter <c>DataTableStatistics</c> in the Telnet session to print the report.
+            /// </summary>
+            public string DataTableStatistics
+            {
+                get
+                {
+                    return DataRuntime.PrintTableStatistics();
                 }
             }
         }

@@ -6,5 +6,6 @@ namespace DE.Share.Data
     {
         DataTableDescribe Describe { get; }
         int Count { get; }
+        int CachedRowCount { get; }
     }
 }

@@ -48,16 +48,37 @@ namespace DE.Share.DataTableSG
             }
             var duplicates = new HashSet<string>(rows.GroupBy(row => row.TableName, StringComparer.Ordinal)
                 .Where(group => group.Count() > 1).Select(group => group.Key), StringComparer.Ordinal);
-            foreach (var row in rows.OrderBy(item => item.Symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+            var generatedRows = rows
+                .Where(row => !duplicates.Contains(row.TableName))
+                .OrderBy(item => item.Symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal)
+                .ToList();
+            foreach (var row in rows.Where(row => duplicates.Contains(row.TableName)))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(GeneratorDiagnostics.DuplicateTable, row.Symbol.Locations.FirstOrDefault(), row.TableName));
+            }
+            foreach (var row in generatedRows)
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
-                if (duplicates.Contains(row.TableName))
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(GeneratorDiagnostics.DuplicateTable, row.Symbol.Locations.FirstOrDefault(), row.TableName));
-                    continue;
-                }
                 context.AddSource(SourceEmitter.HintName(row), SourceText.From(SourceEmitter.Emit(row), Encoding.UTF8));
             }
+            if (generatedRows.Count == 0)
+            {
+                return;
+            }
+            var moduleInitializerAttribute = context.Compilation.GetTypeByMetadataName(
+                "System.Runtime.CompilerServices.ModuleInitializerAttribute"
+            );
+            if (moduleInitializerAttribute == null || moduleInitializerAttribute.DeclaredAccessibility != Accessibility.Public)
+            {
+                context.AddSource(
+                    SourceEmitter.ModuleInitializerAttributeHintName,
+                    SourceText.From(SourceEmitter.EmitModuleInitializerAttribute(), Encoding.UTF8)
+                );
+            }
+            context.AddSource(
+                SourceEmitter.CatalogHintName,
+                SourceText.From(SourceEmitter.EmitCatalog(generatedRows), Encoding.UTF8)
+            );
         }
     }
 }

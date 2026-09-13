@@ -26,7 +26,10 @@
   },
   "managed": {
     "frameworkDll": "../Framework/DE.Server/bin/Debug/net10.0/DE.Server.dll",
-    "gameplayDll": "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll"
+    "gameplayDll": "../Framework/Demo.Server/bin/Debug/net10.0/Demo.Server.dll",
+    "preloadDlls": [
+      "../Framework/Demo.Share.Data/bin/Debug/net10.0/Demo.Share.Data.dll"
+    ]
   },
   "dataRoot": "../../Data/Excel",
   "database": {

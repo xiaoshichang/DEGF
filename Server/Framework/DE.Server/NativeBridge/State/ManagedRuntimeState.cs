@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Text.Json;
@@ -26,21 +27,22 @@ namespace DE.Server.NativeBridge
     /// </summary>
     public sealed class ManagedRuntimeState
     {
-        private AssemblyDependencyResolver _gameplayAssemblyDependencyResolver;
-        private string _gameplayAssemblyDirectory = string.Empty;
+        private readonly List<AssemblyDependencyResolver> _managedAssemblyDependencyResolvers = new();
+        private readonly List<string> _managedAssemblyDirectories = new();
+        private readonly List<Assembly> _preloadedAssemblies = new();
+        private AssemblyLoadContext _managedAssemblyLoadContext;
         private string _frameworkAssemblyDirectory = string.Empty;
-        private bool _gameplayAssemblyResolverRegistered;
+        private bool _managedAssemblyResolverRegistered;
         private bool _unhandledExceptionHandlersRegistered;
 
         public static ManagedRuntimeState Current { get; private set; }
-
         public static bool IsInitialized => Current != null;
-
         public string ServerId { get; private set; } = string.Empty;
         public string ConfigPath { get; private set; } = string.Empty;
         public string FrameworkDllPath { get; private set; } = string.Empty;
         public string GameplayDllPath { get; private set; } = string.Empty;
         public Assembly GameplayAssembly { get; private set; }
+        public IReadOnlyList<Assembly> PreloadedAssemblies => _preloadedAssemblies;
         public ManagedClusterConfig ClusterConfig { get; private set; }
         public List<Type> StubTypes { get; private set; } = new();
         public ManagedRuntimeServerType ServerType { get; private set; }
@@ -391,47 +393,75 @@ namespace DE.Server.NativeBridge
             }
         }
 
-        private void _RegisterGameplayAssemblyResolver(string gameplayDllPath)
+        private void _RegisterManagedAssemblyResolver(IReadOnlyList<string> managedDllPaths)
         {
-            if (_gameplayAssemblyResolverRegistered)
+            if (_managedAssemblyResolverRegistered)
             {
                 return;
             }
 
-            _gameplayAssemblyDependencyResolver = new AssemblyDependencyResolver(gameplayDllPath);
-            _gameplayAssemblyDirectory = Path.GetDirectoryName(gameplayDllPath) ?? string.Empty;
+            var pathComparer = OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            var uniqueDirectories = new HashSet<string>(pathComparer);
+            foreach (var managedDllPath in managedDllPaths)
+            {
+                _managedAssemblyDependencyResolvers.Add(new AssemblyDependencyResolver(managedDllPath));
+
+                var directory = Path.GetDirectoryName(managedDllPath) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(directory) && uniqueDirectories.Add(directory))
+                {
+                    _managedAssemblyDirectories.Add(directory);
+                }
+            }
+
             _frameworkAssemblyDirectory = string.IsNullOrWhiteSpace(FrameworkDllPath)
                 ? string.Empty
                 : Path.GetDirectoryName(Path.GetFullPath(FrameworkDllPath)) ?? string.Empty;
 
-            AssemblyLoadContext.Default.Resolving += _ResolveGameplayAssembly;
-            AssemblyLoadContext.Default.ResolvingUnmanagedDll += ResolveGameplayUnmanagedDll;
-            _gameplayAssemblyResolverRegistered = true;
+            _managedAssemblyLoadContext = AssemblyLoadContext.GetLoadContext(Assembly.GetExecutingAssembly());
+            if (_managedAssemblyLoadContext == null)
+            {
+                throw new InvalidOperationException("Could not resolve the DE.Server assembly load context.");
+            }
+
+            var dataRuntimeLoadContext = AssemblyLoadContext.GetLoadContext(typeof(DataRuntime).Assembly);
+            if (!ReferenceEquals(dataRuntimeLoadContext, _managedAssemblyLoadContext))
+            {
+                throw new InvalidOperationException(
+                    "DE.Server and DE.Share.Data were loaded into different assembly load contexts."
+                );
+            }
+
+            _managedAssemblyLoadContext.Resolving += _ResolveManagedAssembly;
+            _managedAssemblyLoadContext.ResolvingUnmanagedDll += _ResolveManagedUnmanagedDll;
+            _managedAssemblyResolverRegistered = true;
 
             DELogger.Info(
                 nameof(ManagedRuntimeState),
-                $"Registered gameplay assembly resolver for {gameplayDllPath}."
+                $"Registered managed assembly resolver, loadContext={_managedAssemblyLoadContext.Name ?? "<unnamed>"}, rootAssemblyCount={managedDllPaths.Count}."
             );
         }
 
-        private void UnregisterGameplayAssemblyResolver()
+        private void _UnregisterManagedAssemblyResolver()
         {
-            if (!_gameplayAssemblyResolverRegistered)
+            if (!_managedAssemblyResolverRegistered)
             {
                 return;
             }
 
-            AssemblyLoadContext.Default.Resolving -= _ResolveGameplayAssembly;
-            AssemblyLoadContext.Default.ResolvingUnmanagedDll -= ResolveGameplayUnmanagedDll;
-            _gameplayAssemblyDependencyResolver = null;
-            _gameplayAssemblyDirectory = string.Empty;
+            _managedAssemblyLoadContext.Resolving -= _ResolveManagedAssembly;
+            _managedAssemblyLoadContext.ResolvingUnmanagedDll -= _ResolveManagedUnmanagedDll;
+            _managedAssemblyDependencyResolvers.Clear();
+            _managedAssemblyDirectories.Clear();
+            _managedAssemblyLoadContext = null;
             _frameworkAssemblyDirectory = string.Empty;
-            _gameplayAssemblyResolverRegistered = false;
+            _managedAssemblyResolverRegistered = false;
         }
 
-        private Assembly _ResolveGameplayAssembly(AssemblyLoadContext loadContext, AssemblyName assemblyName)
+        private Assembly _ResolveManagedAssembly(AssemblyLoadContext loadContext, AssemblyName assemblyName)
         {
-            foreach (var loadedAssembly in AppDomain.CurrentDomain.GetAssemblies())
+            foreach (var loadedAssembly in loadContext.Assemblies)
             {
                 if (loadedAssembly != null && AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName))
                 {
@@ -439,7 +469,16 @@ namespace DE.Server.NativeBridge
                 }
             }
 
-            var resolvedAssemblyPath = _gameplayAssemblyDependencyResolver?.ResolveAssemblyToPath(assemblyName);
+            string resolvedAssemblyPath = null;
+            foreach (var dependencyResolver in _managedAssemblyDependencyResolvers)
+            {
+                resolvedAssemblyPath = dependencyResolver.ResolveAssemblyToPath(assemblyName);
+                if (!string.IsNullOrWhiteSpace(resolvedAssemblyPath))
+                {
+                    break;
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(resolvedAssemblyPath))
             {
                 resolvedAssemblyPath = _ResolveAssemblyPathFromKnownDirectories(assemblyName);
@@ -450,7 +489,7 @@ namespace DE.Server.NativeBridge
                 return null;
             }
 
-            DELogger.Info( nameof(ManagedRuntimeState), $"Resolved gameplay dependency {assemblyName.FullName} -> {resolvedAssemblyPath}.");
+            DELogger.Info(nameof(ManagedRuntimeState), $"Resolved managed dependency {assemblyName.FullName} -> {resolvedAssemblyPath}.");
             return loadContext.LoadFromAssemblyPath(resolvedAssemblyPath);
         }
 
@@ -463,12 +502,12 @@ namespace DE.Server.NativeBridge
             }
 
             var candidateFileName = simpleAssemblyName + ".dll";
-            if (!string.IsNullOrWhiteSpace(_gameplayAssemblyDirectory))
+            foreach (var managedAssemblyDirectory in _managedAssemblyDirectories)
             {
-                var gameplayCandidatePath = Path.Combine(_gameplayAssemblyDirectory, candidateFileName);
-                if (File.Exists(gameplayCandidatePath))
+                var managedCandidatePath = Path.Combine(managedAssemblyDirectory, candidateFileName);
+                if (File.Exists(managedCandidatePath))
                 {
-                    return gameplayCandidatePath;
+                    return managedCandidatePath;
                 }
             }
 
@@ -484,7 +523,7 @@ namespace DE.Server.NativeBridge
             return null;
         }
 
-        private IntPtr ResolveGameplayUnmanagedDll(Assembly assembly, string unmanagedDllName)
+        private IntPtr _ResolveManagedUnmanagedDll(Assembly assembly, string unmanagedDllName)
         {
             _ = assembly;
 
@@ -493,32 +532,83 @@ namespace DE.Server.NativeBridge
                 return IntPtr.Zero;
             }
 
-            var resolvedUnmanagedDllPath = _gameplayAssemblyDependencyResolver?.ResolveUnmanagedDllToPath(unmanagedDllName);
+            string resolvedUnmanagedDllPath = null;
+            foreach (var dependencyResolver in _managedAssemblyDependencyResolvers)
+            {
+                resolvedUnmanagedDllPath = dependencyResolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+                if (!string.IsNullOrWhiteSpace(resolvedUnmanagedDllPath))
+                {
+                    break;
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(resolvedUnmanagedDllPath) || !File.Exists(resolvedUnmanagedDllPath))
             {
                 return IntPtr.Zero;
             }
 
-            DELogger.Info(nameof(ManagedRuntimeState), $"Resolved gameplay native dependency {unmanagedDllName} -> {resolvedUnmanagedDllPath}.");
+            DELogger.Info(nameof(ManagedRuntimeState), $"Resolved managed native dependency {unmanagedDllName} -> {resolvedUnmanagedDllPath}.");
             return NativeLibrary.Load(resolvedUnmanagedDllPath);
         }
 
-        private void _LoadGameplayAssemblies()
+        private void _LoadManagedAssemblies()
         {
-            if (string.IsNullOrEmpty(GameplayDllPath))
-            {
-                return;
-            }
-
             var gameplayDllPath = Path.GetFullPath(GameplayDllPath);
+            var managedDllPaths = new List<string>();
             if (!File.Exists(gameplayDllPath))
             {
                 DELogger.Warn(nameof(ManagedRuntimeState), $"Gameplay dll not found: {gameplayDllPath}");
-                return;
+            }
+            else
+            {
+                managedDllPaths.Add(gameplayDllPath);
             }
 
-            _RegisterGameplayAssemblyResolver(gameplayDllPath);
-            GameplayAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(gameplayDllPath);
+            managedDllPaths.AddRange(ClusterConfig.Managed.PreloadDlls);
+            _RegisterManagedAssemblyResolver(managedDllPaths);
+
+            if (File.Exists(gameplayDllPath))
+            {
+                GameplayAssembly = _LoadManagedAssembly(gameplayDllPath);
+            }
+
+            foreach (var preloadDllPath in ClusterConfig.Managed.PreloadDlls)
+            {
+                var preloadAssembly = _LoadManagedAssembly(preloadDllPath);
+                var preloadAssemblyLoadContext = AssemblyLoadContext.GetLoadContext(preloadAssembly);
+                if (!ReferenceEquals(preloadAssemblyLoadContext, _managedAssemblyLoadContext))
+                {
+                    throw new InvalidOperationException(
+                        $"Preloaded managed assembly '{preloadAssembly.FullName}' was loaded into an unexpected assembly load context."
+                    );
+                }
+
+                RuntimeHelpers.RunModuleConstructor(preloadAssembly.ManifestModule.ModuleHandle);
+                if (!_preloadedAssemblies.Contains(preloadAssembly))
+                {
+                    _preloadedAssemblies.Add(preloadAssembly);
+                }
+
+                DELogger.Info(
+                    nameof(ManagedRuntimeState),
+                    $"Preloaded managed assembly {preloadAssembly.FullName} from {preloadDllPath}."
+                );
+            }
+        }
+
+        private Assembly _LoadManagedAssembly(string assemblyPath)
+        {
+            var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
+            foreach (var loadedAssembly in _managedAssemblyLoadContext.Assemblies)
+            {
+                if (loadedAssembly != null
+                    && AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName))
+                {
+                    return loadedAssembly;
+                }
+            }
+
+            return _managedAssemblyLoadContext.LoadFromAssemblyPath(assemblyPath);
         }
 
         private void _InitDataRuntime()
@@ -536,13 +626,22 @@ namespace DE.Server.NativeBridge
             ServerType = ResolveServerType(ServerId);
 
             _RegisterUnhandledExceptionHandlers();
-            _LoadGameplayAssemblies();
             ClusterConfig = ManagedClusterConfig.Load(ConfigPath);
+            _LoadManagedAssemblies();
             DatabaseService = new DatabaseService(ClusterConfig.Database);
             _InitDataRuntime();
 
-            var assemblies = new[] { GameplayAssembly, Assembly.GetExecutingAssembly() };
-            StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies);
+            var assemblies = new List<Assembly>
+            {
+                Assembly.GetExecutingAssembly(),
+            };
+            if (GameplayAssembly != null)
+            {
+                assemblies.Add(GameplayAssembly);
+            }
+
+            assemblies.AddRange(_preloadedAssemblies);
+            StubTypes = ServerStubTypeCollector.CollectAllStubTypes(assemblies.ToArray());
 
             if (ServerType == ManagedRuntimeServerType.Gm)
             {
@@ -574,7 +673,7 @@ namespace DE.Server.NativeBridge
                 try
                 {
                     _UnregisterUnhandledExceptionHandlers();
-                    UnregisterGameplayAssemblyResolver();
+                    _UnregisterManagedAssemblyResolver();
                     DataRuntime.Shutdown();
                 }
                 finally
@@ -586,6 +685,7 @@ namespace DE.Server.NativeBridge
                     StubDistributeTable = new ServerStubDistributeTable();
                     StubTypes = new List<Type>();
                     GameplayAssembly = null;
+                    _preloadedAssemblies.Clear();
                     ServerType = ManagedRuntimeServerType.Unknown;
                     ServerId = string.Empty;
                     ConfigPath = string.Empty;

@@ -199,6 +199,42 @@ namespace DE.Share.Tests
         }
 
         [Fact]
+        public void PrintTableStatistics_DiscoversAllTablesAndReportsRowsAndCachedRows()
+        {
+            InitializeRuntime(DefaultRows());
+            var rowTable = DataRuntime.GetTable<RowKeepAliveTable>();
+            var fullTable = DataRuntime.GetTable<FullKeepAliveTable>();
+            rowTable.GetRow(Key(2));
+
+            var report = DataRuntime.PrintTableStatistics();
+            var lines = report.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+
+            Assert.Equal(1, rowTable.CachedRowCount);
+            Assert.Equal(3, fullTable.CachedRowCount);
+            Assert.Equal(5, lines.Length);
+            Assert.Equal(
+                "DataRuntime table statistics: tableCount=4, rowCount=12, cachedRowCount=7.",
+                lines[0]
+            );
+            Assert.Equal(
+                $"tableName=FullKeepAliveTest, tableType={typeof(FullKeepAliveTable).FullName}, rowCount=3, cachedRowCount=3.",
+                lines[1]
+            );
+            Assert.Equal(
+                $"tableName=NpcData, tableType={typeof(NpcDataTable).FullName}, rowCount=3, cachedRowCount=0.",
+                lines[2]
+            );
+            Assert.Equal(
+                $"tableName=RowKeepAliveTest, tableType={typeof(RowKeepAliveTable).FullName}, rowCount=3, cachedRowCount=1.",
+                lines[3]
+            );
+            Assert.Equal(
+                $"tableName=SpaceData, tableType={typeof(SpaceDataTable).FullName}, rowCount=3, cachedRowCount=3.",
+                lines[4]
+            );
+        }
+
+        [Fact]
         public void DataRuntime_ValidatesConfigurationCachesTablesAndCanReinitialize()
         {
             Assert.Throws<InvalidOperationException>(() => DataRuntime.SetRootDirectory(Path.GetTempPath()));
@@ -495,7 +531,7 @@ namespace DE.Share.Tests
                 OpenCount++;
                 if (Reader == null)
                 {
-                    Reader = new InMemoryDataTableReader(_rows, describe.TableName, describe.SheetName);
+                    Reader = new InMemoryDataTableReader(_rows, describe);
                 }
 
                 return Reader;
@@ -509,13 +545,15 @@ namespace DE.Share.Tests
         private sealed class InMemoryDataTableReader : IDataTableReader
         {
             private readonly SourceRow[] _rows;
+            private readonly DataTableDescribe _describe;
             private int _index = -1;
 
-            public InMemoryDataTableReader(SourceRow[] rows, string tableName, string sheetName)
+            public InMemoryDataTableReader(SourceRow[] rows, DataTableDescribe describe)
             {
                 _rows = (SourceRow[])rows.Clone();
-                SourcePath = $"memory://{tableName}";
-                SheetName = sheetName;
+                _describe = describe;
+                SourcePath = $"memory://{describe.TableName}";
+                SheetName = describe.SheetName;
             }
 
             public string SourcePath { get; }
@@ -612,13 +650,17 @@ namespace DE.Share.Tests
                 }
 
                 var row = _rows[_index];
-                switch (columnIndex)
+                switch (_describe.Columns[columnIndex].PropertyName)
                 {
-                case 0:
+                case "Id":
                     return row.Id;
-                case 1:
+                case "Name":
                     return row.Name;
-                case 2:
+                case "Score":
+                case "MaxPlayers":
+                case "Attack":
+                case "Level":
+                case "MaxHealth":
                     return row.Score;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(columnIndex));

@@ -34,6 +34,9 @@ namespace DE.Share.Data
 
         public DataTableDescribe Describe { get; }
 
+        /// <summary>The number of materialized rows currently retained by this table's cache.</summary>
+        public int CachedRowCount => _Rows.Count;
+
         /// <summary>Total source rows, independent of cache capacity. The first access may scan the source.</summary>
         public int Count
         {

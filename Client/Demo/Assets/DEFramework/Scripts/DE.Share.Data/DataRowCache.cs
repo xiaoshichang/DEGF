@@ -19,6 +19,8 @@ namespace DE.Share.Data
             }
         }
 
+        internal int Count => _Rows.Count;
+
         internal bool TryGetRow(DataTableKey key, out TRow row)
         {
             if (!_Rows.TryGetValue(key, out row))

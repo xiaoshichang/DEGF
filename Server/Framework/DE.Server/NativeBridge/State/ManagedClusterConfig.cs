@@ -7,6 +7,61 @@ using DE.Server.Database;
 
 namespace DE.Server.NativeBridge
 {
+    public sealed class ManagedAssemblyConfig
+    {
+        /// <summary>
+        /// Gets or sets the managed assemblies that must be loaded before framework runtime initialization.
+        /// Relative paths are resolved from the cluster configuration file directory.
+        /// </summary>
+        [JsonPropertyName("preloadDlls")]
+        public List<string> PreloadDlls { get; set; } = new();
+
+        internal void ResolvePreloadDllPaths(string configDirectory)
+        {
+            if (PreloadDlls == null)
+            {
+                PreloadDlls = new List<string>();
+                return;
+            }
+
+            var pathComparer = OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            var resolvedPaths = new List<string>(PreloadDlls.Count);
+            var uniquePaths = new HashSet<string>(pathComparer);
+            for (var index = 0; index < PreloadDlls.Count; ++index)
+            {
+                var configuredPath = PreloadDlls[index];
+                if (string.IsNullOrWhiteSpace(configuredPath))
+                {
+                    throw new InvalidOperationException(
+                        $"Managed cluster config field 'managed.preloadDlls[{index}]' is empty."
+                    );
+                }
+
+                var resolvedPath = Path.GetFullPath(Path.Combine(configDirectory, configuredPath.Trim()));
+                if (!File.Exists(resolvedPath))
+                {
+                    throw new FileNotFoundException(
+                        $"Managed preload dll '{resolvedPath}' does not exist.",
+                        resolvedPath
+                    );
+                }
+
+                if (!uniquePaths.Add(resolvedPath))
+                {
+                    throw new InvalidOperationException(
+                        $"Managed cluster config field 'managed.preloadDlls' contains duplicate path '{resolvedPath}'."
+                    );
+                }
+
+                resolvedPaths.Add(resolvedPath);
+            }
+
+            PreloadDlls = resolvedPaths;
+        }
+    }
+
     public sealed class ManagedClusterConfig
     {
         private static readonly JsonSerializerOptions s_jsonSerializerOptions = new()
@@ -19,6 +74,9 @@ namespace DE.Server.NativeBridge
 
         [JsonPropertyName("dataRoot")]
         public string DataRoot { get; set; } = string.Empty;
+
+        [JsonPropertyName("managed")]
+        public ManagedAssemblyConfig Managed { get; set; }
 
         [JsonPropertyName("gate")]
         public Dictionary<string, JsonElement> Gate { get; set; } = new(StringComparer.Ordinal);
@@ -56,6 +114,13 @@ namespace DE.Server.NativeBridge
             {
                 throw new DirectoryNotFoundException($"Managed cluster config dataRoot directory '{config.DataRoot}' does not exist.");
             }
+
+            if (config.Managed == null)
+            {
+                throw new InvalidOperationException("Managed cluster config section 'managed' is missing.");
+            }
+
+            config.Managed.ResolvePreloadDllPaths(configDirectory);
 
             if (config.Database == null)
             {

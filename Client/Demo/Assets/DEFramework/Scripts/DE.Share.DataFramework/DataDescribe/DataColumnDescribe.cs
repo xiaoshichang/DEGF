@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace DE.Share.Data.DataDescribe
+namespace DE.Share.DataFramework.DataDescribe
 {
     public sealed class DataColumnDescribe
     {

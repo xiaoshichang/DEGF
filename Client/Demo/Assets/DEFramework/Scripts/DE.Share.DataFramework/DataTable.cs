@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using DE.Share.Data.DataDescribe;
-using DE.Share.Data.DataProvider;
+using DE.Share.DataFramework.DataDescribe;
+using DE.Share.DataFramework.DataProvider;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     /// <summary>A single-threaded table handle. Loading and row retention follow its generated description.</summary>
     public abstract class DataTable<TRow> : IDataTable where TRow : DataRow

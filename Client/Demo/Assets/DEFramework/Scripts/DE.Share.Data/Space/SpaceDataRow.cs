@@ -1,3 +1,5 @@
+using DE.Share.DataFramework;
+
 namespace DE.Share.Data
 {
     [DataTable("SpaceData", Load = DataLoadPolicy.Full, Cache = DataCachePolicy.KeepAlive)]

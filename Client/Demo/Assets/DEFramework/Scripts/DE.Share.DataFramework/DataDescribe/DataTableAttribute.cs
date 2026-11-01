@@ -1,6 +1,6 @@
 using System;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
     public sealed class DataTableAttribute : Attribute

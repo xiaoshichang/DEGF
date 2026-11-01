@@ -8,7 +8,4 @@
     <ImplicitUsings>disable</ImplicitUsings>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
-  </ItemGroup>
 </Project>

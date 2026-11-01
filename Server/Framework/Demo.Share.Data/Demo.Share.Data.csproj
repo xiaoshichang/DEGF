@@ -13,7 +13,7 @@
     <Compile Include="..\..\..\Client\Demo\Assets\Demo\Scripts\Demo.Share.Data\**\*.cs">
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
-    <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
+    <ProjectReference Include="..\DE.Share.DataFramework\DE.Share.DataFramework.csproj" />
     <ProjectReference Include="..\DE.Share.DataTableSG\DE.Share.DataTableSG.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

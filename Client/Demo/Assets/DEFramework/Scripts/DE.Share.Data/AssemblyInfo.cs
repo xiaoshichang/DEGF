@@ -1,3 +1,3 @@
 using System.Reflection;
 
-[assembly: AssemblyDescription("Data configuration types shared by client and server.")]
+[assembly: AssemblyDescription("DEGF data descriptions shared by client and server.")]

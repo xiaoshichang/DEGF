@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
-using DE.Share.Data.DataProvider;
+using DE.Share.DataFramework.DataProvider;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     /// <summary>
     /// Shares data configuration and cached tables across the process. Serialize all access;

@@ -1,9 +1,9 @@
 using System;
 using System.Runtime.CompilerServices;
-using DE.Share.Data.DataDescribe;
-using DE.Share.Data.DataProvider;
+using DE.Share.DataFramework.DataDescribe;
+using DE.Share.DataFramework.DataProvider;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     internal static class DataTableFactory<TTable> where TTable : class, IDataTable
     {

@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     public readonly struct DataTableKey : IEquatable<DataTableKey>
     {

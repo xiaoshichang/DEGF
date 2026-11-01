@@ -1,6 +1,6 @@
 using System;
 
-namespace DE.Share.Data.DataProvider
+namespace DE.Share.DataFramework.DataProvider
 {
     public interface IDataTableReader
     {

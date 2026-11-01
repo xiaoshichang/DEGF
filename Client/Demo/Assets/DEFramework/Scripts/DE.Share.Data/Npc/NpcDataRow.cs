@@ -1,3 +1,5 @@
+using DE.Share.DataFramework;
+
 namespace DE.Share.Data
 {
     [DataTable("NpcData", Load = DataLoadPolicy.Row, Cache = DataCachePolicy.Lru, CacheCapacity = 3)]

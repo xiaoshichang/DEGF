@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     internal sealed class DataRowCache<TRow> where TRow : DataRow
     {

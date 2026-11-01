@@ -1,7 +1,7 @@
 using System;
-using DE.Share.Data.DataDescribe;
+using DE.Share.DataFramework.DataDescribe;
 
-namespace DE.Share.Data.DataProvider
+namespace DE.Share.DataFramework.DataProvider
 {
     public interface IDataProvider : IDisposable
     {

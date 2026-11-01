@@ -1,6 +1,6 @@
 using System;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = false)]
     public sealed class DataColumnAttribute : Attribute

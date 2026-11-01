@@ -1,6 +1,6 @@
-using DE.Share.Data.DataDescribe;
+using DE.Share.DataFramework.DataDescribe;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     public interface IDataTable
     {

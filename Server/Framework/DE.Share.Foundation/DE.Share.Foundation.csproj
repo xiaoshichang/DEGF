@@ -14,7 +14,4 @@
     </Compile>
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\DE.Share.Data\DE.Share.Data.csproj" />
-  </ItemGroup>
 </Project>

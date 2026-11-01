@@ -1,5 +1,6 @@
 ﻿using System;
 using DE.Share.Data;
+using DE.Share.DataFramework;
 
 namespace DE.Server.Entities
 {

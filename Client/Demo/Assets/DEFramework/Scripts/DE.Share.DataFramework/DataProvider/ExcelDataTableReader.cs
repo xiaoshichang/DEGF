@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using DE.Share.Data.DataDescribe;
+using DE.Share.DataFramework.DataDescribe;
 using ExcelDataReader;
 
-namespace DE.Share.Data.DataProvider
+namespace DE.Share.DataFramework.DataProvider
 {
     internal sealed class ExcelDataTableReader : IDataTableReader, IDisposable
     {

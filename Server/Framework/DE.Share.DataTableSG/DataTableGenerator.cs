@@ -17,7 +17,7 @@ namespace DE.Share.DataTableSG
 
         public void Execute(GeneratorExecutionContext context)
         {
-            var attributeType = context.Compilation.GetTypeByMetadataName("DE.Share.Data.DataTableAttribute");
+            var attributeType = context.Compilation.GetTypeByMetadataName("DE.Share.DataFramework.DataTableAttribute");
             if (attributeType == null)
             {
                 return;

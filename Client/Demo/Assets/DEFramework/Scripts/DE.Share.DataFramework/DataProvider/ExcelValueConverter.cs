@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace DE.Share.Data.DataProvider
+namespace DE.Share.DataFramework.DataProvider
 {
     internal static class ExcelValueConverter
     {

@@ -6,20 +6,20 @@ param(
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $generatorProject = Join-Path $PSScriptRoot 'DE.Share.DataTableSG/DE.Share.DataTableSG.csproj'
-$dataProject = Join-Path $PSScriptRoot 'DE.Share.Data/DE.Share.Data.csproj'
+$dataFrameworkProject = Join-Path $PSScriptRoot 'DE.Share.DataFramework/DE.Share.DataFramework.csproj'
 
 & dotnet build $generatorProject -c $Configuration -v minimal
 if ($LASTEXITCODE -ne 0)
 {
     throw 'DataTableSG build failed.'
 }
-& dotnet restore $dataProject
+& dotnet restore $dataFrameworkProject
 if ($LASTEXITCODE -ne 0)
 {
-    throw 'Data project restore failed.'
+    throw 'DataFramework project restore failed.'
 }
 
-$assets = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'DE.Share.Data/obj/project.assets.json') -Raw | ConvertFrom-Json
+$assets = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'DE.Share.DataFramework/obj/project.assets.json') -Raw | ConvertFrom-Json
 $library = @($assets.libraries.PSObject.Properties | Where-Object { $_.Name -like 'ExcelDataReader/*' })
 if ($library.Count -ne 1)
 {

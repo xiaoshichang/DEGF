@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using DE.Server.Entities;
 using DE.Share.Data;
+using DE.Share.DataFramework;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.Scripting.Hosting;
@@ -65,6 +66,7 @@ namespace DE.Server.NativeBridge
                 typeof(Dictionary<,>).Assembly,
                 typeof(ManagedRuntimeState).Assembly,
                 typeof(ServerEntity).Assembly,
+                typeof(SpaceDataRow).Assembly,
                 typeof(DataRuntime).Assembly,
             };
 
@@ -87,6 +89,7 @@ namespace DE.Server.NativeBridge
                     "System.Linq",
                     "DE.Server.Entities",
                     "DE.Server.NativeBridge",
+                    "DE.Share.DataFramework",
                     "DE.Share.Data"
                 );
         }

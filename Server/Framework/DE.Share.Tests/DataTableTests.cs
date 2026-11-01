@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DE.Share.Data;
-using DE.Share.Data.DataDescribe;
-using DE.Share.Data.DataProvider;
+using DE.Share.DataFramework;
+using DE.Share.DataFramework.DataDescribe;
+using DE.Share.DataFramework.DataProvider;
 using Xunit;
 
 namespace DE.Share.Tests
@@ -24,6 +25,14 @@ namespace DE.Share.Tests
         public void Dispose()
         {
             DataRuntime.Shutdown();
+        }
+
+        [Fact]
+        public void DataFramework_IsSeparatedFromDataDescriptions()
+        {
+            Assert.Equal("DE.Share.DataFramework", typeof(DataRuntime).Assembly.GetName().Name);
+            Assert.Equal("DE.Share.Data", typeof(SpaceDataRow).Assembly.GetName().Name);
+            Assert.NotEqual(typeof(DataRuntime).Assembly, typeof(SpaceDataRow).Assembly);
         }
 
         [Fact]

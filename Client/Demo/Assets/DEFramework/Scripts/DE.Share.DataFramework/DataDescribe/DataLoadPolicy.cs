@@ -1,4 +1,4 @@
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     public enum DataLoadPolicy
     {

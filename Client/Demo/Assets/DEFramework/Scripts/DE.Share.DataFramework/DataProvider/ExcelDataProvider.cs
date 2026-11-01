@@ -2,14 +2,14 @@ using System;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Text;
-using DE.Share.Data.DataDescribe;
+using DE.Share.DataFramework.DataDescribe;
 using ExcelDataReader;
 
-namespace DE.Share.Data.DataProvider
+namespace DE.Share.DataFramework.DataProvider
 {
     public sealed class ExcelDataProvider : IDataProvider
     {
-        private const string CleanupExceptionKey = "DE.Share.Data.ExcelCleanupException";
+        private const string CleanupExceptionKey = "DE.Share.DataFramework.ExcelCleanupException";
         private string boundRoot;
         private DataTableDescribe boundDescribe;
         private Stream stream;

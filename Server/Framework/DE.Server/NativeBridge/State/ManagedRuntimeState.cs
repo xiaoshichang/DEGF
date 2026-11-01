@@ -9,8 +9,8 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using DE.Server.Database;
 using DE.Server.Entities;
-using DE.Share.Data;
-using DE.Share.Data.DataProvider;
+using DE.Share.DataFramework;
+using DE.Share.DataFramework.DataProvider;
 
 namespace DE.Server.NativeBridge
 {
@@ -429,7 +429,7 @@ namespace DE.Server.NativeBridge
             if (!ReferenceEquals(dataRuntimeLoadContext, _managedAssemblyLoadContext))
             {
                 throw new InvalidOperationException(
-                    "DE.Server and DE.Share.Data were loaded into different assembly load contexts."
+                    "DE.Server and DE.Share.DataFramework were loaded into different assembly load contexts."
                 );
             }
 

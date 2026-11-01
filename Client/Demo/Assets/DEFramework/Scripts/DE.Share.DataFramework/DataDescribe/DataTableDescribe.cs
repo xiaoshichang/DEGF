@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace DE.Share.Data.DataDescribe
+namespace DE.Share.DataFramework.DataDescribe
 {
     public sealed class DataTableDescribe
     {

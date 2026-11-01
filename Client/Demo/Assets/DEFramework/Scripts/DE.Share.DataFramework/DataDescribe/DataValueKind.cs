@@ -1,4 +1,4 @@
-namespace DE.Share.Data.DataDescribe
+namespace DE.Share.DataFramework.DataDescribe
 {
     public enum DataValueKind
     {

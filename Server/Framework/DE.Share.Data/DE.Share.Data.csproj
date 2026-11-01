@@ -16,15 +16,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ExcelDataReader" Version="3.8.0" />
+    <ProjectReference Include="..\DE.Share.DataFramework\DE.Share.DataFramework.csproj" />
     <ProjectReference Include="..\DE.Share.DataTableSG\DE.Share.DataTableSG.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="DataProvider\" />
-    <Folder Include="DataDescribe\" />
+    <Folder Include="Npc\" />
     <Folder Include="Space\" />
   </ItemGroup>
 </Project>

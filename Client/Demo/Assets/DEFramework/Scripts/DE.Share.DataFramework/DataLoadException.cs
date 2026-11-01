@@ -1,6 +1,6 @@
 using System;
 
-namespace DE.Share.Data
+namespace DE.Share.DataFramework
 {
     public sealed class DataLoadException : Exception
     {

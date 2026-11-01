@@ -19,7 +19,7 @@ namespace DE.Share.DataTableSG
                 valid = false;
             }
 
-            var rowBase = context.Compilation.GetTypeByMetadataName("DE.Share.Data.DataRow");
+            var rowBase = context.Compilation.GetTypeByMetadataName("DE.Share.DataFramework.DataRow");
             if (symbol.TypeKind != TypeKind.Class || symbol.ContainingType != null || symbol.Arity != 0
                 || symbol.DeclaredAccessibility != Accessibility.Public || !symbol.IsSealed || symbol.IsStatic || symbol.IsAbstract
                 || !SymbolEqualityComparer.Default.Equals(symbol.BaseType, rowBase)
@@ -96,7 +96,7 @@ namespace DE.Share.DataTableSG
                 Report(GeneratorDiagnostics.GeneratedConflict, symbol, row.TableTypeName);
             }
 
-            var columnAttribute = context.Compilation.GetTypeByMetadataName("DE.Share.Data.DataColumnAttribute");
+            var columnAttribute = context.Compilation.GetTypeByMetadataName("DE.Share.DataFramework.DataColumnAttribute");
             var names = new HashSet<string>(StringComparer.Ordinal) { "Id" };
             foreach (var member in symbol.GetMembers().Where(member => !member.IsImplicitlyDeclared).OrderBy(member => member.Name, StringComparer.Ordinal))
             {

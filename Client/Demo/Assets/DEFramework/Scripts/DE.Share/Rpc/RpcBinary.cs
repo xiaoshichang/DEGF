@@ -26,6 +26,16 @@ namespace DE.Share.Rpc
 
         public void WriteObject(object value)
         {
+            if (value is Guid guid)
+            {
+                WriteGuid(guid);
+                return;
+            }
+            if (value is byte[] bytes)
+            {
+                WriteByteArray(bytes);
+                return;
+            }
             if (value == null || value is string)
             {
                 WriteString((string)value);
@@ -71,6 +81,13 @@ namespace DE.Share.Rpc
             var bytes = string.IsNullOrEmpty(value) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(value);
             WriteInt32(bytes.Length);
             WriteBytes(bytes);
+        }
+
+        public void WriteByteArray(byte[] value)
+        {
+            value = value ?? Array.Empty<byte>();
+            WriteInt32(value.Length);
+            WriteBytes(value);
         }
 
         public void WriteInt32(int value)
@@ -151,6 +168,20 @@ namespace DE.Share.Rpc
 
     public sealed class RpcBinaryReader
     {
+        public int Remaining => _buffer.Length - _offset;
+
+        public byte[] ReadByteArray()
+        {
+            int length = ReadInt32();
+            if (length < 0 || length > Remaining)
+            {
+                throw new InvalidOperationException("Invalid RPC byte array payload.");
+            }
+            var bytes = new byte[length];
+            Buffer.BlockCopy(_buffer, _offset, bytes, 0, length);
+            _offset += length;
+            return bytes;
+        }
         private readonly byte[] _buffer;
         private int _offset;
 

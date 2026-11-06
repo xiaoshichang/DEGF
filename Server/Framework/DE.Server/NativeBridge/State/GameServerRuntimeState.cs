@@ -78,7 +78,16 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
+            foreach (var entity in Entities.Values.Concat<ServerEntity>(StubInstances.Values).Distinct().ToArray())
+            {
+                entity.OnUnregistered();
+            }
+            foreach (var avatar in Avatars.Values)
+            {
+                avatar.CancelSpaceRequest();
+            }
             ClearAvatarImmigrations();
+            _remoteEntityCreations.Clear();
             ReadyStubs.Clear();
             StubInstances.Clear();
             Avatars.Clear();
@@ -91,16 +100,19 @@ namespace DE.Server.NativeBridge
 
         public bool HandleCreateAvatarReq(string sourceServerId, Guid avatarId, ulong clientSessionId)
         {
-            var result = CreateAvatarLocal(avatarId, sourceServerId, clientSessionId);
-            return NativeAPI.SendCreateAvatarRsp(
-                sourceServerId,
-                avatarId,
-                clientSessionId,
-                result.IsSuccess,
-                result.StatusCode,
-                result.Error,
-                result.AvatarData
-            );
+            return HandleCreateAvatarCommand(sourceServerId, new SystemCommandPayload
+            {
+                Version = SystemCommandPayload.CurrentVersion,
+                Kind = SystemCommandKind.CreateAvatar,
+                EntityId = avatarId,
+                TargetServerId = _managedRuntimeState.ServerId,
+                Data = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new CreateAvatarCommand
+                {
+                    OriginServerId = sourceServerId,
+                    OwnerGateId = _managedRuntimeState.GetGateServerIds().Contains(sourceServerId) ? sourceServerId : string.Empty,
+                    ClientSessionId = clientSessionId,
+                }),
+            });
         }
 
         public bool CreateAvatarRemote(Guid avatarId)
@@ -116,7 +128,7 @@ namespace DE.Server.NativeBridge
                 return CreateAvatarLocal(avatarId, string.Empty, 0).IsSuccess;
             }
 
-            return NativeAPI.SendCreateAvatarReq(gameServerId, avatarId, 0);
+            return SendCreateAvatarCommand(gameServerId, avatarId, string.Empty, 0);
         }
 
         public GmTotalEntityCountRsp BuildTotalEntityCountRsp(ulong requestId)
@@ -143,8 +155,13 @@ namespace DE.Server.NativeBridge
             {
                 throw new InvalidOperationException("Cannot register an entity with an empty guid.");
             }
+            if (!entity.IsInitialized)
+            {
+                throw new InvalidOperationException("Entity must complete initialization before registration.");
+            }
 
-            if (Entities.TryGetValue(entity.Guid, out var existingEntity)
+            bool alreadyRegistered = Entities.TryGetValue(entity.Guid, out var existingEntity);
+            if (alreadyRegistered
                 && !ReferenceEquals(existingEntity, entity))
             {
                 throw new InvalidOperationException($"Another entity with guid {entity.Guid} is already registered.");
@@ -162,6 +179,10 @@ namespace DE.Server.NativeBridge
             if (entity is AvatarEntity avatar)
             {
                 Avatars[entity.Guid] = avatar;
+            }
+            if (!alreadyRegistered)
+            {
+                entity.OnRegistered();
             }
         }
 
@@ -214,16 +235,19 @@ namespace DE.Server.NativeBridge
 
         private bool HandleServerRpcPayload(string sourceServerId, ServerRpcPayload rpc)
         {
+            if ((rpc.TargetKind == RpcTargetKind.ServerStub || rpc.TargetKind == RpcTargetKind.ServerMailbox)
+                && rpc.TargetServerId != _managedRuntimeState.ServerId)
+            {
+                return false;
+            }
             switch (rpc.TargetKind)
             {
-            case ServerRpcTargetKind.Stub:
+            case RpcTargetKind.ServerStub:
                 return InvokeStubRpc(sourceServerId, rpc);
-            case ServerRpcTargetKind.Entity:
+            case RpcTargetKind.ServerMailbox:
                 return InvokeEntityRpc(sourceServerId, rpc);
-            case ServerRpcTargetKind.AvatarProxy:
+            case RpcTargetKind.ServerAvatarProxy:
                 return InvokeAvatarProxyRpc(sourceServerId, rpc);
-            case ServerRpcTargetKind.AvatarMigrationGame:
-                return HandleAvatarMigrationGameMessage(sourceServerId, rpc);
             default:
                 DELogger.Warn(nameof(GameServerRuntimeState), $"Unknown server RPC target kind {rpc.TargetKind}, sourceServerId={sourceServerId}.");
                 return false;
@@ -331,6 +355,7 @@ namespace DE.Server.NativeBridge
                 throw new InvalidOperationException($"Failed to create stub entity: {stubTypeKey}");
             }
 
+            stubEntity.InitializeEntity();
             StubInstances[stubType] = stubEntity;
             stubEntity.InitStub();
         }
@@ -366,7 +391,15 @@ namespace DE.Server.NativeBridge
                 return new CreateAvatarResult(false, 500, "failed to create avatar entity", Array.Empty<byte>());
             }
 
-            avatar.Guid = avatarId;
+            try
+            {
+                avatar.InitializeEntity(entityId: avatarId);
+            }
+            catch (Exception error)
+            {
+                DELogger.Error(nameof(GameServerRuntimeState), $"Avatar initialization failed, avatarId={avatarId}: {error}");
+                return new CreateAvatarResult(false, 500, "failed to initialize avatar entity", Array.Empty<byte>());
+            }
             RegisterLocalEntity(avatar);
             avatar.AttachToGateServer(gateServerId);
             NotifyAvatarClientAttached(avatar, clientSessionId);
@@ -403,6 +436,7 @@ namespace DE.Server.NativeBridge
             }
 
             AvatarClientSessionIds[avatar.Guid] = clientSessionId;
+            avatar.CancelSpaceRequest();
             avatar.OnAvatarClientAttached(clientSessionId);
             return true;
         }

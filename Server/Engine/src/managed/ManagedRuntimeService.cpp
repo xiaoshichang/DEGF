@@ -50,6 +50,7 @@ namespace de::server::engine
 		constexpr const char_t* kHandleClientDisconnectMethodName = DE_HOST_CHAR_LITERAL("HandleClientDisconnectNative");
 		constexpr const char_t* kHandleServerAvatarRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerAvatarRpcNative");
 		constexpr const char_t* kHandleServerRpcMethodName = DE_HOST_CHAR_LITERAL("HandleServerRpcNative");
+		constexpr const char_t* kHandleSystemCommandMethodName = DE_HOST_CHAR_LITERAL("HandleSystemCommandNative");
 		constexpr const char_t* kBeginGmTotalEntityCountCommandMethodName = DE_HOST_CHAR_LITERAL("BeginGmTotalEntityCountCommandNative");
 		constexpr const char_t* kCancelGmCommandMethodName = DE_HOST_CHAR_LITERAL("CancelGmCommandNative");
 		constexpr const char_t* kBuildGmTotalEntityCountRspMethodName = DE_HOST_CHAR_LITERAL("BuildGmTotalEntityCountRspNative");
@@ -561,6 +562,47 @@ namespace de::server::engine
 		}
 	}
 
+	std::int32_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeSendSystemCommandToServer(
+		void* context,
+		const char* targetServerId,
+		const std::uint8_t* payload,
+		std::int32_t payloadSizeBytes
+	)
+	{
+		auto* service = static_cast<ManagedRuntimeService*>(context);
+		if (service == nullptr || targetServerId == nullptr || payloadSizeBytes < 0 || !service->systemCommandToServerSender_)
+		{
+			return 0;
+		}
+
+		try
+		{
+			std::vector<std::byte> bytes;
+			if (payloadSizeBytes > 0)
+			{
+				if (payload == nullptr)
+				{
+					return 0;
+				}
+
+				const auto* begin = reinterpret_cast<const std::byte*>(payload);
+				bytes.assign(begin, begin + payloadSizeBytes);
+			}
+
+			return service->systemCommandToServerSender_(targetServerId, bytes) ? 1 : 0;
+		}
+		catch (const std::exception& exception)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendSystemCommandToServer failed: " + std::string(exception.what()));
+			return 0;
+		}
+		catch (...)
+		{
+			Logger::Error("ManagedRuntimeService", "NativeSendSystemCommandToServer failed with unknown exception.");
+			return 0;
+		}
+	}
+
 	std::uint64_t DE_MANAGED_CALLTYPE ManagedRuntimeService::NativeAddTimer(
 		void* context,
 		std::int64_t delayMilliseconds,
@@ -772,7 +814,8 @@ namespace de::server::engine
 				&ManagedRuntimeService::NativeAddTimer,
 				&ManagedRuntimeService::NativeCancelTimer,
 				&ManagedRuntimeService::NativePostToIoContext,
-				&ManagedRuntimeService::NativeCompleteGateAuthValidation
+				&ManagedRuntimeService::NativeCompleteGateAuthValidation,
+				&ManagedRuntimeService::NativeSendSystemCommandToServer
 			}
 		};
 
@@ -1082,6 +1125,27 @@ namespace de::server::engine
 		return true;
 	}
 
+	bool ManagedRuntimeService::HandleSystemCommand(const std::string& sourceServerId, const std::vector<std::byte>& payload)
+	{
+		if (!running_ || handleSystemCommandFn_ == nullptr)
+		{
+			return false;
+		}
+
+		const int result = handleSystemCommandFn_(
+			sourceServerId.c_str(),
+			payload.empty() ? nullptr : payload.data(),
+			static_cast<std::int32_t>(payload.size())
+		);
+		if (result != 0)
+		{
+			Logger::Warn("ManagedRuntimeService", "HandleSystemCommandNative failed with code: " + std::to_string(result));
+			return false;
+		}
+
+		return true;
+	}
+
 	bool ManagedRuntimeService::BeginGmTotalEntityCountCommand(std::uint64_t requestId, const std::vector<std::string>& gameServerIds)
 	{
 		if (!running_ || beginGmTotalEntityCountCommandFn_ == nullptr)
@@ -1266,6 +1330,11 @@ namespace de::server::engine
 	void ManagedRuntimeService::SetServerRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender)
 	{
 		serverRpcToServerSender_ = std::move(sender);
+	}
+
+	void ManagedRuntimeService::SetSystemCommandToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender)
+	{
+		systemCommandToServerSender_ = std::move(sender);
 	}
 
 	std::uint64_t ManagedRuntimeService::AddManagedTimer(
@@ -1495,6 +1564,10 @@ namespace de::server::engine
 		bindMethod(kHandleServerRpcMethodName, &handleServerRpcPointer);
 		handleServerRpcFn_ = reinterpret_cast<managed::ManagedHandleServerRpcFn>(handleServerRpcPointer);
 
+		void* handleSystemCommandPointer = nullptr;
+		bindMethod(kHandleSystemCommandMethodName, &handleSystemCommandPointer);
+		handleSystemCommandFn_ = reinterpret_cast<managed::ManagedHandleSystemCommandFn>(handleSystemCommandPointer);
+
 		void* beginGmTotalEntityCountCommandPointer = nullptr;
 		bindMethod(kBeginGmTotalEntityCountCommandMethodName, &beginGmTotalEntityCountCommandPointer);
 		beginGmTotalEntityCountCommandFn_ = reinterpret_cast<managed::ManagedBeginGmTotalEntityCountCommandFn>(
@@ -1540,6 +1613,7 @@ namespace de::server::engine
 			|| handleClientDisconnectFn_ == nullptr
 			|| handleServerAvatarRpcFn_ == nullptr
 			|| handleServerRpcFn_ == nullptr
+			|| handleSystemCommandFn_ == nullptr
 			|| beginGmTotalEntityCountCommandFn_ == nullptr
 			|| cancelGmCommandFn_ == nullptr
 			|| buildGmTotalEntityCountRspFn_ == nullptr
@@ -1574,6 +1648,7 @@ namespace de::server::engine
 		handleClientDisconnectFn_ = nullptr;
 		handleServerAvatarRpcFn_ = nullptr;
 		handleServerRpcFn_ = nullptr;
+		handleSystemCommandFn_ = nullptr;
 		beginGmTotalEntityCountCommandFn_ = nullptr;
 		cancelGmCommandFn_ = nullptr;
 		buildGmTotalEntityCountRspFn_ = nullptr;
@@ -1588,6 +1663,7 @@ namespace de::server::engine
 		avatarRpcToServerSender_ = {};
 		avatarRpcToClientSender_ = {};
 		serverRpcToServerSender_ = {};
+		systemCommandToServerSender_ = {};
 		gateAuthValidationCallbacks_.clear();
 		nextGateAuthRequestId_ = 1;
 		managedTimerIds_.clear();

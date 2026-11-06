@@ -46,10 +46,6 @@ namespace DE.Share.DataFramework.DataProvider
             {
                 throw new FormatException("Expected a numeric cell or numeric text.");
             }
-            if (double.IsNaN(number) || double.IsInfinity(number))
-            {
-                throw new FormatException("The floating point value must be finite.");
-            }
             return number;
         }
 

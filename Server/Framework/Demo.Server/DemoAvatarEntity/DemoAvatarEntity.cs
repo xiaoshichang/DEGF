@@ -11,4 +11,17 @@ public partial class DemoAvatarEntity : AvatarEntity
     }
 
     public BasicInfoComponent BasicInfo { get; }
+
+    [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.Persistent)]
+    private string __HeadIcon = null!;
+
+    [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.Persistent)]
+    private int __Score;
+
+    protected override void PreInitialize()
+    {
+        base.PreInitialize();
+        HeadIcon = "xxx.png";
+        Score = 1;
+    }
 }

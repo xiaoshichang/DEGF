@@ -103,6 +103,16 @@ namespace de::server::engine
 					);
 				}
 			);
+			managedRuntimeService->SetSystemCommandToServerSender(
+				[this](const std::string& targetServerId, const std::vector<std::byte>& payload)
+				{
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::SystemCommandNtf),
+						payload
+					);
+				}
+			);
 		}
 
 		ConnectToGm();
@@ -124,6 +134,7 @@ namespace de::server::engine
 			managedRuntimeService->SetCreateAvatarRspSender({});
 			managedRuntimeService->SetAvatarRpcToServerSender({});
 			managedRuntimeService->SetServerRpcToServerSender({});
+			managedRuntimeService->SetSystemCommandToServerSender({});
 		}
 
 		ServerBase::Uninit();
@@ -192,6 +203,14 @@ namespace de::server::engine
 				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerRpc(serverId, data))
 			{
 				Logger::Warn("GameServer", "Failed to handle ServerRpcNtf in managed runtime.");
+			}
+			return;
+
+		case network::MessageID::SS::SystemCommandNtf:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleSystemCommand(serverId, data))
+			{
+				Logger::Warn("GameServer", "Failed to handle SystemCommandNtf in managed runtime.");
 			}
 			return;
 

@@ -667,6 +667,7 @@ namespace DE.Share.Tests
                     return row.Name;
                 case "Score":
                 case "MaxPlayers":
+                case "PersistentCount":
                 case "Attack":
                 case "Level":
                 case "MaxHealth":

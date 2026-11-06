@@ -7,16 +7,18 @@ namespace Demo;
 
 public partial class BasicInfoComponent : AvatarComponent
 {
-    [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.Persistent)]
-    private string __HeadIcon = "xxx.png";
+    private DemoAvatarEntity _owner = null!;
 
-    [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.Persistent)]
-    private int __Score = 1;
+    protected override void PreInitialize()
+    {
+        base.PreInitialize();
+        _owner = (DemoAvatarEntity)OwnerEntity;
+    }
 
     [ServerRpc]
     public void SetHeadIcon(string headIcon)
     {
-        HeadIcon = headIcon ?? string.Empty;
-        OwnerAvatar.CallClient("NotifyHeadIconChanged", HeadIcon);
+        _owner.HeadIcon = headIcon ?? string.Empty;
+        _owner.CallClient("NotifyHeadIconChanged", _owner.HeadIcon);
     }
 }

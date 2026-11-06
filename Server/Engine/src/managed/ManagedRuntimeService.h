@@ -51,6 +51,7 @@ namespace de::server::engine
 		bool HandleClientDisconnect(std::uint64_t clientSessionId);
 		bool HandleServerAvatarRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload);
 		bool HandleServerRpc(const std::string& sourceServerId, const std::vector<std::byte>& payload);
+		bool HandleSystemCommand(const std::string& sourceServerId, const std::vector<std::byte>& payload);
 		bool BeginGmTotalEntityCountCommand(std::uint64_t requestId, const std::vector<std::string>& gameServerIds);
 		bool CancelGmCommand(std::uint64_t requestId);
 		bool BuildGmTotalEntityCountRsp(std::uint64_t requestId, std::vector<std::byte>& payload);
@@ -64,6 +65,7 @@ namespace de::server::engine
 		void SetAvatarRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender);
 		void SetAvatarRpcToClientSender(std::function<bool(std::uint64_t, const std::vector<std::byte>&)> sender);
 		void SetServerRpcToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender);
+		void SetSystemCommandToServerSender(std::function<bool(const std::string&, const std::vector<std::byte>&)> sender);
 
 	private:
 		static void DE_MANAGED_CALLTYPE NativeNotifyGameServerReady(void* context);
@@ -111,6 +113,12 @@ namespace de::server::engine
 			std::int32_t payloadSizeBytes
 		);
 		static std::int32_t DE_MANAGED_CALLTYPE NativeSendServerRpcToServer(
+			void* context,
+			const char* targetServerId,
+			const std::uint8_t* payload,
+			std::int32_t payloadSizeBytes
+		);
+		static std::int32_t DE_MANAGED_CALLTYPE NativeSendSystemCommandToServer(
 			void* context,
 			const char* targetServerId,
 			const std::uint8_t* payload,
@@ -170,6 +178,7 @@ namespace de::server::engine
 		managed::ManagedHandleClientDisconnectFn handleClientDisconnectFn_ = nullptr;
 		managed::ManagedHandleServerAvatarRpcFn handleServerAvatarRpcFn_ = nullptr;
 		managed::ManagedHandleServerRpcFn handleServerRpcFn_ = nullptr;
+		managed::ManagedHandleSystemCommandFn handleSystemCommandFn_ = nullptr;
 		managed::ManagedBeginGmTotalEntityCountCommandFn beginGmTotalEntityCountCommandFn_ = nullptr;
 		managed::ManagedCancelGmCommandFn cancelGmCommandFn_ = nullptr;
 		managed::ManagedBuildGmTotalEntityCountRspFn buildGmTotalEntityCountRspFn_ = nullptr;
@@ -184,6 +193,7 @@ namespace de::server::engine
 		std::function<bool(const std::string&, const std::vector<std::byte>&)> avatarRpcToServerSender_;
 		std::function<bool(std::uint64_t, const std::vector<std::byte>&)> avatarRpcToClientSender_;
 		std::function<bool(const std::string&, const std::vector<std::byte>&)> serverRpcToServerSender_;
+		std::function<bool(const std::string&, const std::vector<std::byte>&)> systemCommandToServerSender_;
 		std::uint64_t nextGateAuthRequestId_ = 1;
 		std::unordered_map<std::uint64_t, std::function<void(GateAuthValidationResult)>> gateAuthValidationCallbacks_;
 		std::unordered_set<TimerManager::TimerID> managedTimerIds_;

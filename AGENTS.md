@@ -49,3 +49,4 @@ Server\Scripts 主要包含服务端重要的流程控制脚本，例如集群�
 2. 目录名和文件名禁止中文
 3. 类名和函数名采用大写驼峰的形式
 4. 单行最大长度为160个字符
+5. Entity和Component的PreInitialize、Initialize、PostInitialize等核心生命周期函数必须放在类型主文件中，不能放在功能拆分的partial文件中。

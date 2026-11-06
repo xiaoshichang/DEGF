@@ -18,8 +18,16 @@ namespace DE.Server.Entities
                 return false;
             }
 
-            var payload = RpcCaller.BuildAvatarRpcPayload(avatar.Guid, methodId, argsPayload);
-            return NativeAPI.SendAvatarRpcToServer(avatar.Proxy.BindingGate, payload);
+            var payload = new ServerRpcPayload
+            {
+                Version = ServerRpcPayload.CurrentVersion,
+                TargetKind = RpcTargetKind.ClientAvatarProxy,
+                EntityId = avatar.Guid,
+                TargetServerId = avatar.Proxy.BindingGate,
+                MethodId = methodId,
+                ArgsPayload = argsPayload,
+            };
+            return NativeAPI.SendServerRpcToServer(avatar.Proxy.BindingGate, payload.Serialize());
         }
 
         public static bool CallAvatarProxy(EntityProxy proxy, string methodName, params object[] args)
@@ -30,7 +38,7 @@ namespace DE.Server.Entities
                 return false;
             }
 
-            var payload = RpcCaller.BuildServerRpcPayload(ServerRpcTargetKind.AvatarProxy, proxy.EntityId, string.Empty, string.Empty, methodName, args);
+            var payload = RpcCaller.BuildServerRpcPayload(RpcTargetKind.ServerAvatarProxy, proxy.EntityId, string.Empty, string.Empty, methodName, args);
             return NativeAPI.SendServerRpcToServer(proxy.BindingGate, payload);
         }
     }

@@ -15,7 +15,7 @@ namespace DE.Server.Entities
                 return false;
             }
 
-            var payload = RpcCaller.BuildServerRpcPayload(ServerRpcTargetKind.Stub, Guid.Empty, targetServerId, stubName, methodName, args);
+            var payload = RpcCaller.BuildServerRpcPayload(RpcTargetKind.ServerStub, Guid.Empty, targetServerId, stubName, methodName, args);
             if (runtimeState.ServerType == ManagedRuntimeServerType.Game
                 && string.Equals(targetServerId, runtimeState.ServerId, StringComparison.Ordinal))
             {

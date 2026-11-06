@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
+using DE.Share.Foundation.Mathematics;
 
 namespace DE.Share.Entities
 {
@@ -24,6 +25,10 @@ namespace DE.Share.Entities
             if (entity == null)
             {
                 throw new ArgumentNullException(nameof(entity));
+            }
+            if (!entity.IsInitialized)
+            {
+                throw new InvalidOperationException("Entity must complete initialization before serialization.");
             }
 
             ValidateReason(reason);
@@ -138,17 +143,6 @@ namespace DE.Share.Entities
                 accessors.Add(entityMembers[i].CreateAccessor(entity));
             }
 
-            IReadOnlyList<EntityComponent> components = entity.Components;
-            for (int i = 0; i < components.Count; i++)
-            {
-                EntityComponent component = components[i];
-                EntityPropertyMember[] componentMembers = GetMembers(component.GetType(), GetComponentPropertyScope(component.GetType()));
-                for (int memberIndex = 0; memberIndex < componentMembers.Length; memberIndex++)
-                {
-                    accessors.Add(componentMembers[memberIndex].CreateAccessor(component));
-                }
-            }
-
             accessors.Sort(CompareAccessor);
             EnsureUniquePropertyIds(entity.GetType(), accessors);
             return accessors.ToArray();
@@ -244,15 +238,6 @@ namespace DE.Share.Entities
                 : field.Name;
         }
 
-        private static string GetComponentPropertyScope(Type componentType)
-        {
-            string typeName = componentType.Name;
-            const string Suffix = "Component";
-            return typeName.EndsWith(Suffix, StringComparison.Ordinal)
-                ? typeName.Substring(0, typeName.Length - Suffix.Length)
-                : typeName;
-        }
-
         private static int CompareAccessor(EntityPropertyAccessor left, EntityPropertyAccessor right)
         {
             return string.Compare(left.PropertyKey, right.PropertyKey, StringComparison.Ordinal);
@@ -309,6 +294,15 @@ namespace DE.Share.Entities
 
         private static int GetValueWireSize(Type valueType, object value)
         {
+            if (valueType == typeof(Vector3))
+            {
+                return 3 * sizeof(float);
+            }
+            if (valueType == typeof(Quaternion))
+            {
+                return 4 * sizeof(float);
+            }
+
             Type underlyingType = Nullable.GetUnderlyingType(valueType);
             if (underlyingType != null)
             {
@@ -458,11 +452,39 @@ namespace DE.Share.Entities
                 return 15;
             }
 
+            if (valueType == typeof(Vector3))
+            {
+                return 16;
+            }
+
+            if (valueType == typeof(Quaternion))
+            {
+                return 17;
+            }
+
             throw new NotSupportedException("Unsupported entity property type: " + valueType.FullName);
         }
 
         private static void WriteValue(byte[] bytes, ref int offset, Type valueType, object value)
         {
+            if (valueType == typeof(Vector3))
+            {
+                var vector = (Vector3)value;
+                WriteSingle(bytes, ref offset, vector.X);
+                WriteSingle(bytes, ref offset, vector.Y);
+                WriteSingle(bytes, ref offset, vector.Z);
+                return;
+            }
+            if (valueType == typeof(Quaternion))
+            {
+                var rotation = (Quaternion)value;
+                WriteSingle(bytes, ref offset, rotation.X);
+                WriteSingle(bytes, ref offset, rotation.Y);
+                WriteSingle(bytes, ref offset, rotation.Z);
+                WriteSingle(bytes, ref offset, rotation.W);
+                return;
+            }
+
             Type underlyingType = Nullable.GetUnderlyingType(valueType);
             if (underlyingType != null)
             {
@@ -537,7 +559,7 @@ namespace DE.Share.Entities
 
             if (valueType == typeof(float))
             {
-                WriteUInt32(bytes, ref offset, unchecked((uint)BitConverter.ToInt32(BitConverter.GetBytes((float)value), 0)));
+                WriteSingle(bytes, ref offset, (float)value);
                 return;
             }
 
@@ -577,6 +599,30 @@ namespace DE.Share.Entities
         private static bool TryReadValue(byte[] bytes, ref int offset, int endOffset, Type valueType, out object value)
         {
             value = null;
+
+            if (valueType == typeof(Vector3))
+            {
+                if (!TryReadSingle(bytes, ref offset, endOffset, out float x)
+                    || !TryReadSingle(bytes, ref offset, endOffset, out float y)
+                    || !TryReadSingle(bytes, ref offset, endOffset, out float z))
+                {
+                    return false;
+                }
+                value = new Vector3(x, y, z);
+                return true;
+            }
+            if (valueType == typeof(Quaternion))
+            {
+                if (!TryReadSingle(bytes, ref offset, endOffset, out float x)
+                    || !TryReadSingle(bytes, ref offset, endOffset, out float y)
+                    || !TryReadSingle(bytes, ref offset, endOffset, out float z)
+                    || !TryReadSingle(bytes, ref offset, endOffset, out float w))
+                {
+                    return false;
+                }
+                value = new Quaternion(x, y, z, w);
+                return true;
+            }
 
             Type underlyingType = Nullable.GetUnderlyingType(valueType);
             if (underlyingType != null)
@@ -712,12 +758,12 @@ namespace DE.Share.Entities
 
             if (valueType == typeof(float))
             {
-                if (!TryReadUInt32(bytes, ref offset, endOffset, out uint floatValue))
+                if (!TryReadSingle(bytes, ref offset, endOffset, out float floatValue))
                 {
                     return false;
                 }
 
-                value = BitConverter.ToSingle(BitConverter.GetBytes(floatValue), 0);
+                value = floatValue;
                 return true;
             }
 
@@ -765,6 +811,22 @@ namespace DE.Share.Entities
             }
 
             return false;
+        }
+
+        private static void WriteSingle(byte[] bytes, ref int offset, float value)
+        {
+            WriteUInt32(bytes, ref offset, unchecked((uint)BitConverter.ToInt32(BitConverter.GetBytes(value), 0)));
+        }
+
+        private static bool TryReadSingle(byte[] bytes, ref int offset, int endOffset, out float value)
+        {
+            value = default;
+            if (!TryReadUInt32(bytes, ref offset, endOffset, out uint bits))
+            {
+                return false;
+            }
+            value = BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
+            return true;
         }
 
         private static void WriteString(byte[] bytes, ref int offset, string value)

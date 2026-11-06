@@ -23,6 +23,7 @@ namespace DE.Server.NativeBridge
         public IntPtr CancelTimer;
         public IntPtr PostToIoContext;
         public IntPtr CompleteGateAuthValidation;
+        public IntPtr SendSystemCommandToServer;
     }
 
 
@@ -93,6 +94,14 @@ namespace DE.Server.NativeBridge
         );
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int NativeSendSystemCommandToServerDelegate(
+            IntPtr context,
+            IntPtr targetServerId,
+            IntPtr payload,
+            int payloadSizeBytes
+        );
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate ulong NativeAddTimerDelegate(
             IntPtr context,
             long delayMilliseconds,
@@ -127,6 +136,7 @@ namespace DE.Server.NativeBridge
         private static NativeSendAvatarRpcToServerDelegate s_sendAvatarRpcToServer;
         private static NativeSendAvatarRpcToClientDelegate s_sendAvatarRpcToClient;
         private static NativeSendServerRpcToServerDelegate s_sendServerRpcToServer;
+        private static NativeSendSystemCommandToServerDelegate s_sendSystemCommandToServer;
         private static NativeAddTimerDelegate s_addTimer;
         private static NativeCancelTimerDelegate s_cancelTimer;
         private static NativePostToIoContextDelegate s_postToIoContext;
@@ -244,6 +254,17 @@ namespace DE.Server.NativeBridge
                 );
             }
 
+            if (nativeApi.SendSystemCommandToServer == IntPtr.Zero)
+            {
+                s_sendSystemCommandToServer = null;
+            }
+            else
+            {
+                s_sendSystemCommandToServer = Marshal.GetDelegateForFunctionPointer<NativeSendSystemCommandToServerDelegate>(
+                    nativeApi.SendSystemCommandToServer
+                );
+            }
+
             if (nativeApi.PostToIoContext == IntPtr.Zero)
             {
                 s_postToIoContext = null;
@@ -279,6 +300,7 @@ namespace DE.Server.NativeBridge
             s_sendAvatarRpcToServer = null;
             s_sendAvatarRpcToClient = null;
             s_sendServerRpcToServer = null;
+            s_sendSystemCommandToServer = null;
             s_addTimer = null;
             s_cancelTimer = null;
             s_postToIoContext = null;
@@ -465,6 +487,33 @@ namespace DE.Server.NativeBridge
                 targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
                 payloadPtr = CopyPayloadToNative(payload);
                 return s_sendServerRpcToServer(
+                    s_context,
+                    targetServerIdPtr,
+                    payloadPtr,
+                    payload == null ? 0 : payload.Length
+                ) != 0;
+            }
+            finally
+            {
+                FreeNative(targetServerIdPtr);
+                FreeNative(payloadPtr);
+            }
+        }
+
+        public static bool SendSystemCommandToServer(string targetServerId, byte[] payload)
+        {
+            if (s_sendSystemCommandToServer == null || string.IsNullOrWhiteSpace(targetServerId))
+            {
+                return false;
+            }
+
+            IntPtr targetServerIdPtr = IntPtr.Zero;
+            IntPtr payloadPtr = IntPtr.Zero;
+            try
+            {
+                targetServerIdPtr = Marshal.StringToCoTaskMemUTF8(targetServerId);
+                payloadPtr = CopyPayloadToNative(payload);
+                return s_sendSystemCommandToServer(
                     s_context,
                     targetServerIdPtr,
                     payloadPtr,

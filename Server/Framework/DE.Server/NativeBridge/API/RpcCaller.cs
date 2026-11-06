@@ -5,22 +5,21 @@ using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge
 {
-    public enum ServerRpcTargetKind : ushort
+    public enum RpcTargetKind : ushort
     {
-        Entity = 1,
-        Stub = 2,
-        AvatarProxy = 3,
-        AvatarMigrationGame = 4,
-        AvatarMigrationGate = 5,
+        ServerStub = 1,
+        ServerMailbox = 2,
+        ServerAvatarProxy = 3,
+        ClientAvatarProxy = 4,
     }
 
     public struct ServerRpcPayload
     {
-        public const ushort CurrentVersion = 2;
+        public const ushort CurrentVersion = 3;
         public const int FixedWireSize = 32;
 
         public ushort Version;
-        public ServerRpcTargetKind TargetKind;
+        public RpcTargetKind TargetKind;
         public Guid EntityId;
         public string TargetServerId;
         public string StubName;
@@ -82,7 +81,7 @@ namespace DE.Server.NativeBridge
 
             ServerRpcPayload parsed = default(ServerRpcPayload);
             parsed.Version = ReadUInt16BigEndian(data, offset);
-            parsed.TargetKind = (ServerRpcTargetKind)ReadUInt16BigEndian(data, offset + 2);
+            parsed.TargetKind = (RpcTargetKind)ReadUInt16BigEndian(data, offset + 2);
             byte[] entityIdBytes = new byte[16];
             Buffer.BlockCopy(data, offset + 4, entityIdBytes, 0, entityIdBytes.Length);
             parsed.EntityId = new Guid(entityIdBytes);
@@ -90,7 +89,7 @@ namespace DE.Server.NativeBridge
             int stubNameLength = ReadUInt16BigEndian(data, offset + 22);
             parsed.MethodId = ReadUInt32BigEndian(data, offset + 24);
             uint argsPayloadLength = ReadUInt32BigEndian(data, offset + 28);
-            if (parsed.Version != CurrentVersion
+            if (parsed.Version != CurrentVersion || !Enum.IsDefined(typeof(RpcTargetKind), parsed.TargetKind)
                 || argsPayloadLength > int.MaxValue
                 || dataSize != FixedWireSize + targetServerIdLength + stubNameLength + (int)argsPayloadLength)
             {
@@ -158,7 +157,7 @@ namespace DE.Server.NativeBridge
             return rpc.Serialize();
         }
 
-        public static byte[] BuildServerRpcPayload(ServerRpcTargetKind targetKind, Guid entityId, string targetServerId, string stubName, string methodName, object[] args)
+        public static byte[] BuildServerRpcPayload(RpcTargetKind targetKind, Guid entityId, string targetServerId, string stubName, string methodName, object[] args)
         {
             var payload = new ServerRpcPayload
             {

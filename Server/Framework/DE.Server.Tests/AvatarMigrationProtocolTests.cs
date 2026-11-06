@@ -11,16 +11,15 @@ namespace DE.Server.Tests
         {
             var message = CreateMessage();
 
-            var bytes = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
+            var bytes = AvatarMigrationProtocol.BuildSystemCommandPayload(
                 message.TargetGameServerId,
                 message
             );
 
-            Assert.True(ServerRpcPayload.TryDeserialize(bytes, 0, bytes.Length, out var rpc));
-            Assert.Equal(ServerRpcTargetKind.AvatarMigrationGame, rpc.TargetKind);
-            Assert.Equal(message.TargetGameServerId, rpc.TargetServerId);
-            Assert.True(AvatarMigrationProtocol.TryDeserialize(rpc, out var parsed));
+            Assert.True(SystemCommandPayload.TryDeserialize(bytes, 0, bytes.Length, out var commandEnvelope));
+            Assert.Equal(SystemCommandKind.AvatarMigration, commandEnvelope.Kind);
+            Assert.Equal(message.TargetGameServerId, commandEnvelope.TargetServerId);
+            Assert.True(AvatarMigrationProtocol.TryDeserialize(commandEnvelope, out var parsed));
             Assert.Equal(message.Command, parsed.Command);
             Assert.Equal(message.MigrationId, parsed.MigrationId);
             Assert.Equal(message.AvatarId, parsed.AvatarId);
@@ -33,18 +32,17 @@ namespace DE.Server.Tests
         }
 
         [Fact]
-        public void TryDeserialize_RejectsCommandThatDoesNotMatchEnvelopeMethodId()
+        public void TryDeserialize_RejectsCommandThatDoesNotMatchEnvelopeCommandId()
         {
             var message = CreateMessage();
-            var bytes = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
+            var bytes = AvatarMigrationProtocol.BuildSystemCommandPayload(
                 message.TargetGameServerId,
                 message
             );
-            Assert.True(ServerRpcPayload.TryDeserialize(bytes, 0, bytes.Length, out var rpc));
-            rpc.MethodId = (uint)AvatarMigrationCommand.CommitRoute;
+            Assert.True(SystemCommandPayload.TryDeserialize(bytes, 0, bytes.Length, out var commandEnvelope));
+            commandEnvelope.CommandId = (uint)AvatarMigrationCommand.CommitRoute;
 
-            Assert.False(AvatarMigrationProtocol.TryDeserialize(rpc, out _));
+            Assert.False(AvatarMigrationProtocol.TryDeserialize(commandEnvelope, out _));
         }
 
         [Fact]

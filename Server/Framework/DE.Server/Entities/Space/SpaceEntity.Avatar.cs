@@ -63,9 +63,10 @@ namespace DE.Server.Entities
                     return false;
                 }
 
-                if (avatar.CurrentSpaceId != Guid)
+                if (!ReferenceEquals(avatar.CurrentSpace, this))
                 {
-                    DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar membership and CurrentSpaceId are inconsistent, avatarId={avatar.Guid}, spaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
+                    DELogger.Error(nameof(SpaceEntity), "Space Enter rejected because Avatar membership and CurrentSpace are inconsistent, "
+                        + $"avatarId={avatar.Guid}, spaceId={Guid}, currentSpaceId={avatar.CurrentSpace?.Guid ?? Guid.Empty}.");
                     return false;
                 }
 
@@ -73,14 +74,21 @@ namespace DE.Server.Entities
                 return false;
             }
 
-            if (avatar.CurrentSpaceId != Guid.Empty)
+            if (avatar.CurrentSpace != null)
             {
-                DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected because Avatar must explicitly leave its current Space first, avatarId={avatar.Guid}, targetSpaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
+                DELogger.Error(nameof(SpaceEntity), "Space Enter rejected because Avatar must explicitly leave its current Space first, "
+                    + $"avatarId={avatar.Guid}, targetSpaceId={Guid}, currentSpaceId={avatar.CurrentSpace.Guid}.");
                 return false;
             }
 
+            if (MaxPlayers > 0 && _avatars.Count >= MaxPlayers)
+            {
+                DELogger.Error(nameof(SpaceEntity), $"Space Enter rejected due to capacity, avatarId={avatar.Guid}, spaceId={Guid}.");
+                return false;
+            }
             _avatars.Add(avatar.Guid, avatar);
-            avatar.CurrentSpaceId = Guid;
+            avatar.CurrentSpace = this;
+            avatar.Space.SetSpace(Guid, SpaceNo);
             try
             {
                 avatar.OnEnterSpace(this);
@@ -90,6 +98,12 @@ namespace DE.Server.Entities
                 DELogger.Error(nameof(SpaceEntity), $"OnEnterSpace failed, avatarId={avatar.Guid}, spaceId={Guid}: {exception}");
             }
 
+            ReportLoad();
+            // A migration candidate becomes visible only after Gate has committed its route.
+            if (avatar.ImmigrationState != AvatarImmigrationState.TargetPrepared)
+            {
+                CompleteAvatarEntry(avatar);
+            }
             return true;
         }
 
@@ -140,7 +154,8 @@ namespace DE.Server.Entities
 
             if (!_avatars.TryGetValue(avatar.Guid, out var existingAvatar))
             {
-                DELogger.Error(nameof(SpaceEntity), $"Space Leave rejected because Avatar is not in the Space, avatarId={avatar.Guid}, spaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
+                DELogger.Error(nameof(SpaceEntity), "Space Leave rejected because Avatar is not in the Space, "
+                    + $"avatarId={avatar.Guid}, spaceId={Guid}, currentSpaceId={avatar.CurrentSpace?.Guid ?? Guid.Empty}.");
                 return false;
             }
 
@@ -150,9 +165,10 @@ namespace DE.Server.Entities
                 return false;
             }
 
-            if (avatar.CurrentSpaceId != Guid)
+            if (!ReferenceEquals(avatar.CurrentSpace, this))
             {
-                DELogger.Error(nameof(SpaceEntity), $"Space Leave rejected because Avatar CurrentSpaceId points to another Space, avatarId={avatar.Guid}, spaceId={Guid}, currentSpaceId={avatar.CurrentSpaceId}.");
+                DELogger.Error(nameof(SpaceEntity), "Space Leave rejected because Avatar CurrentSpace points to another Space, "
+                    + $"avatarId={avatar.Guid}, spaceId={Guid}, currentSpaceId={avatar.CurrentSpace?.Guid ?? Guid.Empty}.");
                 return false;
             }
 
@@ -162,7 +178,8 @@ namespace DE.Server.Entities
                 return false;
             }
 
-            avatar.CurrentSpaceId = Guid.Empty;
+            avatar.CurrentSpace = null;
+            RemoveVisibleEntity(avatar);
             try
             {
                 avatar.OnLeaveSpace(this);
@@ -172,6 +189,7 @@ namespace DE.Server.Entities
                 DELogger.Error(nameof(SpaceEntity), $"OnLeaveSpace failed, avatarId={avatar.Guid}, spaceId={Guid}: {exception}");
             }
 
+            ReportLoad();
             return true;
         }
     }

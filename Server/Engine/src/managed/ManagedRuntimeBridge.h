@@ -69,6 +69,12 @@ namespace de::server::engine::managed
 		const std::uint8_t* payload,
 		std::int32_t payloadSizeBytes
 	);
+	using NativeSendSystemCommandToServerFn = std::int32_t (DE_MANAGED_CALLTYPE*)(
+		void* context,
+		const char* targetServerId,
+		const std::uint8_t* payload,
+		std::int32_t payloadSizeBytes
+	);
 	using NativeManagedTimerCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, std::uint64_t timerId, void* state);
 	using NativePostManagedCallbackFn = void (DE_MANAGED_CALLTYPE*)(void* context, void* state);
 	using NativeAddTimerFn = std::uint64_t (DE_MANAGED_CALLTYPE*)(
@@ -107,6 +113,7 @@ namespace de::server::engine::managed
 		NativeCancelTimerFn CancelTimer = nullptr;
 		NativePostToIoContextFn PostToIoContext = nullptr;
 		NativeCompleteGateAuthValidationFn CompleteGateAuthValidation = nullptr;
+		NativeSendSystemCommandToServerFn SendSystemCommandToServer = nullptr;
 	};
 
 	struct ManagedRuntimeInitInfo
@@ -165,6 +172,11 @@ namespace de::server::engine::managed
 		std::int32_t payloadSizeBytes
 	);
 	using ManagedHandleServerRpcFn = int (DE_MANAGED_CALLTYPE*)(
+		const char* sourceServerId,
+		const void* payload,
+		std::int32_t payloadSizeBytes
+	);
+	using ManagedHandleSystemCommandFn = int (DE_MANAGED_CALLTYPE*)(
 		const char* sourceServerId,
 		const void* payload,
 		std::int32_t payloadSizeBytes

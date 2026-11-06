@@ -8,5 +8,7 @@ namespace DE.Share.Data
         public string Name { get; private set; }
 
         public int MaxPlayers { get; private set; }
+
+        public int PersistentCount { get; private set; }
     }
 }

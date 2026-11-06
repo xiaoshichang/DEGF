@@ -40,6 +40,16 @@ namespace DE.Share.Rpc
             for (int i = 0; i < args.Length; i++)
             {
                 object arg = args[i];
+                if (arg is Guid)
+                {
+                    typeNames[i] = "System.Guid";
+                    continue;
+                }
+                if (arg is byte[])
+                {
+                    typeNames[i] = "byte[]";
+                    continue;
+                }
                 if (arg == null || arg is string)
                 {
                     typeNames[i] = "string";

@@ -55,11 +55,11 @@ namespace Assets.Scripts.Demo.Client.UI
                 return;
             }
 
-            BasicInfoComponent basicInfo = (accountInfo.Avatar as DemoAvatarEntity)?.BasicInfo;
-            string headIcon = basicInfo == null || string.IsNullOrEmpty(basicInfo.HeadIcon)
+            DemoAvatarEntity avatar = accountInfo.Avatar as DemoAvatarEntity;
+            string headIcon = avatar == null || string.IsNullOrEmpty(avatar.HeadIcon)
                 ? "--"
-                : basicInfo.HeadIcon;
-            string score = basicInfo == null ? "--" : basicInfo.Score.ToString();
+                : avatar.HeadIcon;
+            string score = avatar == null ? "--" : avatar.Score.ToString();
 
             _AvatarInfoText.text =
                 "Avatar Guid: " + accountInfo.Avatar.Guid

@@ -66,36 +66,30 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            if (avatar.CurrentSpaceId == targetSpace.Guid)
+            if (ReferenceEquals(avatar.CurrentSpace, targetSpace))
             {
                 DELogger.Error(nameof(GameServerRuntimeState), $"Local Avatar teleport rejected because Avatar is already in the target Space, avatarId={avatar.Guid}, targetSpaceId={space.EntityId}.");
                 return false;
             }
 
-            if (avatar.CurrentSpaceId != Guid.Empty)
+            if (targetSpace.MaxPlayers > 0 && targetSpace.Avatars.Count >= targetSpace.MaxPlayers)
             {
-                var currentSpaceId = avatar.CurrentSpaceId;
-                if (!Entities.TryGetValue(currentSpaceId, out var currentEntity))
+                return false;
+            }
+            var sourceSpace = avatar.CurrentSpace;
+            if (sourceSpace != null)
+            {
+                if (!sourceSpace.Leave(avatar))
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Local Avatar teleport rejected because current Space does not exist, avatarId={avatar.Guid}, currentSpaceId={currentSpaceId}, targetSpaceId={space.EntityId}.");
-                    return false;
-                }
-
-                if (currentEntity is not SpaceEntity currentSpace)
-                {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Local Avatar teleport rejected because current Entity is not a Space, avatarId={avatar.Guid}, currentSpaceId={currentSpaceId}, targetSpaceId={space.EntityId}, currentEntityType={currentEntity?.GetType().FullName ?? "<null>"}.");
-                    return false;
-                }
-
-                if (!currentSpace.Leave(avatar))
-                {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Local Avatar teleport failed because Avatar could not leave its current Space, avatarId={avatar.Guid}, currentSpaceId={currentSpaceId}, targetSpaceId={space.EntityId}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), "Local Avatar teleport failed because Avatar could not leave its current Space, "
+                        + $"avatarId={avatar.Guid}, currentSpaceId={sourceSpace.Guid}, targetSpaceId={space.EntityId}.");
                     return false;
                 }
             }
 
             if (!targetSpace.Enter(avatar))
             {
+                sourceSpace?.Enter(avatar);
                 DELogger.Error(nameof(GameServerRuntimeState), $"Local Avatar teleport failed because Avatar could not enter target Space, avatarId={avatar.Guid}, targetSpaceId={space.EntityId}.");
                 return false;
             }

@@ -99,6 +99,7 @@ namespace Assets.Scripts.DE.Client.Framework
             }
 
             _AvatarType = avatarType;
+            ClientEntityFactory.Register(avatarType);
         }
 
         public void Init()
@@ -115,6 +116,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
+            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
             _CurrentAccountInfo = null;
             _SetState(AuthState.Idle);
             _ClearLoginCallbacks();
@@ -166,6 +168,7 @@ namespace Assets.Scripts.DE.Client.Framework
             NetworkManager.Instance.Disconnect();
 
             _ReceiveBuffer.Clear();
+            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
             _CurrentAccountInfo = null;
             _PendingAccount = normalizedAccount;
             _PendingGateConfig = _SelectGateConfig(normalizedAccount);
@@ -369,6 +372,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
+            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
             _CurrentAccountInfo = null;
 
             _SetState(AuthState.Idle);
@@ -554,9 +558,13 @@ namespace Assets.Scripts.DE.Client.Framework
             }
 
             var avatar = _CreateAvatar();
-            if (!EntitySerializer.TryDeserialize(avatar, EntitySerializeReason.OwnerSync, loginRsp.AvatarData))
+            try
             {
-                _FailAuth("Login failed because avatar data is invalid.");
+                avatar.InitializeEntity(loginRsp.AvatarData, EntitySerializeReason.OwnerSync);
+            }
+            catch (Exception error)
+            {
+                _FailAuth("Login failed because avatar initialization failed: " + error.Message);
                 return;
             }
 
@@ -573,6 +581,10 @@ namespace Assets.Scripts.DE.Client.Framework
                 LogTag,
                 "Login succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ", avatarId=" + _CurrentAccountInfo.AvatarId + ".");
             _NotifyLoginSucceeded(_CurrentAccountInfo);
+            if (_State == AuthState.Authenticated && _CurrentAccountInfo?.Avatar == avatar)
+            {
+                avatar.CallServer("OnSpaceClientReady");
+            }
         }
 
         private AvatarEntity _CreateAvatar()
@@ -710,6 +722,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
+            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
             _CurrentAccountInfo = null;
             _SetState(AuthState.Idle);
 

@@ -21,6 +21,11 @@ namespace DE.Share.DataFramework
 
         internal int Count => _Rows.Count;
 
+        internal IReadOnlyList<TRow> SnapshotRows()
+        {
+            return new List<TRow>(_Rows.Values).AsReadOnly();
+        }
+
         internal bool TryGetRow(DataTableKey key, out TRow row)
         {
             if (!_Rows.TryGetValue(key, out row))

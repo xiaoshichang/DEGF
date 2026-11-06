@@ -113,6 +113,16 @@ namespace de::server::engine
 					);
 				}
 			);
+			managedRuntimeService->SetSystemCommandToServerSender(
+				[this](const std::string& targetServerId, const std::vector<std::byte>& payload)
+				{
+					return GetInnerNetwork().Send(
+						targetServerId,
+						static_cast<std::uint32_t>(network::MessageID::SS::SystemCommandNtf),
+						payload
+					);
+				}
+			);
 			managedRuntimeService->SetAvatarRpcToClientSender(
 				[this](std::uint64_t clientSessionId, const std::vector<std::byte>& payload)
 				{
@@ -156,6 +166,7 @@ namespace de::server::engine
 			managedRuntimeService->SetAvatarRpcToServerSender({});
 			managedRuntimeService->SetAvatarRpcToClientSender({});
 			managedRuntimeService->SetServerRpcToServerSender({});
+			managedRuntimeService->SetSystemCommandToServerSender({});
 		}
 
 		UninitHttp();
@@ -231,6 +242,14 @@ namespace de::server::engine
 				managedRuntimeService == nullptr || !managedRuntimeService->HandleServerRpc(serverId, data))
 			{
 				Logger::Warn("GateServer", "Failed to handle ServerRpcNtf in managed runtime.");
+			}
+			return;
+
+		case network::MessageID::SS::SystemCommandNtf:
+			if (auto* managedRuntimeService = GetManagedRuntimeService();
+				managedRuntimeService == nullptr || !managedRuntimeService->HandleSystemCommand(serverId, data))
+			{
+				Logger::Warn("GateServer", "Failed to handle SystemCommandNtf in managed runtime.");
 			}
 			return;
 

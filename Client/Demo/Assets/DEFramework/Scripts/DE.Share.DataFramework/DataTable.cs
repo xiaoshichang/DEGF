@@ -80,6 +80,24 @@ namespace DE.Share.DataFramework
             _Count = count;
         }
 
+        /// <summary>Materializes all source rows, independent of the configured cache capacity.</summary>
+        public IReadOnlyList<TRow> GetRows()
+        {
+            if (Describe.Load == DataLoadPolicy.Full && Describe.Cache == DataCachePolicy.KeepAlive)
+            {
+                return _Rows.SnapshotRows();
+            }
+            var rows = ScanRows(null, true, out int count);
+            _Count = count;
+            var result = new List<TRow>(rows.Count);
+            foreach (var pair in rows)
+            {
+                result.Add(_Rows.TryGetRow(pair.Key, out var cached) ? cached : pair.Value);
+            }
+            _Rows.AddRows(rows, null);
+            return result.AsReadOnly();
+        }
+
         /// <summary>
         /// Scans the source from the first data row and optionally materializes rows.
         /// When <paramref name="materialize"/> is true, a null <paramref name="key"/> materializes every

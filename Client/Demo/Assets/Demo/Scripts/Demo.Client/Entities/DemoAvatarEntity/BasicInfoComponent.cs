@@ -3,18 +3,20 @@ using DE.Share.Rpc;
 
 namespace Assets.Scripts.Demo.Client.Entities
 {
-    public partial class BasicInfoComponent : EntityComponent
+    public partial class BasicInfoComponent : AvatarComponent
     {
-        [EntityProperty(EntityPropertyFlag.ClientServer)]
-        private string __HeadIcon = "";
+        private DemoAvatarEntity _owner;
 
-        [EntityProperty(EntityPropertyFlag.ClientServer)]
-        private int __Score = 0;
+        protected override void PreInitialize()
+        {
+            base.PreInitialize();
+            _owner = (DemoAvatarEntity)OwnerEntity;
+        }
 
         [ClientRpc]
         public void NotifyHeadIconChanged(string headIcon)
         {
-            HeadIcon = headIcon ?? string.Empty;
+            _owner.HeadIcon = headIcon ?? string.Empty;
         }
     }
 }

@@ -26,9 +26,21 @@ namespace DE.Server.Entities
 
     public partial class AvatarEntity
     {
-        public AvatarImmigrationState ImmigrationState { get; private set; } = AvatarImmigrationState.Idle;
+        public AvatarImmigrationState ImmigrationState { get; private set; }
         public Guid ImmigrationId { get; private set; }
         public EntityMailBox ImmigrationTargetSpace { get; private set; }
+
+        internal void ResetCompletedImmigration()
+        {
+            if (ImmigrationState != AvatarImmigrationState.Completed)
+            {
+                throw new InvalidOperationException("Only completed immigration can be reset.");
+            }
+            DELogger.Info(nameof(AvatarEntity), $"Reset completed immigration for a new Space entry request, avatarId={Guid}, migrationId={ImmigrationId}.");
+            ImmigrationState = AvatarImmigrationState.Idle;
+            ImmigrationId = Guid.Empty;
+            ImmigrationTargetSpace = default;
+        }
 
         public override bool IsAllowImmigrate()
         {
@@ -314,37 +326,35 @@ namespace DE.Server.NativeBridge
             PropertyNameCaseInsensitive = false,
         };
 
-        public static byte[] BuildServerRpcPayload(
-            ServerRpcTargetKind targetKind,
+        public static byte[] BuildSystemCommandPayload(
             string targetServerId,
             AvatarMigrationMessage message)
         {
             var messagePayload = JsonSerializer.SerializeToUtf8Bytes(message, s_jsonOptions);
-            return new ServerRpcPayload
+            return new SystemCommandPayload
             {
-                Version = ServerRpcPayload.CurrentVersion,
-                TargetKind = targetKind,
+                Version = SystemCommandPayload.CurrentVersion,
+                Kind = SystemCommandKind.AvatarMigration,
                 EntityId = message.AvatarId,
                 TargetServerId = targetServerId ?? string.Empty,
-                StubName = string.Empty,
-                MethodId = (uint)message.Command,
-                ArgsPayload = messagePayload,
+                CommandId = (uint)message.Command,
+                Data = messagePayload,
             }.Serialize();
         }
 
-        public static bool TryDeserialize(ServerRpcPayload rpc, out AvatarMigrationMessage message)
+        public static bool TryDeserialize(SystemCommandPayload commandEnvelope, out AvatarMigrationMessage message)
         {
             message = null;
-            if (rpc.ArgsPayload == null
-                || rpc.ArgsPayload.Length == 0
-                || rpc.ArgsPayload.Length > MaxPayloadSizeBytes)
+            if (commandEnvelope.Kind != SystemCommandKind.AvatarMigration || commandEnvelope.Data == null
+                || commandEnvelope.Data.Length == 0
+                || commandEnvelope.Data.Length > MaxPayloadSizeBytes)
             {
                 return false;
             }
 
             try
             {
-                message = JsonSerializer.Deserialize<AvatarMigrationMessage>(rpc.ArgsPayload, s_jsonOptions);
+                message = JsonSerializer.Deserialize<AvatarMigrationMessage>(commandEnvelope.Data, s_jsonOptions);
             }
             catch (JsonException)
             {
@@ -355,8 +365,8 @@ namespace DE.Server.NativeBridge
                 && message.Version == AvatarMigrationMessage.CurrentVersion
                 && message.MigrationId != Guid.Empty
                 && message.AvatarId != Guid.Empty
-                && message.AvatarId == rpc.EntityId
-                && (uint)message.Command == rpc.MethodId
+                && message.AvatarId == commandEnvelope.EntityId
+                && (uint)message.Command == commandEnvelope.CommandId
                 && !string.IsNullOrWhiteSpace(message.SourceGameServerId)
                 && !string.IsNullOrWhiteSpace(message.TargetGameServerId)
                 && !string.IsNullOrWhiteSpace(message.GateServerId);
@@ -382,7 +392,6 @@ namespace DE.Server.NativeBridge
 
     internal enum QueuedAvatarMigrationMessageKind
     {
-        AvatarRpcToGame,
         ServerRpcToGame,
         AvatarRpcToClient,
     }

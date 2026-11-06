@@ -17,6 +17,15 @@ namespace DE.Server.Entities
 
         public abstract bool IsAllowImmigrate();
 
+        /// <summary>Runs after initialization, Mailbox binding and insertion into the local entity registry.</summary>
+        protected internal virtual void OnRegistered()
+        {
+        }
+
+        protected internal virtual void OnUnregistered()
+        {
+        }
+
         internal void AttachToGameServer(string bindingGame)
         {
             MailBox = new EntityMailBox(Guid, bindingGame);

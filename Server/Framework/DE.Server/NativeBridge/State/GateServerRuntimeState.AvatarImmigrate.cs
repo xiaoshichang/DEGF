@@ -10,11 +10,11 @@ namespace DE.Server.NativeBridge
     {
         private readonly Dictionary<Guid, GateAvatarMigrationContext> _gateAvatarMigrations = new();
 
-        internal bool HandleAvatarMigrationGateMessage(string sourceServerId, ServerRpcPayload rpc)
+        internal bool HandleAvatarMigrationGateMessage(string sourceServerId, SystemCommandPayload commandEnvelope)
         {
-            if (!AvatarMigrationProtocol.TryDeserialize(rpc, out var message))
+            if (!AvatarMigrationProtocol.TryDeserialize(commandEnvelope, out var message))
             {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Received malformed Avatar migration Gate message, sourceServerId={sourceServerId ?? "<null>"}, avatarId={rpc.EntityId}, methodId={rpc.MethodId}.");
+                DELogger.Error(nameof(GateServerRuntimeState), $"Received malformed Avatar migration Gate message, sourceServerId={sourceServerId ?? "<null>"}, avatarId={commandEnvelope.EntityId}, commandId={commandEnvelope.CommandId}.");
                 return false;
             }
 
@@ -42,16 +42,6 @@ namespace DE.Server.NativeBridge
                 DELogger.Error(nameof(GateServerRuntimeState), $"Rejected unsupported Avatar migration Gate command, avatarId={message.AvatarId}, migrationId={message.MigrationId}, command={message.Command}.");
                 return false;
             }
-        }
-
-        internal bool TryQueueClientAvatarRpc(Guid avatarId, byte[] payload)
-        {
-            return TryQueueAvatarMessage(
-                avatarId,
-                QueuedAvatarMigrationMessageKind.AvatarRpcToGame,
-                string.Empty,
-                payload
-            );
         }
 
         internal bool TryQueueAvatarProxyRpc(Guid avatarId, string sourceServerId, byte[] payload)
@@ -274,12 +264,6 @@ namespace DE.Server.NativeBridge
                 bool sent;
                 switch (message.Kind)
                 {
-                case QueuedAvatarMigrationMessageKind.AvatarRpcToGame:
-                    sent = NativeAPI.SendAvatarRpcToServer(
-                        commit ? context.Message.TargetGameServerId : context.Message.SourceGameServerId,
-                        message.Payload
-                    );
-                    break;
                 case QueuedAvatarMigrationMessageKind.ServerRpcToGame:
                     sent = NativeAPI.SendServerRpcToServer(
                         commit ? context.Message.TargetGameServerId : context.Message.SourceGameServerId,
@@ -330,12 +314,11 @@ namespace DE.Server.NativeBridge
             string error = null)
         {
             var response = request.CreateResponse(command, success, error);
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
+            var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(
                 request.SourceGameServerId,
                 response
             );
-            var sent = NativeAPI.SendServerRpcToServer(request.SourceGameServerId, payload);
+            var sent = NativeAPI.SendSystemCommandToServer(request.SourceGameServerId, payload);
             if (!sent)
             {
                 DELogger.Error(nameof(GateServerRuntimeState), $"Failed to send Avatar migration Gate response, avatarId={request.AvatarId}, migrationId={request.MigrationId}, command={command}, success={success}, sourceGameServerId={request.SourceGameServerId}.");

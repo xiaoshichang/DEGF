@@ -80,7 +80,7 @@ namespace DE.Server.NativeBridge
                 Avatar = avatar,
                 Message = message,
                 TargetSpace = targetSpace,
-                SourceSpaceId = avatar.CurrentSpaceId,
+                SourceSpaceId = avatar.CurrentSpace?.Guid ?? Guid.Empty,
             };
             _sourceAvatarMigrations.Add(migrationId, context);
             avatar.SetImmigrationState(
@@ -100,11 +100,11 @@ namespace DE.Server.NativeBridge
             return true;
         }
 
-        internal bool HandleAvatarMigrationGameMessage(string sourceServerId, ServerRpcPayload rpc)
+        internal bool HandleAvatarMigrationGameMessage(string sourceServerId, SystemCommandPayload commandEnvelope)
         {
-            if (!AvatarMigrationProtocol.TryDeserialize(rpc, out var message))
+            if (!AvatarMigrationProtocol.TryDeserialize(commandEnvelope, out var message))
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Received malformed Avatar migration Game message, sourceServerId={sourceServerId ?? "<null>"}, targetServerId={rpc.TargetServerId}, avatarId={rpc.EntityId}, methodId={rpc.MethodId}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Received malformed Avatar migration Game message, sourceServerId={sourceServerId ?? "<null>"}, targetServerId={commandEnvelope.TargetServerId}, avatarId={commandEnvelope.EntityId}, commandId={commandEnvelope.CommandId}.");
                 return false;
             }
 
@@ -114,9 +114,9 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            if (!string.Equals(rpc.TargetServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
+            if (!string.Equals(commandEnvelope.TargetServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Rejected Avatar migration Game message because target Game does not match the current Game, avatarId={message.AvatarId}, migrationId={message.MigrationId}, targetGameServerId={rpc.TargetServerId}, currentGameServerId={_managedRuntimeState.ServerId}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Rejected Avatar migration Game message because target Game does not match the current Game, avatarId={message.AvatarId}, migrationId={message.MigrationId}, targetGameServerId={commandEnvelope.TargetServerId}, currentGameServerId={_managedRuntimeState.ServerId}.");
                 return false;
             }
 
@@ -164,6 +164,7 @@ namespace DE.Server.NativeBridge
             else
             {
                 Entities.Remove(entity.Guid);
+                _remoteEntityCreations.Remove(entity.Guid);
                 removed = true;
             }
 
@@ -185,6 +186,10 @@ namespace DE.Server.NativeBridge
                 }
             }
 
+            if (removed)
+            {
+                entity.OnUnregistered();
+            }
             return removed;
         }
 
@@ -556,11 +561,7 @@ namespace DE.Server.NativeBridge
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "new target Avatar is not Idle");
                 }
 
-                if (!EntitySerializer.TryDeserialize(candidate, EntitySerializeReason.Migrate, request.AvatarData))
-                {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because migration snapshot could not be deserialized, avatarId={request.AvatarId}, migrationId={request.MigrationId}, snapshotSize={request.AvatarData?.Length ?? 0}.");
-                    return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "failed to deserialize Avatar migration snapshot");
-                }
+                candidate.InitializeEntity(request.AvatarData, EntitySerializeReason.Migrate);
 
                 if (candidate.Guid != request.AvatarId)
                 {
@@ -782,6 +783,10 @@ namespace DE.Server.NativeBridge
             _lastAbortedTargetAvatarMigrations.Remove(request.AvatarId);
             _targetAvatarMigrations.Remove(request.MigrationId);
 
+            if (Entities.TryGetValue(request.TargetSpaceId, out var enteredEntity) && enteredEntity is SpaceEntity enteredSpace)
+            {
+                enteredSpace.CompleteAvatarEntry(context.Avatar);
+            }
             return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, true);
         }
 
@@ -904,12 +909,11 @@ namespace DE.Server.NativeBridge
         private bool SendGateMigrationMessage(SourceAvatarMigrationContext context, AvatarMigrationCommand command)
         {
             var message = CopyMessage(context.Message, command);
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGate,
-                string.Empty,
+            var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(
+                message.GateServerId,
                 message
             );
-            var sent = NativeAPI.SendServerRpcToServer(message.GateServerId, payload);
+            var sent = NativeAPI.SendSystemCommandToServer(message.GateServerId, payload);
             if (!sent)
             {
                 DELogger.Error(nameof(GameServerRuntimeState), $"Failed to send Avatar migration message to Gate, avatarId={message.AvatarId}, migrationId={message.MigrationId}, command={command}, gateServerId={message.GateServerId}.");
@@ -925,12 +929,11 @@ namespace DE.Server.NativeBridge
         {
             var message = CopyMessage(context.Message, command);
             message.AvatarData = includeAvatarData ? context.AvatarData : Array.Empty<byte>();
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
+            var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(
                 message.TargetGameServerId,
                 message
             );
-            var sent = NativeAPI.SendServerRpcToServer(message.GateServerId, payload);
+            var sent = NativeAPI.SendSystemCommandToServer(message.GateServerId, payload);
             if (!sent)
             {
                 DELogger.Error(nameof(GameServerRuntimeState), $"Failed to send Avatar migration message to target Game through Gate, avatarId={message.AvatarId}, migrationId={message.MigrationId}, command={command}, gateServerId={message.GateServerId}, targetGameServerId={message.TargetGameServerId}.");
@@ -946,12 +949,11 @@ namespace DE.Server.NativeBridge
             string error = null)
         {
             var response = request.CreateResponse(command, success, error);
-            var payload = AvatarMigrationProtocol.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarMigrationGame,
+            var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(
                 request.SourceGameServerId,
                 response
             );
-            var sent = NativeAPI.SendServerRpcToServer(request.GateServerId, payload);
+            var sent = NativeAPI.SendSystemCommandToServer(request.GateServerId, payload);
             if (!sent)
             {
                 DELogger.Error(nameof(GameServerRuntimeState), $"Failed to send Avatar migration response through Gate, avatarId={request.AvatarId}, migrationId={request.MigrationId}, command={command}, success={success}, gateServerId={request.GateServerId}, sourceGameServerId={request.SourceGameServerId}.");
@@ -970,6 +972,10 @@ namespace DE.Server.NativeBridge
                 context.Message.TargetGameServerId
             );
             _sourceAvatarMigrations.Remove(context.Message.MigrationId);
+            if (state == AvatarImmigrationState.Failed)
+            {
+                context.Avatar.NotifySpaceEnterFailed("Avatar migration to the requested Space failed");
+            }
         }
 
         private static AvatarMigrationMessage CopyMessage(AvatarMigrationMessage source, AvatarMigrationCommand command)

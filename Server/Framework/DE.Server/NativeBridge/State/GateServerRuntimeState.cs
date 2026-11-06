@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Assets.Scripts.DE.Share;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -197,7 +198,8 @@ namespace DE.Server.NativeBridge
                 avatarAccount.GameServerId = gameServerId;
             }
 
-            var createAvatarReqSent = NativeAPI.SendCreateAvatarReq(gameServerId, avatarId, avatarAccount == null ? 0 : avatarAccount.ClientSessionId);
+            var createAvatarReqSent = GameServerRuntimeState.SendCreateAvatarCommand(
+                gameServerId, avatarId, _managedRuntimeState.ServerId, avatarAccount == null ? 0 : avatarAccount.ClientSessionId);
             if (!createAvatarReqSent)
             {
                 var loginRspSent = TrySendLoginRspByAvatarId(avatarId, false, 503, "failed to send create avatar request");
@@ -315,13 +317,24 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            var managedPayload = EnsureAvatarIdInPayload(avatarId, payload);
-            if (TryQueueClientAvatarRpc(avatarId, managedPayload))
+            if (!MessageDef.AvatarRpc.TryDeserialize(payload, 0, payload?.Length ?? 0, out var clientRpc))
+            {
+                return false;
+            }
+            var managedPayload = new ServerRpcPayload
+            {
+                Version = ServerRpcPayload.CurrentVersion,
+                TargetKind = RpcTargetKind.ServerAvatarProxy,
+                EntityId = avatarId,
+                MethodId = clientRpc.MethodId,
+                ArgsPayload = clientRpc.ArgsPayload,
+            }.Serialize();
+            if (TryQueueAvatarProxyRpc(avatarId, _managedRuntimeState.ServerId, managedPayload))
             {
                 return true;
             }
 
-            return NativeAPI.SendAvatarRpcToServer(avatarAccount.GameServerId, managedPayload);
+            return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, managedPayload);
         }
 
         public bool HandleServerAvatarRpc(string sourceServerId, byte[] payload)
@@ -350,11 +363,6 @@ namespace DE.Server.NativeBridge
             {
                 DELogger.Warn(nameof(GateServerRuntimeState), $"Received invalid server RPC payload, sourceServerId={sourceServerId}.");
                 return false;
-            }
-
-            if (serverRpc.TargetKind == ServerRpcTargetKind.AvatarMigrationGate)
-            {
-                return HandleAvatarMigrationGateMessage(sourceServerId, serverRpc);
             }
 
             return HandleServerRpcRelay(sourceServerId, serverRpc, payload);
@@ -403,7 +411,7 @@ namespace DE.Server.NativeBridge
             }
 
             var payload = RpcCaller.BuildServerRpcPayload(
-                ServerRpcTargetKind.AvatarProxy,
+                RpcTargetKind.ServerAvatarProxy,
                 avatarAccount.AvatarId,
                 avatarAccount.GameServerId,
                 string.Empty,
@@ -420,9 +428,16 @@ namespace DE.Server.NativeBridge
 
         private bool HandleServerRpcRelay(string sourceServerId, ServerRpcPayload serverRpc, byte[] payload)
         {
-            if (serverRpc.TargetKind == ServerRpcTargetKind.Stub
-                || serverRpc.TargetKind == ServerRpcTargetKind.Entity
-                || serverRpc.TargetKind == ServerRpcTargetKind.AvatarMigrationGame)
+            if (serverRpc.TargetKind == RpcTargetKind.ClientAvatarProxy)
+            {
+                if (!string.IsNullOrEmpty(serverRpc.TargetServerId) && serverRpc.TargetServerId != _managedRuntimeState.ServerId)
+                {
+                    return false;
+                }
+                return HandleServerAvatarRpc(sourceServerId,
+                    RpcCaller.BuildAvatarRpcPayload(serverRpc.EntityId, serverRpc.MethodId, serverRpc.ArgsPayload));
+            }
+            if (serverRpc.TargetKind == RpcTargetKind.ServerStub || serverRpc.TargetKind == RpcTargetKind.ServerMailbox)
             {
                 if (string.IsNullOrWhiteSpace(serverRpc.TargetServerId))
                 {
@@ -436,7 +451,7 @@ namespace DE.Server.NativeBridge
                 return NativeAPI.SendServerRpcToServer(serverRpc.TargetServerId, payload);
             }
 
-            if (serverRpc.TargetKind != ServerRpcTargetKind.AvatarProxy)
+            if (serverRpc.TargetKind != RpcTargetKind.ServerAvatarProxy)
             {
                 DELogger.Warn(
                     nameof(GateServerRuntimeState),
@@ -461,24 +476,6 @@ namespace DE.Server.NativeBridge
             }
 
             return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, payload);
-        }
-
-        private static byte[] EnsureAvatarIdInPayload(Guid avatarId, byte[] payload)
-        {
-            if (payload == null)
-            {
-                return Array.Empty<byte>();
-            }
-
-            var copiedPayload = new byte[payload.Length];
-            Buffer.BlockCopy(payload, 0, copiedPayload, 0, payload.Length);
-            if (copiedPayload.Length >= 20)
-            {
-                var avatarBytes = avatarId.ToByteArray();
-                Buffer.BlockCopy(avatarBytes, 0, copiedPayload, 4, avatarBytes.Length);
-            }
-
-            return copiedPayload;
         }
 
         private static bool TryReadAvatarIdFromPayload(byte[] payload, out Guid avatarId)

@@ -1,5 +1,6 @@
 ﻿using DE.Server.NativeBridge;
 using DE.Share.Entities;
+using DE.Share.Foundation.Mathematics;
 using DE.Share.Rpc;
 
 namespace DE.Server.Entities
@@ -10,15 +11,30 @@ namespace DE.Server.Entities
         ReplacedByNewLogin = 2,
     }
 
-    public partial class AvatarEntity : ServerEntity
+    public partial class AvatarEntity : ServerEntity, ISpatialEntity
     {
         public AvatarEntity()
         {
+            Space = AddComponent(new SpaceComponent());
         }
 
         public AvatarEntity(object entityDocument) : base(entityDocument)
         {
+            Space = AddComponent(new SpaceComponent());
         }
+
+        protected override void PreInitialize()
+        {
+            base.PreInitialize();
+            CurrentSpace = null;
+            ImmigrationState = AvatarImmigrationState.Idle;
+            SpaceId = System.Guid.Empty;
+            SpaceNo = 0;
+            Position = default;
+            Rotation = Quaternion.Identity;
+        }
+
+        public SpaceComponent Space { get; }
         
         public EntityProxy Proxy { get; private set; }
 
@@ -61,12 +77,13 @@ namespace DE.Server.Entities
 
     public class AvatarComponent : EntityComponent
     {
-        public AvatarEntity OwnerAvatar { get; private set; }
+        private AvatarEntity _ownerAvatar;
+        public AvatarEntity OwnerAvatar => _ownerAvatar;
 
-        public override void Attach(Entity entity)
+        protected override void PreInitialize()
         {
-            base.Attach(entity);
-            OwnerAvatar = (AvatarEntity)entity;
+            base.PreInitialize();
+            _ownerAvatar = (AvatarEntity)OwnerEntity;
         }
     }
 }

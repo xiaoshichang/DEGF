@@ -14,6 +14,10 @@ namespace DE.Client.Entities
         protected ClientEntity(object entityDocument) : base(entityDocument)
         {
         }
+
+        public virtual void OnRemovedFromSpace()
+        {
+        }
     }
 
     

@@ -4,7 +4,7 @@ using DE.Share.Entities;
 
 namespace DE.Client.Entities
 {
-    public partial class ClientSpace : ClientEntity
+    public partial class ClientSpaceEntity : ClientEntity
     {
         [EntityProperty(EntityPropertyFlag.AllClients)]
         private int __SpaceNo;
@@ -64,8 +64,8 @@ namespace DE.Client.Entities
     {
         private static readonly Dictionary<string, Type> EntityTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         {
-            // The framework's server SpaceEntity is represented by ClientSpace on the client.
-            { "SpaceEntity", typeof(ClientSpace) },
+            // Server snapshots identify the framework Space by its server-side type name.
+            { "ServerSpaceEntity", typeof(ClientSpaceEntity) },
             { nameof(AvatarEntity), typeof(AvatarEntity) },
         };
 

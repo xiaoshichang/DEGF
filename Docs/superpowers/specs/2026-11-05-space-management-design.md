@@ -5,8 +5,8 @@
 贯通常驻 Space 创建、集群索引、Avatar 场景组件、按记录入场和客户端 Loading 入口。
 AOI 第一版使用同一 Space 内全量可见，接口允许后续替换空间查询策略。
 
-现有 SpaceStub 仅延时就绪；SpaceEntity.Enter/Leave 已维护成员；GameServerRuntimeState.Teleport
-已实现同 Game 传送和经 Gate 的跨 Game 迁移。客户端在 LoginRsp 后才构造本人 Avatar，尚无 ClientSpace 或 Loading 管理。
+现有 SpaceStub 仅延时就绪；ServerSpaceEntity.Enter/Leave 已维护成员；GameServerRuntimeState.Teleport
+已实现同 Game 传送和经 Gate 的跨 Game 迁移。客户端在 LoginRsp 后才构造本人 Avatar，尚无 ClientSpaceEntity 或 Loading 管理。
 复用现有迁移协议、属性组件和序列化机制。
 
 ## 方案选择
@@ -19,14 +19,22 @@ AOI 第一版使用同一 Space 内全量可见，接口允许后续替换空间
 
 - SpaceNo 是配置行 Id；SpaceId 是实例 Entity Guid。现有表示配置编号的 SpaceID 应统一为 SpaceNo，并调整内部引用。
 - SpaceDataRow 和 Data/Excel/SpaceData.xlsx 增加非负整数 PersistentCount；零表示不创建，负数使配置校验失败。
-- SpaceStub 按编号和实例序号生成计划，预分配实例 Guid，按有序 Game 列表轮询分配宿主。
+- SpaceStub 直接保存 SpaceEntityStubProxy，不再使用 SpaceRegistry；按 SpaceNo 和 PersistentCount 生成计划，预分配实例 Guid。
+- 代理代表 Space 在 Stub 上的对象，保存 Planned、Creating、Created、Failed 创建状态和失败原因，以及人数统计。
+- ISpaceCreationStrategy 选择宿主 Game，默认 RoundRobinSpaceCreationStrategy 按有序 Game 列表轮询分配；与入场分配策略独立。
 - 保存 SpaceId、SpaceNo、EntityMailBox 和创建状态，并建立编号索引。
 - 宿主使用发现的 SpaceType 构造和注册 Space，返回确认；跨 Game 消息经 Gate 转发。
-- 同一实例的重复创建幂等处理，编号或实体类型冲突明确失败。发送失败和确认超时使用同一 Guid 有限重试。
-- 全部实例确认后调用 OnReady，替换固定延时；空计划直接就绪，最终失败保持未就绪并记录原因。
+- InitStub 在规划完成后同步遍历全部代理，一次性发出所有 Remote Create 请求，不使用 CreatePendingSpaces、轮询或重试定时器。
+- 发送前设为 Creating，收到创建完成报告后设为 Created；发送或本地处理失败、发起请求抛异常时设为 Failed，并继续发出其他请求。
+- 同一实例的重复创建幂等处理，编号或实体类型冲突明确失败；远程请求发出后保持 Creating，直到收到创建完成报告。
+- 全部请求发出且全部实例确认后调用 OnReady；空计划直接就绪，创建失败或尚未确认时保持未就绪。
 - 创建使用通用 CreateEntity SystemCommand，携带实体类型和构造参数。Game 只负责通用构造、初始化和注册。
-- Space 注册完成后通过 ServerStubCaller 向 SpaceStub.ReportSpace 上报自身 Mailbox、场景编号和负载，并周期性重复上报。
-- 分配请求调用 Stub RPC，结果通过 Avatar Mailbox RPC 返回；Stub 可通过保存的 Space Mailbox 调用 ReportLoad。
+- Space 完成初始化和注册后，通过 ServerStubCaller 向 SpaceStub.ReportSpaceCreated 报告自身 Mailbox 和场景编号。
+- 重复的创建命令复用已有实例并重发创建确认，不重复启动统计定时器；创建确认与人数统计分别处理。
+- Space 创建完成时上报一次统计，之后每 60 秒向 SpaceStub.ReportSpaceStat 上报 UTC Unix 毫秒时间和当前人数，不维护版本戳。
+- Stub 只接受已确认实例的统计，校验编号和宿主，忽略时间早于已保存报告的统计；成员变化不再立即上报。
+- SpaceStub 主文件保留 InitStub 等生命周期和分配入口，Init、Stat 两个 partial 子文件分别处理启动流程和负载统计。
+- 分配请求调用 Stub RPC，结果通过 Avatar Mailbox RPC 返回。
 - 不再使用 SpaceManagement 系统命令或 GameServerRuntimeState.Space 专用协议、计时器与分发逻辑。
 - 运行时清理释放定时器和索引。本次不增加节点故障自动补建或动态扩缩容。
 
@@ -85,7 +93,7 @@ SpaceStub 负责候选筛选及返回结果校验；策略不能返回其他编�
 
 同一分配请求的重复处理复用已选结果，不因消息重试重新随机；新分配请求才重新执行策略。
 已有有效 SpaceId 的恢复直接返回原实例，不经过随机选择。
-这里的实例分配与启动时选择 Space 宿主 Game 是两个职责；宿主放置暂沿用前述轮询方案。
+这里的实例分配与启动时选择 Space 宿主 Game 是两个职责；宿主放置通过创建策略选择，默认轮询。
 
 登录恢复使用上述两个入口：
 
@@ -107,7 +115,7 @@ Space 在构造时挂载 SpaceAoiComponent，提供实体进入、退出和指�
 本人入场 RPC 包含：
 
 - SpaceNo，用于选择静态资源。
-- Space Entity 广播快照，用于构造 ClientSpace。
+- Space Entity 广播快照，用于构造 ClientSpaceEntity。
 - 可见实体快照列表，每项包含 EntityId、实体实际类名和广播数据。
 
 调整身份和场景组件的广播属性，确保客户端能重建，同时不泄露 ServerOnly 属性。
@@ -118,13 +126,13 @@ Space 在构造时挂载 SpaceAoiComponent，提供实体进入、退出和指�
 
 ## 客户端 Loading
 
-新增 ClientSpace 和场景上下文，保存编号、Space Entity 和可见实体字典。
+新增 ClientSpaceEntity 和场景上下文，保存编号、Space Entity 和可见实体字典。
 类型工厂按实体实际类名创建客户端实体，再应用广播快照；Demo 注册 DemoSpace 与 DemoAvatar 类型，由类型本身确定名称。
-不维护独立的客户端类型标识或实体虚属性。框架的 SpaceEntity 在客户端对应 ClientSpace。
+不维护独立的客户端类型标识或实体虚属性。框架的 ServerSpaceEntity 在客户端对应 ClientSpaceEntity。
 
 Avatar 入场 RPC 校验数据后触发 Loading 请求，上下文包含三类入场数据和本人场景组件。
 提供开始、完成、失败接口或事件，由业务加载器按 SpaceNo 加载静态资源。
-加载完成后提交新 ClientSpace 并释放旧上下文；加载期间按序缓存出现/消失通知。
+加载完成后提交新 ClientSpaceEntity 并释放旧上下文；加载期间按序缓存出现/消失通知。
 每次 Loading 使用序号，防止过期异步回调覆盖新场景。
 Demo 接入该入口；当前表未定义静态资源路径，框架不硬编码 Unity 场景文件名。
 
@@ -132,7 +140,7 @@ Demo 接入该入口；当前表未定义静态资源路径，框架不硬编码
 
 遵循用户补充要求，本次不新增测试用例；使用现有测试、构建及代码检查验证，并明确未实测的部分。
 
-- 配置新列、零值和负值；多编号多 Game 数量和分布；确认后就绪、重复请求和超时。
+- 配置新列、零值和负值；多编号多 Game 数量和分布；全部请求同步发起、发送失败后继续、确认后就绪和重复确认。
 - Entity 根属性的持久化、迁移和双类客户端序列化；退出保留记录，迁移回滚恢复变换。
 - 两类 Avatar 请求：按编号调用策略、按 Id 精确查询且不调用策略；指定 Id 失效不自动改选；仅记录编号及新角色使用按编号入口。
 - 负载描述上报和传入策略；默认随机策略可替换为基于负载的策略，不改变 Avatar 请求及传送流程。

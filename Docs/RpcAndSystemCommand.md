@@ -57,7 +57,6 @@ Arguments use System.Text.Json with IncludeFields enabled, including DTO structs
 Live component instances should be composed on the target; they are not remote constructor data.
 
 The target constructs the entity, runs InitializeEntity and registers it with a valid Mailbox.
-ServerEntity.OnRegistered runs only after these steps; OnUnregistered allows entity-owned timer cleanup.
 Identical retried commands reuse the original entity; a conflicting request for an occupied Guid is rejected.
 Creation failure is logged on the target. The owning service determines readiness through the entity's own RPC report and timeout policy.
 
@@ -68,13 +67,30 @@ RemoteEntityCaller.Create(gameId, runtime.SpaceType, spaceId,
     new SpaceInitializer { SpaceNo = spaceNo });
 ```
 
-SpaceEntity.OnRegistered reports its own Mailbox, scene number and load through ServerStubCaller to SpaceStub.ReportSpace.
-SpaceStub confirms the planned identity/host and stores the reported Mailbox. Periodic entity-owned reports recover lost registration/load messages.
-It can request a fresh load report through the stored address:
+SpaceStub directly owns the instance records; there is no separate SpaceRegistry.
+Its main file keeps InitStub and allocation entry points, SpaceStub.Init.cs handles planning, remote creation and creation confirmations,
+and SpaceStub.Stat.cs handles player statistics.
+InitStub plans PersistentCount instances per SpaceNo, then sends CreateEntity commands to hosts selected by ISpaceCreationStrategy.
+The default RoundRobinSpaceCreationStrategy distributes instances across the ordered Game list.
+Host selection is separate from ISpaceAllocationStrategy, which chooses an existing instance for an Avatar.
 
-```csharp
-ServerMailboxCaller.Call(instance.MailBox, nameof(SpaceEntity.ReportLoad));
-```
+After initialization and registration, GameServerRuntimeState explicitly completes Space creation.
+ServerSpaceEntity starts its statistics timer and calls SpaceStub.ReportSpaceCreated with its Mailbox and SpaceNo.
+SpaceEntityStubProxy represents each Space on the Stub and records Planned, Creating, Created or Failed, plus a creation error.
+After planning all proxies, InitStub synchronously issues every creation request in one loop, without a pending-creation timer or retries.
+It marks each proxy Creating before sending, so local creation can confirm inline; send/handling failures and exceptions mark only that proxy Failed.
+One failure does not prevent requests for the other proxies. Readiness is checked after the loop and on subsequent confirmations.
+SpaceStub.State tracks Uninitialized, Initializing, WaitingForSpaceCreation, Ready, Failed and Shutdown.
+Inline local confirmations update proxies during Initializing; only WaitingForSpaceCreation can advance to Ready.
+After all requests are issued, a failed proxy leaves the Stub Failed; otherwise it waits for completion reports.
+Only creation confirmations mark proxies Created; the Stub calls OnReady after all proxies are Created.
+Remote creation remains asynchronous: a sent request stays Creating until its completion report arrives.
+An identical repeated CreateEntity command still resends the confirmation and reuses the existing timer and entity.
+
+ServerSpaceEntity sends an initial statistic and repeats every 60 seconds through SpaceStub.ReportSpaceStat.
+Reports carry Mailbox, SpaceNo, UTC Unix milliseconds and current player count. SpaceEntityStubProxy stores PlayerCount and ReportTimeMilliseconds.
+The Stub validates the planned identity and host, ignores reports older than the stored report time, and never uses a revision counter.
+Membership changes no longer trigger immediate reports. Node shutdown or Space removal cancels its statistics timer.
 
 Avatar allocation requests use SpaceStub.RequestSpaceByNo/RequestSpaceById RPCs; the reply invokes AvatarEntity.OnSpaceResolved through its Mailbox.
 Space allocation and reporting do not use SystemCommand, and GameServerRuntimeState has no Space management partial or protocol.

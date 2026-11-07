@@ -1,6 +1,6 @@
 # AvatarEntity Migration Design
 
-本文档描述 DEGF 中 `AvatarEntity` 从一个 Game 节点迁移到另一个 Game 节点，并在迁移完成后进入目标 `SpaceEntity` 的方案。文档中的“源 Game”表示迁移开始时承载 Avatar 的 Game，“目标 Game”表示目标 Space 所在的 Game，“OwnerGate”表示 Avatar 的 `EntityProxy.BindingGate` 指向的 Gate。
+本文档描述 DEGF 中 `AvatarEntity` 从一个 Game 节点迁移到另一个 Game 节点，并在迁移完成后进入目标 `ServerSpaceEntity` 的方案。文档中的“源 Game”表示迁移开始时承载 Avatar 的 Game，“目标 Game”表示目标 Space 所在的 Game，“OwnerGate”表示 Avatar 的 `EntityProxy.BindingGate` 指向的 Gate。
 
 ## 设计结论
 
@@ -54,11 +54,11 @@ space.Leave(avatar);
 IReadOnlyDictionary<Guid, AvatarEntity> avatars = space.Avatars;
 ```
 
-进入和退出成功后分别调用 Avatar 的 `OnEnterSpace(SpaceEntity)` 与 `OnLeaveSpace(SpaceEntity)` 虚方法。`SpaceEntity.Enter` 不会隐式退出旧 Space；Avatar 尚未离开旧 Space，或者重复进入同一个 Space 时，操作会记录 `Error` 并返回失败。
+进入和退出成功后分别调用 Avatar 的 `OnEnterSpace(ServerSpaceEntity)` 与 `OnLeaveSpace(ServerSpaceEntity)` 虚方法。`ServerSpaceEntity.Enter` 不会隐式退出旧 Space；Avatar 尚未离开旧 Space，或者重复进入同一个 Space 时，操作会记录 `Error` 并返回失败。
 
 约束：
 
-- `targetSpace` 必须有效，且实体 ID 是目标 Game 上已注册的 `SpaceEntity`。
+- `targetSpace` 必须有效，且实体 ID 是目标 Game 上已注册的 `ServerSpaceEntity`。
 - Avatar 必须是当前 `GameServerRuntimeState` 中注册的同一对象实例。
 - 本地传送不要求 Avatar 具有 Mailbox 或 Proxy；跨 Game 迁移要求 Avatar 具有有效的 Proxy，以便 OwnerGate 冻结和切换路由。
 - 本地传送在 `Enter` 完成后返回 `true`，此时 Avatar 已进入目标 Space。
@@ -185,7 +185,7 @@ Gate 创建迁移队列后返回 `RouteFrozen`。同一个 `MigrationId` 的重�
 - 快照可反序列化。
 - 快照中的 Avatar Guid 与协议 `AvatarId` 一致。
 - 本地不存在同 Guid 的活动 Avatar。
-- `TargetSpaceId` 对应本地已注册的 `SpaceEntity`。
+- `TargetSpaceId` 对应本地已注册的 `ServerSpaceEntity`。
 - OwnerGate 信息有效。
 
 验证通过后返回 `TargetPrepared`。
@@ -197,7 +197,7 @@ Gate 创建迁移队列后返回 `RouteFrozen`。同一个 `MigrationId` 的重�
 1. 再次确认目标 Space 仍存在。
 2. 把候选 Avatar 注册到本地 `Entities` 和 `Avatars`。
 3. 绑定迁移前相同的 OwnerGate Proxy。
-4. 调用目标 Space 的 `Enter`，加入 `SpaceEntity.Avatars`、更新 `CurrentSpace` 并触发 `OnEnterSpace`。
+4. 调用目标 Space 的 `Enter`，加入 `ServerSpaceEntity.Avatars`、更新 `CurrentSpace` 并触发 `OnEnterSpace`。
 5. 返回 `TargetActivated`。
 
 进入 Space 期间发往 Client 的 RPC 会到达 OwnerGate；此时 Gate 仍处于冻结状态，因此这些 RPC 会进入缓存，不会提前暴露未提交的目标状态。
@@ -257,7 +257,7 @@ OwnerGate 在冻结期间使用一个统一 FIFO 队列记录以下消息：
 入场成功加入成员表后设置该引用，离场成功移除成员后立即置空，再执行 AOI 通知和 OnLeaveSpace 回调。
 `SpaceId` 是持久化的最后场景记录，退出时仍保留。客户端完成 Avatar 创建后通过 `OnSpaceClientReady` 触发入场或重发当前场景快照，
 不保存或迁移客户端就绪标志。迁移完成后由目标场景发送入场快照。
-`SpaceEntity` 使用 `IReadOnlyDictionary<Guid, AvatarEntity> Avatars` 暴露本地成员，不序列化集合。
+`ServerSpaceEntity` 使用 `IReadOnlyDictionary<Guid, AvatarEntity> Avatars` 暴露本地成员，不序列化集合。
 
 - 本地传送：由 `GameServerRuntimeState.Teleport` 显式调用旧 Space 的 `Leave`，成功后再调用新 Space 的 `Enter`，依次触发 `OnLeaveSpace`、`OnEnterSpace`。
 - 跨 Game 迁移：路由冻结后源 Avatar 退出旧 Space，目标激活时进入目标 Space。
@@ -268,7 +268,7 @@ OwnerGate 在冻结期间使用一个统一 FIFO 队列记录以下消息：
 
 ## 实体注册生命周期
 
-`ServerEntity`、`AvatarEntity`、`NpcEntity` 和 `SpaceEntity` 的构造函数只组装组件和保留输入，不调用虚方法或自动注册。
+`ServerEntity`、`AvatarEntity`、`NpcEntity` 和 `ServerSpaceEntity` 的构造函数只组装组件和保留输入，不调用虚方法或自动注册。
 创建方先调用 `InitializeEntity`：实体 `PreInitialize` 设置默认属性，恢复快照后由实体 `Initialize` 执行组件三阶段，
 再执行实体 `PostInitialize`。组件不声明 EntityProperty，所有同步字段由 Entity 持有。完成初始化后统一调用：
 

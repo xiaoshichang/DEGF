@@ -1,5 +1,5 @@
 ﻿using System;
-using DE.Server.NativeBridge;
+using DE.Server.Stubs;
 using DE.Share.Data;
 using DE.Share.DataFramework;
 using DE.Share.Entities;
@@ -12,9 +12,9 @@ namespace DE.Server.Entities
         public SpaceAoiComponent AoiComponent;
     }
     
-    public partial class SpaceEntity : ServerEntity
+    public partial class ServerSpaceEntity : ServerEntity
     {
-        public SpaceEntity(SpaceInitializer initializer)
+        public ServerSpaceEntity(SpaceInitializer initializer)
         {
             _initializer = initializer;
             Aoi = AddComponent(initializer.AoiComponent ?? new SpaceAoiComponent());
@@ -27,24 +27,19 @@ namespace DE.Server.Entities
             _dataRow = DataRuntime.GetTable<SpaceDataTable>().GetRow(DataTableKey.FromInt32(SpaceNo));
         }
 
-        protected internal override void OnRegistered()
+        internal void CompleteCreation()
         {
-            base.OnRegistered();
-            _loadTimer = DETimer.AddTimer(5000, ReportLoad, true);
-            ReportLoad();
+            StartStatistics();
+            ServerStubCaller.Call(nameof(SpaceStub), nameof(SpaceStub.ReportSpaceCreated), MailBox, SpaceNo);
+            ReportStatistics();
         }
 
-        protected internal override void OnUnregistered()
+        internal void Shutdown()
         {
-            if (_loadTimer != 0)
-            {
-                DETimer.CancelTimer(_loadTimer);
-                _loadTimer = 0;
-            }
-            base.OnUnregistered();
+            StopStatistics();
         }
 
-        public SpaceEntity(object entityDocument) : base(entityDocument)
+        public ServerSpaceEntity(object entityDocument) : base(entityDocument)
         {
             throw new NotSupportedException();
         }
@@ -60,6 +55,5 @@ namespace DE.Server.Entities
         public int MaxPlayers => _dataRow.MaxPlayers;
         private readonly SpaceInitializer _initializer;
         private SpaceDataRow _dataRow;
-        private ulong _loadTimer;
     }
 }

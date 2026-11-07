@@ -60,7 +60,7 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            if (targetEntity is not SpaceEntity targetSpace)
+            if (targetEntity is not ServerSpaceEntity targetSpace)
             {
                 DELogger.Error(nameof(GameServerRuntimeState), $"Local Avatar teleport rejected because target Entity is not a Space, avatarId={avatar.Guid}, targetSpaceId={space.EntityId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                 return false;

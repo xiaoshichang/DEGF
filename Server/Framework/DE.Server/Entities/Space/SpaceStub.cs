@@ -3,117 +3,47 @@ using System.Collections.Generic;
 using System.Linq;
 using DE.Server.Entities;
 using DE.Server.NativeBridge;
-using DE.Share.Data;
-using DE.Share.DataFramework;
 using DE.Share.Rpc;
 
 namespace DE.Server.Stubs
 {
+    public enum SpaceStubState
+    {
+        Uninitialized,
+        Initializing,
+        WaitingForSpaceCreation,
+        Ready,
+        Failed,
+        Shutdown,
+    }
+
     public partial class SpaceStub : ServerStubEntity
     {
-        private readonly Dictionary<Guid, int> _attempts = new();
-        private readonly Dictionary<Guid, CachedAllocation> _allocations = new();
-        private ulong _retryTimer;
-        private bool _stopped;
-        private bool _failed;
-        public SpaceRegistry Registry { get; private set; }
+        private readonly Dictionary<Guid, SpaceEntityStubProxy> _spaceProxiesById = new();
+        private readonly Dictionary<int, ISpaceAllocationStrategy> _allocationStrategiesBySpaceNo = new();
+        private readonly Dictionary<Guid, CachedSpaceAllocationResult> _allocationResultsByRequestId = new();
+        public SpaceStubState State { get; private set; } = SpaceStubState.Uninitialized;
+        public IReadOnlyCollection<SpaceEntityStubProxy> Spaces => _spaceProxiesById.Values;
+        public bool AreSpacesReady => _spaceProxiesById.Values.All(spaceProxy => spaceProxy.IsReady);
+        public ISpaceCreationStrategy CreationStrategy { get; set; } = new RoundRobinSpaceCreationStrategy();
+        public ISpaceAllocationStrategy DefaultAllocationStrategy { get; set; } = new RandomSpaceAllocationStrategy();
 
-        protected override void PreInitialize()
+        public void SetAllocationStrategy(int spaceNo, ISpaceAllocationStrategy strategy)
         {
-            base.PreInitialize();
-            Registry = new SpaceRegistry();
+            _allocationStrategiesBySpaceNo[spaceNo] = strategy ?? throw new ArgumentNullException(nameof(strategy));
         }
 
-        protected internal override void OnUnregistered()
+        public SpaceEntityStubProxy FindSpace(Guid spaceId)
         {
-            Shutdown();
-            base.OnUnregistered();
+            return _spaceProxiesById.TryGetValue(spaceId, out var spaceProxy) && spaceProxy.IsReady ? spaceProxy : null;
         }
 
-        public override void InitStub()
+        private SpaceEntityStubProxy AllocateSpace(int spaceNo, Guid avatarId)
         {
-            var games = ManagedRuntimeState.RequireCurrent().GetGameServerIds();
-            var rows = DataRuntime.GetTable<SpaceDataTable>().GetRows().OrderBy(row => row.Id.AsInt32()).ToArray();
-            if (rows.Any(row => row.PersistentCount < 0 || row.MaxPlayers < 0))
-            {
-                throw new InvalidOperationException("Space PersistentCount and MaxPlayers must be nonnegative.");
-            }
-            int hostIndex = 0;
-            foreach (var row in rows)
-            {
-                for (int index = 0; index < row.PersistentCount; index++)
-                {
-                    if (games.Count == 0)
-                    {
-                        throw new InvalidOperationException("No Game is available for persistent Spaces.");
-                    }
-                    var instance = Registry.Plan(row.Id.AsInt32(), games[hostIndex++ % games.Count], row.MaxPlayers);
-                    _attempts.Add(instance.SpaceId, 0);
-                }
-            }
-            if (Registry.IsReady)
-            {
-                OnReady();
-                return;
-            }
-            _retryTimer = DETimer.AddTimer(5000, SendPendingCreates, true);
-            SendPendingCreates();
-        }
-
-        private void SendPendingCreates()
-        {
-            if (_stopped || _failed)
-            {
-                return;
-            }
-            foreach (var instance in Registry.Instances.ToArray())
-            {
-                if (instance.IsReady)
-                {
-                    continue;
-                }
-                if (_attempts[instance.SpaceId] >= 3)
-                {
-                    _failed = true;
-                    StopTimer();
-                    DELogger.Error(nameof(SpaceStub), $"Persistent Space timed out, spaceNo={instance.SpaceNo}, spaceId={instance.SpaceId}.");
-                    return;
-                }
-                _attempts[instance.SpaceId]++;
-                var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
-                RemoteEntityCaller.Create(instance.MailBox.BindingGame, runtime.SpaceType, instance.SpaceId,
-                    new SpaceInitializer { SpaceNo = instance.SpaceNo });
-            }
-        }
-
-        [ServerRpc]
-        public void ReportSpace(EntityMailBox mailbox, int spaceNo, int avatarCount, ulong revision)
-        {
-            if (_stopped || _failed || !mailbox.IsValid || avatarCount < 0)
-            {
-                return;
-            }
-            var instance = Registry.Instances.FirstOrDefault(item => item.SpaceId == mailbox.EntityId);
-            if (instance == null || instance.SpaceNo != spaceNo || instance.MailBox.BindingGame != mailbox.BindingGame)
-            {
-                return;
-            }
-            bool wasReady = instance.IsReady;
-            if (!Registry.Confirm(mailbox, spaceNo))
-            {
-                return;
-            }
-            Registry.ReportLoad(mailbox.EntityId, mailbox.BindingGame, avatarCount, revision);
-            if (!wasReady)
-            {
-                DELogger.Info(nameof(SpaceStub),
-                    $"Persistent Space ready, spaceNo={spaceNo}, spaceId={mailbox.EntityId}, game={mailbox.BindingGame}.");
-                if (Registry.IsReady)
-                {
-                    StopTimer();
-                    OnReady();
-                }
-            }
+            var candidates = _spaceProxiesById.Values.Where(item => item.SpaceNo == spaceNo && item.IsReady && item.HasCapacity).ToList();
+            var strategy = _allocationStrategiesBySpaceNo.TryGetValue(spaceNo, out var configured) ? configured : DefaultAllocationStrategy;
+            var selected = strategy.Select(spaceNo, avatarId, candidates.AsReadOnly());
+            return selected != null && candidates.Contains(selected) ? selected : null;
         }
 
         [ServerRpc]
@@ -135,35 +65,42 @@ namespace DE.Server.Stubs
             {
                 return;
             }
-            if (_stopped || _failed || !Registry.IsReady)
+            if (State == SpaceStubState.Shutdown)
             {
+                DELogger.Error(nameof(SpaceStub), $"Space allocation rejected because the Stub is stopped, requestId={requestId}.");
                 SendResolution(requestId, avatarMailbox, null, "Space service is not ready");
                 return;
             }
-            foreach (var key in _allocations.Where(pair => pair.Value.ExpiresAt <= DateTime.UtcNow).Select(pair => pair.Key).ToArray())
+            if (State != SpaceStubState.Ready)
             {
-                _allocations.Remove(key);
+                DELogger.Error(nameof(SpaceStub), $"Space allocation rejected because the Stub is not ready, requestId={requestId}, state={State}.");
+                SendResolution(requestId, avatarMailbox, null, "Space service is not ready");
+                return;
             }
-            if (_allocations.TryGetValue(requestId, out var cached))
+            foreach (var key in _allocationResultsByRequestId.Where(pair => pair.Value.ExpiresAt <= DateTime.UtcNow).Select(pair => pair.Key).ToArray())
+            {
+                _allocationResultsByRequestId.Remove(key);
+            }
+            if (_allocationResultsByRequestId.TryGetValue(requestId, out var cached))
             {
                 if (cached.AvatarMailbox.EntityId != avatarMailbox.EntityId || cached.AvatarMailbox.BindingGame != avatarMailbox.BindingGame
                     || cached.SpaceNo != spaceNo || cached.SpaceId != spaceId || cached.ById != byId)
                 {
                     return;
                 }
-                SendResolution(requestId, avatarMailbox, cached.Instance, cached.Error);
+                SendResolution(requestId, avatarMailbox, cached.SpaceProxy, cached.Error);
                 return;
             }
-            if (_allocations.Count >= 16384)
+            if (_allocationResultsByRequestId.Count >= 16384)
             {
                 SendResolution(requestId, avatarMailbox, null, "Space allocation request limit reached");
                 return;
             }
-            SpaceInstance selected = null;
+            SpaceEntityStubProxy selected = null;
             string error = string.Empty;
             try
             {
-                selected = byId ? Registry.Find(spaceId) : Registry.Allocate(spaceNo, avatarMailbox.EntityId);
+                selected = byId ? FindSpace(spaceId) : AllocateSpace(spaceNo, avatarMailbox.EntityId);
                 if (selected == null)
                 {
                     error = "Requested Space is unavailable";
@@ -174,48 +111,39 @@ namespace DE.Server.Stubs
                 error = "Space allocation strategy failed";
                 DELogger.Error(nameof(SpaceStub), exception.ToString());
             }
-            _allocations.Add(requestId, new CachedAllocation
+            _allocationResultsByRequestId.Add(requestId, new CachedSpaceAllocationResult
             {
                 AvatarMailbox = avatarMailbox,
                 SpaceNo = spaceNo,
                 SpaceId = spaceId,
                 ById = byId,
-                Instance = selected,
+                SpaceProxy = selected,
                 Error = error,
                 ExpiresAt = DateTime.UtcNow.AddMinutes(2),
             });
             SendResolution(requestId, avatarMailbox, selected, error);
         }
 
-        private void SendResolution(Guid requestId, EntityMailBox avatarMailbox, SpaceInstance instance, string error)
+        private void SendResolution(Guid requestId, EntityMailBox avatarMailbox, SpaceEntityStubProxy spaceProxy, string error)
         {
             ServerMailboxCaller.Call(avatarMailbox, nameof(AvatarEntity.OnSpaceResolved), requestId,
-                instance?.MailBox ?? default(EntityMailBox), instance?.SpaceNo ?? 0, error);
+                spaceProxy?.MailBox ?? default(EntityMailBox), spaceProxy?.SpaceNo ?? 0, error);
         }
 
         internal void Shutdown()
         {
-            _stopped = true;
-            StopTimer();
-            _allocations.Clear();
+            State = SpaceStubState.Shutdown;
+            _allocationResultsByRequestId.Clear();
+            _spaceProxiesById.Clear();
         }
 
-        private void StopTimer()
-        {
-            if (_retryTimer != 0)
-            {
-                DETimer.CancelTimer(_retryTimer);
-                _retryTimer = 0;
-            }
-        }
-
-        private sealed class CachedAllocation
+        private sealed class CachedSpaceAllocationResult
         {
             public EntityMailBox AvatarMailbox;
             public Guid SpaceId;
             public int SpaceNo;
             public bool ById;
-            public SpaceInstance Instance;
+            public SpaceEntityStubProxy SpaceProxy;
             public string Error;
             public DateTime ExpiresAt;
         }

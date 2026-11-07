@@ -186,9 +186,9 @@ namespace DE.Server.NativeBridge
                 }
             }
 
-            if (removed)
+            if (removed && entity is ServerSpaceEntity space)
             {
-                entity.OnUnregistered();
+                space.Shutdown();
             }
             return removed;
         }
@@ -263,7 +263,7 @@ namespace DE.Server.NativeBridge
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization because the Space does not exist, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
                     }
-                    else if (frozenSourceEntity is not SpaceEntity frozenSourceSpace)
+                    else if (frozenSourceEntity is not ServerSpaceEntity frozenSourceSpace)
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization because the Entity is not a Space, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}, sourceEntityType={frozenSourceEntity?.GetType().FullName ?? "<null>"}.");
                     }
@@ -438,7 +438,7 @@ namespace DE.Server.NativeBridge
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar after immigration rollback because source Space does not exist, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
                     }
-                    else if (rollbackSourceEntity is not SpaceEntity rollbackSourceSpace)
+                    else if (rollbackSourceEntity is not ServerSpaceEntity rollbackSourceSpace)
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar after immigration rollback because source Entity is not a Space, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}, sourceEntityType={rollbackSourceEntity?.GetType().FullName ?? "<null>"}.");
                     }
@@ -530,7 +530,7 @@ namespace DE.Server.NativeBridge
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "target Space does not exist on target Game");
             }
 
-            if (targetEntity is not SpaceEntity)
+            if (targetEntity is not ServerSpaceEntity)
             {
                 DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because target Entity is not a Space, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "target entity is not a Space");
@@ -675,7 +675,7 @@ namespace DE.Server.NativeBridge
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "target Space does not exist");
                 }
 
-                if (targetEntity is not SpaceEntity targetSpace)
+                if (targetEntity is not ServerSpaceEntity targetSpace)
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to activate target Avatar because target Entity is not a Space, avatarId={avatar.Guid}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                     UnregisterLocalEntity(avatar);
@@ -705,7 +705,7 @@ namespace DE.Server.NativeBridge
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to clean up target Avatar after activation exception because target Space does not exist, avatarId={avatar.Guid}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}.");
                 }
-                else if (targetEntity is not SpaceEntity targetSpace)
+                else if (targetEntity is not ServerSpaceEntity targetSpace)
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to clean up target Avatar after activation exception because target Entity is not a Space, avatarId={avatar.Guid}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                 }
@@ -783,7 +783,7 @@ namespace DE.Server.NativeBridge
             _lastAbortedTargetAvatarMigrations.Remove(request.AvatarId);
             _targetAvatarMigrations.Remove(request.MigrationId);
 
-            if (Entities.TryGetValue(request.TargetSpaceId, out var enteredEntity) && enteredEntity is SpaceEntity enteredSpace)
+            if (Entities.TryGetValue(request.TargetSpaceId, out var enteredEntity) && enteredEntity is ServerSpaceEntity enteredSpace)
             {
                 enteredSpace.CompleteAvatarEntry(context.Avatar);
             }
@@ -851,7 +851,7 @@ namespace DE.Server.NativeBridge
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to remove aborted target Avatar from Space because target Space does not exist, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}.");
                 }
-                else if (targetEntity is not SpaceEntity targetSpace)
+                else if (targetEntity is not ServerSpaceEntity targetSpace)
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to remove aborted target Avatar from Space because target Entity is not a Space, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                 }

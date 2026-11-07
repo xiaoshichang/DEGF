@@ -661,38 +661,30 @@ namespace DE.Server.NativeBridge
 
         private void UninitializeCore()
         {
-            try
-            {
-                GmCommandRuntimeState?.Uninitialize();
-                GateServerRuntimeState?.Uninitialize();
-                GameServerRuntimeState?.Uninitialize();
-            }
-            finally
-            {
-                DatabaseService = null;
-                try
-                {
-                    _UnregisterUnhandledExceptionHandlers();
-                    _UnregisterManagedAssemblyResolver();
-                    DataRuntime.Shutdown();
-                }
-                finally
-                {
-                    GmCommandRuntimeState = null;
-                    GateServerRuntimeState = null;
-                    GameServerRuntimeState = null;
-                    ClusterConfig = null;
-                    StubDistributeTable = new ServerStubDistributeTable();
-                    StubTypes = new List<Type>();
-                    GameplayAssembly = null;
-                    _preloadedAssemblies.Clear();
-                    ServerType = ManagedRuntimeServerType.Unknown;
-                    ServerId = string.Empty;
-                    ConfigPath = string.Empty;
-                    FrameworkDllPath = string.Empty;
-                    GameplayDllPath = string.Empty;
-                }
-            }
+            GmCommandRuntimeState?.Uninitialize();
+            GateServerRuntimeState?.Uninitialize();
+            GameServerRuntimeState?.Uninitialize();
+            GmCommandRuntimeState = null;
+            GateServerRuntimeState = null;
+            GameServerRuntimeState = null;
+
+            StubDistributeTable = new ServerStubDistributeTable();
+            StubTypes = new List<Type>();
+
+            DataRuntime.Shutdown();
+            DatabaseService = null;
+
+            GameplayAssembly = null;
+            _preloadedAssemblies.Clear();
+            _UnregisterManagedAssemblyResolver();
+            ClusterConfig = null;
+
+            _UnregisterUnhandledExceptionHandlers();
+            ServerType = ManagedRuntimeServerType.Unknown;
+            ServerId = string.Empty;
+            ConfigPath = string.Empty;
+            FrameworkDllPath = string.Empty;
+            GameplayDllPath = string.Empty;
         }
 
         private static string _RequireNonEmpty(string value, string name)

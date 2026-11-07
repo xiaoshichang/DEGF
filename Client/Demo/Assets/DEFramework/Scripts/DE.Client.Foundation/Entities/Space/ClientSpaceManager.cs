@@ -7,7 +7,7 @@ namespace DE.Client.Entities
     {
         private readonly ClientSpaceManager _manager;
 
-        internal SpaceLoadingContext(ClientSpaceManager manager, long sequence, SpaceEnterSnapshot snapshot, ClientSpace space)
+        internal SpaceLoadingContext(ClientSpaceManager manager, long sequence, SpaceEnterSnapshot snapshot, ClientSpaceEntity space)
         {
             _manager = manager;
             Sequence = sequence;
@@ -17,7 +17,7 @@ namespace DE.Client.Entities
 
         public long Sequence { get; }
         public SpaceEnterSnapshot Snapshot { get; }
-        public ClientSpace Space { get; }
+        public ClientSpaceEntity Space { get; }
         public int SpaceNo => Snapshot.SpaceNo;
         public bool IsCurrent => ReferenceEquals(_manager.Pending, this);
 
@@ -45,26 +45,26 @@ namespace DE.Client.Entities
             _owner = owner ?? throw new ArgumentNullException(nameof(owner));
         }
 
-        public ClientSpace Current { get; private set; }
+        public ClientSpaceEntity Current { get; private set; }
         public SpaceLoadingContext Pending { get; private set; }
         public Action<SpaceLoadingContext> Load { get; set; }
         public event Action<SpaceLoadingContext> LoadingStarted;
-        public event Action<ClientSpace> LoadingCompleted;
+        public event Action<ClientSpaceEntity> LoadingCompleted;
         public event Action<string> LoadingFailed;
         public event Action<string> EntryFailed;
 
         public void NotifyEntryFailed(string error)
         {
             // An unsuccessful new request must not cancel resource loading for the restored source Space.
-            ClientSpace.InvokeSafely(EntryFailed, error);
+            ClientSpaceEntity.InvokeSafely(EntryFailed, error);
         }
 
         public void BeginLoading(SpaceEnterSnapshot snapshot)
         {
-            ClientSpace staged = null;
+            ClientSpaceEntity staged = null;
             try
             {
-                staged = ClientEntityFactory.Create(snapshot.Space) as ClientSpace;
+                staged = ClientEntityFactory.Create(snapshot.Space) as ClientSpaceEntity;
                 if (staged == null || staged.SpaceNo != snapshot.SpaceNo)
                 {
                     throw new InvalidOperationException("Space entity type or number does not match the entry snapshot.");
@@ -88,7 +88,7 @@ namespace DE.Client.Entities
                 Pending = new SpaceLoadingContext(this, ++_sequence, snapshot, staged);
                 previous?.Space.Release();
                 var context = Pending;
-                ClientSpace.InvokeSafely(LoadingStarted, context);
+                ClientSpaceEntity.InvokeSafely(LoadingStarted, context);
                 if (!context.IsCurrent)
                 {
                     return;
@@ -109,7 +109,7 @@ namespace DE.Client.Entities
                 else if (Current != staged)
                 {
                     staged?.Release();
-                    ClientSpace.InvokeSafely(LoadingFailed, error.Message);
+                    ClientSpaceEntity.InvokeSafely(LoadingFailed, error.Message);
                 }
                 else
                 {
@@ -137,7 +137,7 @@ namespace DE.Client.Entities
             Current = context.Space;
             Pending = null;
             previous?.Release();
-            ClientSpace.InvokeSafely(LoadingCompleted, Current);
+            ClientSpaceEntity.InvokeSafely(LoadingCompleted, Current);
             return true;
         }
 
@@ -156,7 +156,7 @@ namespace DE.Client.Entities
             FindContext(spaceId)?.Remove(entityId);
         }
 
-        private ClientSpace FindContext(Guid spaceId)
+        private ClientSpaceEntity FindContext(Guid spaceId)
         {
             // Incoming deltas are applied in order to the staged dictionary while resources load.
             if (Pending?.Space.Guid == spaceId)
@@ -171,7 +171,7 @@ namespace DE.Client.Entities
             var pending = Pending;
             Pending = null;
             pending?.Space.Release();
-            ClientSpace.InvokeSafely(LoadingFailed, error);
+            ClientSpaceEntity.InvokeSafely(LoadingFailed, error);
         }
 
         public void Reset()

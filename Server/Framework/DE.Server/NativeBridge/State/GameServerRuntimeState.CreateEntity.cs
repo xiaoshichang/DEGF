@@ -30,6 +30,10 @@ namespace DE.Server.NativeBridge
                     if (_remoteEntityCreations.TryGetValue(command.EntityId, out var previous)
                         && ReferenceEquals(previous.Entity, existing) && previous.Fingerprint.SequenceEqual(fingerprint))
                     {
+                        if (existing is ServerSpaceEntity existingSpace)
+                        {
+                            existingSpace.CompleteCreation();
+                        }
                         return true;
                     }
                     throw new InvalidOperationException("The requested entity ID is already in use by a different creation.");
@@ -57,6 +61,10 @@ namespace DE.Server.NativeBridge
                 }
                 _remoteEntityCreations.Add(entity.Guid, new RemoteEntityCreation { Entity = entity, Fingerprint = fingerprint });
                 RegisterLocalEntity(entity);
+                if (entity is ServerSpaceEntity space)
+                {
+                    space.CompleteCreation();
+                }
                 return true;
             }
             catch (Exception exception)

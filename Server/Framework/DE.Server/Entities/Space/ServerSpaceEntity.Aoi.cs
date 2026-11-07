@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using DE.Server.NativeBridge;
 using DE.Share.Entities;
-using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
@@ -34,10 +33,9 @@ namespace DE.Server.Entities
         }
     }
 
-    public partial class SpaceEntity
+    public partial class ServerSpaceEntity
     {
         private readonly Dictionary<Guid, ServerEntity> _publishedEntities = new();
-        private ulong _loadRevision;
         public SpaceAoiComponent Aoi { get; }
 
         public bool AddVisibleEntity(ServerEntity entity)
@@ -102,7 +100,7 @@ namespace DE.Server.Entities
             catch (Exception error)
             {
                 // Entry is already committed. A notification error must not roll back the route or membership.
-                DELogger.Error(nameof(SpaceEntity), $"Space entry notification failed, avatarId={avatar.Guid}, spaceId={Guid}: {error}");
+                DELogger.Error(nameof(ServerSpaceEntity), $"Space entry notification failed, avatarId={avatar.Guid}, spaceId={Guid}: {error}");
                 avatar.NotifySpaceEnterFailed("Failed to synchronize the entered Space");
             }
         }
@@ -114,19 +112,13 @@ namespace DE.Server.Entities
                 EntitySerializer.Serialize(avatar, EntitySerializeReason.OwnerSync));
             if (!avatar.CallClient("NotifySpaceEntered", SpaceSnapshotCodec.Serialize(snapshot)))
             {
-                DELogger.Error(nameof(SpaceEntity), $"Failed to send Space entry snapshot, avatarId={avatar.Guid}, spaceId={Guid}.");
+                DELogger.Error(nameof(ServerSpaceEntity), $"Failed to send Space entry snapshot, avatarId={avatar.Guid}, spaceId={Guid}.");
             }
         }
 
         private static EntitySnapshot BuildSnapshot(ServerEntity entity)
         {
             return new EntitySnapshot(entity.Guid, entity.GetType().Name, EntitySerializer.Serialize(entity, EntitySerializeReason.Broadcase));
-        }
-
-        [ServerRpc]
-        public void ReportLoad()
-        {
-            ServerStubCaller.Call("SpaceStub", "ReportSpace", MailBox, SpaceNo, Avatars.Count, ++_loadRevision);
         }
     }
 }

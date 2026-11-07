@@ -19,13 +19,13 @@ namespace DE.Server.Entities
         private Quaternion __Rotation;
 
         /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
-        public SpaceEntity CurrentSpace { get; internal set; }
+        public ServerSpaceEntity CurrentSpace { get; internal set; }
 
-        public virtual void OnEnterSpace(SpaceEntity space)
+        public virtual void OnEnterSpace(ServerSpaceEntity space)
         {
         }
 
-        public virtual void OnLeaveSpace(SpaceEntity space)
+        public virtual void OnLeaveSpace(ServerSpaceEntity space)
         {
         }
     }

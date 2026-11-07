@@ -2,7 +2,7 @@
 
 namespace Demo;
 
-public partial class DemoSpaceEntity : SpaceEntity
+public partial class DemoSpaceEntity : ServerSpaceEntity
 {
     public DemoSpaceEntity(SpaceInitializer initializer) : base(initializer)
     {

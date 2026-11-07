@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using Assets.Scripts.DE.Share;
 using DE.Server.Entities;
+using DE.Server.Stubs;
 using DE.Share.Entities;
 using DE.Share.Rpc;
 
@@ -78,9 +79,13 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
-            foreach (var entity in Entities.Values.Concat<ServerEntity>(StubInstances.Values).Distinct().ToArray())
+            foreach (var spaceStub in StubInstances.Values.OfType<SpaceStub>())
             {
-                entity.OnUnregistered();
+                spaceStub.Shutdown();
+            }
+            foreach (var space in Entities.Values.OfType<ServerSpaceEntity>())
+            {
+                space.Shutdown();
             }
             foreach (var avatar in Avatars.Values)
             {
@@ -160,9 +165,7 @@ namespace DE.Server.NativeBridge
                 throw new InvalidOperationException("Entity must complete initialization before registration.");
             }
 
-            bool alreadyRegistered = Entities.TryGetValue(entity.Guid, out var existingEntity);
-            if (alreadyRegistered
-                && !ReferenceEquals(existingEntity, entity))
+            if (Entities.TryGetValue(entity.Guid, out var existingEntity) && !ReferenceEquals(existingEntity, entity))
             {
                 throw new InvalidOperationException($"Another entity with guid {entity.Guid} is already registered.");
             }
@@ -179,10 +182,6 @@ namespace DE.Server.NativeBridge
             if (entity is AvatarEntity avatar)
             {
                 Avatars[entity.Guid] = avatar;
-            }
-            if (!alreadyRegistered)
-            {
-                entity.OnRegistered();
             }
         }
 
@@ -516,7 +515,7 @@ namespace DE.Server.NativeBridge
         {
             AvatarType = SearchSingleImportEntityType(typeof(AvatarEntity));
             NpcType = SearchSingleImportEntityType(typeof(NpcEntity));
-            SpaceType = SearchSingleImportEntityType(typeof(SpaceEntity));
+            SpaceType = SearchSingleImportEntityType(typeof(ServerSpaceEntity));
 
             DELogger.Info(
                 nameof(GameServerRuntimeState),

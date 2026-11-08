@@ -9,7 +9,7 @@ namespace DE.Server.Entities
     public struct SpaceInitializer
     {
         public int SpaceNo;
-        public SpaceAoiComponent AoiComponent;
+        public AOISpaceComponent AOISpaceComponent;
     }
     
     public partial class ServerSpaceEntity : ServerEntity
@@ -17,8 +17,10 @@ namespace DE.Server.Entities
         public ServerSpaceEntity(SpaceInitializer initializer)
         {
             _initializer = initializer;
-            Aoi = AddComponent(initializer.AoiComponent ?? new SpaceAoiComponent());
+            AOISpace = AddComponent(initializer.AOISpaceComponent ?? new AOISpaceComponent());
         }
+
+        public AOISpaceComponent AOISpace { get; }
 
         protected override void PreInitialize()
         {
@@ -42,7 +44,6 @@ namespace DE.Server.Entities
                 avatar.CurrentSpace = null;
             }
             _avatars.Clear();
-            _publishedEntities.Clear();
             _dataRow = null;
             base.UnInitialize();
         }

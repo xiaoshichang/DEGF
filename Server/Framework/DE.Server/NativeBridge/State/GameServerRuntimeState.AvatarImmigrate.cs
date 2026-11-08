@@ -787,7 +787,7 @@ namespace DE.Server.NativeBridge
 
             if (Entities.TryGetValue(request.TargetSpaceId, out var enteredEntity) && enteredEntity is ServerSpaceEntity enteredSpace)
             {
-                enteredSpace.CompleteAvatarEntry(context.Avatar);
+                enteredSpace.AOISpace.CompleteAvatarEntry(context.Avatar);
             }
             return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, true);
         }

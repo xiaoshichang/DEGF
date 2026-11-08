@@ -98,11 +98,7 @@ namespace DE.Server.Entities
                 DELogger.Error(nameof(ServerSpaceEntity), $"OnEnterSpace failed, avatarId={avatar.Guid}, spaceId={Guid}: {exception}");
             }
 
-            // A migration candidate becomes visible only after Gate has committed its route.
-            if (avatar.ImmigrationState != AvatarImmigrationState.TargetPrepared)
-            {
-                CompleteAvatarEntry(avatar);
-            }
+            AOISpace.CompleteAvatarEntry(avatar);
             return true;
         }
 
@@ -178,7 +174,7 @@ namespace DE.Server.Entities
             }
 
             avatar.CurrentSpace = null;
-            RemoveVisibleEntity(avatar);
+            AOISpace.RemoveVisibleEntity(avatar);
             try
             {
                 avatar.OnLeaveSpace(this);

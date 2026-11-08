@@ -88,7 +88,7 @@ namespace DE.Server.Entities
             }
             if (CurrentSpace != null && CurrentSpace.Guid == space.EntityId)
             {
-                CurrentSpace.CompleteAvatarEntry(this);
+                CurrentSpace.AOISpace.CompleteAvatarEntry(this);
                 return;
             }
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
@@ -125,7 +125,7 @@ namespace DE.Server.Entities
             }
             if (CurrentSpace != null)
             {
-                CurrentSpace.CompleteAvatarEntry(this);
+                CurrentSpace.AOISpace.CompleteAvatarEntry(this);
                 return;
             }
             bool accepted;

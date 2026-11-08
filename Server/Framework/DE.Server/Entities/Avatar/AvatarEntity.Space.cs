@@ -21,6 +21,11 @@ namespace DE.Server.Entities
         /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
         public ServerSpaceEntity CurrentSpace { get; internal set; }
 
+        partial void OnPositionChanged(Vector3 value)
+        {
+            AOIAgent.Move(value);
+        }
+
         public virtual void OnEnterSpace(ServerSpaceEntity space)
         {
         }

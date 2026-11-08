@@ -16,11 +16,13 @@ namespace DE.Server.Entities
         public AvatarEntity()
         {
             Space = AddComponent(new SpaceComponent());
+            AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
         public AvatarEntity(object entityDocument) : base(entityDocument)
         {
             Space = AddComponent(new SpaceComponent());
+            AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
         protected override void PreInitialize()
@@ -42,6 +44,7 @@ namespace DE.Server.Entities
         }
 
         public SpaceComponent Space { get; }
+        public AOIAgentComponent AOIAgent { get; }
         
         public EntityProxy Proxy { get; private set; }
 

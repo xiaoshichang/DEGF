@@ -35,6 +35,13 @@ public partial class AvatarEntity : ClientEntity, ISpatialEntity
         base.Initialize();
     }
 
+    protected override void UnInitialize()
+    {
+        _spaces?.Reset();
+        _spaces = null;
+        base.UnInitialize();
+    }
+
     [ClientRpc]
     public void NotifySpaceEntered(byte[] snapshot)
     {
@@ -69,7 +76,7 @@ public partial class AvatarEntity : ClientEntity, ISpatialEntity
 
     public override void OnRemovedFromSpace()
     {
-        Spaces.Reset();
+        Spaces?.Reset();
         base.OnRemovedFromSpace();
     }
 
@@ -91,5 +98,11 @@ public class AvatarComponent : EntityComponent
     {
         base.PreInitialize();
         _ownerAvatar = (AvatarEntity)OwnerEntity;
+    }
+
+    protected override void UnInitialize()
+    {
+        _ownerAvatar = null;
+        base.UnInitialize();
     }
 }

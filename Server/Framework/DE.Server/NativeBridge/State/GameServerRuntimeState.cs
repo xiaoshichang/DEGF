@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using Assets.Scripts.DE.Share;
 using DE.Server.Entities;
-using DE.Server.Stubs;
 using DE.Share.Entities;
 using DE.Share.Rpc;
 
@@ -79,17 +78,25 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
-            foreach (var spaceStub in StubInstances.Values.OfType<SpaceStub>())
+            var entities = StubInstances.Values.Cast<ServerEntity>()
+                .Concat(Entities.Values)
+                .Concat(Avatars.Values)
+                .Concat(_sourceAvatarMigrations.Values.Select(context => context.Avatar))
+                .Concat(_targetAvatarMigrations.Values.Select(context => context.Avatar))
+                .Distinct<ServerEntity>(ReferenceEqualityComparer.Instance)
+                .ToArray();
+            List<Exception> errors = null;
+            foreach (var entity in entities)
             {
-                spaceStub.Shutdown();
-            }
-            foreach (var space in Entities.Values.OfType<ServerSpaceEntity>())
-            {
-                space.Shutdown();
-            }
-            foreach (var avatar in Avatars.Values)
-            {
-                avatar.CancelSpaceRequest();
+                try
+                {
+                    entity.UnInitializeEntity();
+                }
+                catch (Exception exception)
+                {
+                    errors ??= new List<Exception>();
+                    errors.Add(exception);
+                }
             }
             ClearAvatarImmigrations();
             _remoteEntityCreations.Clear();
@@ -101,6 +108,10 @@ namespace DE.Server.NativeBridge
             AvatarType = null;
             NpcType = null;
             SpaceType = null;
+            if (errors != null)
+            {
+                throw new AggregateException("Game runtime entity cleanup failed.", errors);
+            }
         }
 
         public bool HandleCreateAvatarReq(string sourceServerId, Guid avatarId, ulong clientSessionId)

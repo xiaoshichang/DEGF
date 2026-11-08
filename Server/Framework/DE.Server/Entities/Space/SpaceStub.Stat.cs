@@ -8,7 +8,7 @@ namespace DE.Server.Stubs
         [ServerRpc]
         public void ReportSpaceStat(EntityMailBox mailbox, int spaceNo, ulong reportTimeMilliseconds, int playerCount)
         {
-            if (State == SpaceStubState.Shutdown)
+            if (State == SpaceStubState.UnInitialized)
             {
                 DELogger.Error(nameof(SpaceStub), $"Space statistics rejected because the Stub is stopped, spaceId={mailbox.EntityId}.");
                 return;

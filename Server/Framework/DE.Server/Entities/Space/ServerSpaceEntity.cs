@@ -34,9 +34,17 @@ namespace DE.Server.Entities
             ReportStatistics();
         }
 
-        internal void Shutdown()
+        protected override void UnInitialize()
         {
             StopStatistics();
+            foreach (var avatar in _avatars.Values)
+            {
+                avatar.CurrentSpace = null;
+            }
+            _avatars.Clear();
+            _publishedEntities.Clear();
+            _dataRow = null;
+            base.UnInitialize();
         }
 
         public ServerSpaceEntity(object entityDocument) : base(entityDocument)

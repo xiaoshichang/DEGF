@@ -80,8 +80,8 @@ SpaceEntityStubProxy represents each Space on the Stub and records Planned, Crea
 After planning all proxies, InitStub synchronously issues every creation request in one loop, without a pending-creation timer or retries.
 It marks each proxy Creating before sending, so local creation can confirm inline; send/handling failures and exceptions mark only that proxy Failed.
 One failure does not prevent requests for the other proxies. Readiness is checked after the loop and on subsequent confirmations.
-SpaceStub.State tracks Uninitialized, Initializing, WaitingForSpaceCreation, Ready, Failed and Shutdown.
-Inline local confirmations update proxies during Initializing; only WaitingForSpaceCreation can advance to Ready.
+SpaceStub.State tracks Created, Initializing, WaitingForPersistentSpaceCreation, Ready, Failed and UnInitialized.
+Inline local confirmations update proxies during Initializing; only WaitingForPersistentSpaceCreation can advance to Ready.
 After all requests are issued, a failed proxy leaves the Stub Failed; otherwise it waits for completion reports.
 Only creation confirmations mark proxies Created; the Stub calls OnReady after all proxies are Created.
 Remote creation remains asynchronous: a sent request stays Creating until its completion report arrives.
@@ -90,7 +90,10 @@ An identical repeated CreateEntity command still resends the confirmation and re
 ServerSpaceEntity sends an initial statistic and repeats every 60 seconds through SpaceStub.ReportSpaceStat.
 Reports carry Mailbox, SpaceNo, UTC Unix milliseconds and current player count. SpaceEntityStubProxy stores PlayerCount and ReportTimeMilliseconds.
 The Stub validates the planned identity and host, ignores reports older than the stored report time, and never uses a revision counter.
-Membership changes no longer trigger immediate reports. Node shutdown or Space removal cancels its statistics timer.
+Membership changes no longer trigger immediate reports. Entity.UnInitializeEntity cancels Space statistics timers through its UnInitialize hook.
+Game runtime teardown invokes the same lifecycle for Stubs, registered entities and unregistered migration candidates, deduplicating shared references.
+Entity and component lifecycle states prevent repeated cleanup and reuse. Components clean up in reverse order and release their owner references.
+Initialization failures clean up partially initialized entities; cleanup continues across entities/components before reporting aggregated errors.
 
 Avatar allocation requests use SpaceStub.RequestSpaceByNo/RequestSpaceById RPCs; the reply invokes AvatarEntity.OnSpaceResolved through its Mailbox.
 Space allocation and reporting do not use SystemCommand, and GameServerRuntimeState has no Space management partial or protocol.

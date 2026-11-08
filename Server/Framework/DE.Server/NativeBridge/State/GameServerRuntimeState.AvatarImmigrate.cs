@@ -186,9 +186,9 @@ namespace DE.Server.NativeBridge
                 }
             }
 
-            if (removed && entity is ServerSpaceEntity space)
+            if (removed)
             {
-                space.Shutdown();
+                entity.UnInitializeEntity();
             }
             return removed;
         }
@@ -558,6 +558,7 @@ namespace DE.Server.NativeBridge
                 if (candidate.ImmigrationState != AvatarImmigrationState.Idle)
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because newly constructed Avatar is not Idle, avatarId={request.AvatarId}, migrationId={request.MigrationId}, state={candidate.ImmigrationState}.");
+                    candidate.UnInitializeEntity();
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "new target Avatar is not Idle");
                 }
 
@@ -566,6 +567,7 @@ namespace DE.Server.NativeBridge
                 if (candidate.Guid != request.AvatarId)
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because snapshot Avatar id does not match migration request, requestAvatarId={request.AvatarId}, snapshotAvatarId={candidate.Guid}, migrationId={request.MigrationId}.");
+                    candidate.UnInitializeEntity();
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "Avatar migration snapshot id mismatch");
                 }
 
@@ -593,7 +595,7 @@ namespace DE.Server.NativeBridge
             {
                 if (candidate != null)
                 {
-                    UnregisterLocalEntity(candidate);
+                    candidate.UnInitializeEntity();
                 }
 
                 DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare immigrating Avatar: {exception}");
@@ -879,6 +881,7 @@ namespace DE.Server.NativeBridge
                 request.TargetGameServerId
             );
             _lastAbortedTargetAvatarMigrations[request.AvatarId] = request.MigrationId;
+            context.Avatar.UnInitializeEntity();
             _targetAvatarMigrations.Remove(request.MigrationId);
             return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, true);
         }

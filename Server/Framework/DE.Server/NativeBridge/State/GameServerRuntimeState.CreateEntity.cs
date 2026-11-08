@@ -79,6 +79,10 @@ namespace DE.Server.NativeBridge
                     {
                         UnregisterLocalEntity(entity);
                     }
+                    else
+                    {
+                        entity.UnInitializeEntity();
+                    }
                 }
                 DELogger.Error(nameof(GameServerRuntimeState),
                     $"Remote entity creation failed, entityId={command.EntityId}, type={request.EntityType}: {exception.GetBaseException()}");

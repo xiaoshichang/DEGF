@@ -18,6 +18,7 @@
 ### 分布式实体与通信
 
 - `Entity` 以 `Guid` 唯一标识，提供属性描述和序列化能力；客户端和服务器分别派生 `ClientEntity`、`ServerEntity`。
+- 实体统一通过 `UnInitializeEntity()` 结束生命周期，由 `UnInitialize()` 清理自身资源，再按逆序清理组件；重复调用不重复执行。
 - 当前可跨 Game 迁移的实体是 `AvatarEntity`。同一角色的客户端与服务器 Avatar 通过属性同步和 RPC 通信。
 - `NpcEntity`、`ServerSpaceEntity` 等属于不可迁移实体；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
 - 普通远端实体通过 `EntityMailBox` 固定寻址；Avatar 通过绑定 OwnerGate 的 `EntityProxy` 动态寻址。
@@ -124,7 +125,7 @@ cmd /d /c "call Server\Engine\build_test.bat Debug <nul"
 2. 目录名和文件名禁止中文。
 3. 类名和函数名采用大写驼峰，修改已有类型时保持周边命名风格。
 4. 单行最大长度为 160 个字符。
-5. Entity 和 Component 的 `PreInitialize`、`Initialize`、`PostInitialize` 等核心生命周期函数必须放在类型主文件中。
+5. Entity 和 Component 的 `PreInitialize`、`Initialize`、`PostInitialize`、`UnInitialize` 等核心生命周期函数必须放在类型主文件中。
    不能放在功能拆分的 partial 文件中；功能逻辑可按现有目录结构拆分。
 6. 初始化和清理遵循依赖顺序：先清理实体和节点，再关闭数据服务，最后注销程序集解析与异常处理、重置身份信息。
 7. 异常处理放在需要恢复、补充上下文或跨语言边界的位置，避免给普通顺序逻辑添加冗余的 try 保护。

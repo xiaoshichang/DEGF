@@ -116,7 +116,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
-            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
+            _CurrentAccountInfo?.Avatar?.UnInitializeEntity();
             _CurrentAccountInfo = null;
             _SetState(AuthState.Idle);
             _ClearLoginCallbacks();
@@ -168,7 +168,7 @@ namespace Assets.Scripts.DE.Client.Framework
             NetworkManager.Instance.Disconnect();
 
             _ReceiveBuffer.Clear();
-            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
+            _CurrentAccountInfo?.Avatar?.UnInitializeEntity();
             _CurrentAccountInfo = null;
             _PendingAccount = normalizedAccount;
             _PendingGateConfig = _SelectGateConfig(normalizedAccount);
@@ -372,7 +372,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
-            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
+            _CurrentAccountInfo?.Avatar?.UnInitializeEntity();
             _CurrentAccountInfo = null;
 
             _SetState(AuthState.Idle);
@@ -570,6 +570,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
             if (avatar.Guid != loginRsp.AvatarId)
             {
+                avatar.UnInitializeEntity();
                 _FailAuth("Login failed because avatar data id mismatched, expected=" + loginRsp.AvatarId + ", actual=" + avatar.Guid + ".");
                 return;
             }
@@ -722,7 +723,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _ReceiveBuffer.Clear();
             _PendingGateConfig = null;
             _PendingAccount = string.Empty;
-            _CurrentAccountInfo?.Avatar?.Spaces.Reset();
+            _CurrentAccountInfo?.Avatar?.UnInitializeEntity();
             _CurrentAccountInfo = null;
             _SetState(AuthState.Idle);
 

@@ -12,7 +12,12 @@ namespace DE.Server.Stubs
     {
         public override void InitStub()
         {
-            if (State != SpaceStubState.Uninitialized)
+            if (!IsInitialized)
+            {
+                DELogger.Error(nameof(SpaceStub), $"Cannot start SpaceStub before entity initialization, lifecycleState={LifecycleState}.");
+                return;
+            }
+            if (State != SpaceStubState.Created)
             {
                 DELogger.Error(nameof(SpaceStub), $"Cannot initialize SpaceStub in its current state, state={State}.");
                 return;
@@ -48,7 +53,7 @@ namespace DE.Server.Stubs
                 State = SpaceStubState.Failed;
                 return;
             }
-            State = SpaceStubState.WaitingForSpaceCreation;
+            State = SpaceStubState.WaitingForPersistentSpaceCreation;
             TryCompleteInitialization();
         }
 
@@ -102,7 +107,7 @@ namespace DE.Server.Stubs
         [ServerRpc]
         public void ReportSpaceCreated(EntityMailBox mailbox, int spaceNo)
         {
-            if (State == SpaceStubState.Shutdown)
+            if (State == SpaceStubState.UnInitialized)
             {
                 DELogger.Error(nameof(SpaceStub), $"Space creation report rejected because the Stub is stopped, spaceId={mailbox.EntityId}.");
                 return;
@@ -153,7 +158,7 @@ namespace DE.Server.Stubs
         private void TryCompleteInitialization()
         {
             // Local creation can confirm inline while the Stub is still initializing.
-            if (State != SpaceStubState.WaitingForSpaceCreation)
+            if (State != SpaceStubState.WaitingForPersistentSpaceCreation)
             {
                 return;
             }

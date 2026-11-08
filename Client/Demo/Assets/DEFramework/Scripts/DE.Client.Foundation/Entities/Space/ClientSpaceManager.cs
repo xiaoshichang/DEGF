@@ -64,10 +64,16 @@ namespace DE.Client.Entities
             ClientSpaceEntity staged = null;
             try
             {
-                staged = ClientEntityFactory.Create(snapshot.Space) as ClientSpaceEntity;
-                if (staged == null || staged.SpaceNo != snapshot.SpaceNo)
+                var spaceEntity = ClientEntityFactory.Create(snapshot.Space);
+                staged = spaceEntity as ClientSpaceEntity;
+                if (staged == null)
                 {
-                    throw new InvalidOperationException("Space entity type or number does not match the entry snapshot.");
+                    spaceEntity.UnInitializeEntity();
+                    throw new InvalidOperationException("Space entity type does not match the entry snapshot.");
+                }
+                if (staged.SpaceNo != snapshot.SpaceNo)
+                {
+                    throw new InvalidOperationException("Space number does not match the entry snapshot.");
                 }
                 foreach (var item in snapshot.Entities)
                 {
@@ -79,14 +85,21 @@ namespace DE.Client.Entities
                 }
                 // Validate owner data on a temporary entity before touching the active Avatar.
                 var ownerCopy = (AvatarEntity)Activator.CreateInstance(_owner.GetType());
-                ownerCopy.InitializeEntity(snapshot.OwnerData, EntitySerializeReason.OwnerSync);
-                if (ownerCopy.Guid != _owner.Guid || ownerCopy.SpaceId != staged.Guid || ownerCopy.SpaceNo != staged.SpaceNo)
+                try
                 {
-                    throw new InvalidOperationException("Space snapshot contains invalid owner data.");
+                    ownerCopy.InitializeEntity(snapshot.OwnerData, EntitySerializeReason.OwnerSync);
+                    if (ownerCopy.Guid != _owner.Guid || ownerCopy.SpaceId != staged.Guid || ownerCopy.SpaceNo != staged.SpaceNo)
+                    {
+                        throw new InvalidOperationException("Space snapshot contains invalid owner data.");
+                    }
+                }
+                finally
+                {
+                    ownerCopy.UnInitializeEntity();
                 }
                 var previous = Pending;
                 Pending = new SpaceLoadingContext(this, ++_sequence, snapshot, staged);
-                previous?.Space.Release();
+                previous?.Space.UnInitializeEntity();
                 var context = Pending;
                 ClientSpaceEntity.InvokeSafely(LoadingStarted, context);
                 if (!context.IsCurrent)
@@ -108,7 +121,7 @@ namespace DE.Client.Entities
                 }
                 else if (Current != staged)
                 {
-                    staged?.Release();
+                    staged?.UnInitializeEntity();
                     ClientSpaceEntity.InvokeSafely(LoadingFailed, error.Message);
                 }
                 else
@@ -136,7 +149,7 @@ namespace DE.Client.Entities
             var previous = Current;
             Current = context.Space;
             Pending = null;
-            previous?.Release();
+            previous?.UnInitializeEntity();
             ClientSpaceEntity.InvokeSafely(LoadingCompleted, Current);
             return true;
         }
@@ -170,7 +183,7 @@ namespace DE.Client.Entities
         {
             var pending = Pending;
             Pending = null;
-            pending?.Space.Release();
+            pending?.Space.UnInitializeEntity();
             ClientSpaceEntity.InvokeSafely(LoadingFailed, error);
         }
 
@@ -180,8 +193,8 @@ namespace DE.Client.Entities
             var current = Current;
             Pending = null;
             Current = null;
-            pending?.Space.Release();
-            current?.Release();
+            pending?.Space.UnInitializeEntity();
+            current?.UnInitializeEntity();
         }
     }
 }

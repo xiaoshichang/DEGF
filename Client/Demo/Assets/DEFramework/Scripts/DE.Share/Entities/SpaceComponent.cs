@@ -25,6 +25,12 @@ namespace DE.Share.Entities
             }
         }
 
+        protected override void UnInitialize()
+        {
+            _owner = null;
+            base.UnInitialize();
+        }
+
         public void SetTransform(Vector3 position, Quaternion rotation)
         {
             _owner.Position = position;

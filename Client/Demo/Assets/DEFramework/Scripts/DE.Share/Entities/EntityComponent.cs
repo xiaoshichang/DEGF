@@ -5,11 +5,15 @@ namespace DE.Share.Entities
     public abstract class EntityComponent
     {
         public Entity OwnerEntity { get; private set; }
-        private bool _initializationStarted;
-        public bool IsInitialized { get; private set; }
+        public EntityLifecycleState LifecycleState { get; private set; } = EntityLifecycleState.Created;
+        public bool IsInitialized => LifecycleState == EntityLifecycleState.Initialized;
 
         internal void Attach(Entity entity)
         {
+            if (LifecycleState != EntityLifecycleState.Created)
+            {
+                throw new InvalidOperationException("Cannot attach a component after its lifecycle has started.");
+            }
             if (OwnerEntity != null)
             {
                 throw new InvalidOperationException("Component is already attached to an entity.");
@@ -19,15 +23,48 @@ namespace DE.Share.Entities
 
         internal void InitializeComponent()
         {
-            if (_initializationStarted || OwnerEntity == null)
+            if (LifecycleState != EntityLifecycleState.Created)
             {
-                throw new InvalidOperationException("Component must be attached and initialized exactly once.");
+                throw new InvalidOperationException("Component must be initialized exactly once.");
             }
-            _initializationStarted = true;
+            if (OwnerEntity == null)
+            {
+                throw new InvalidOperationException("Component must be attached before initialization.");
+            }
+            LifecycleState = EntityLifecycleState.Initializing;
             PreInitialize();
             Initialize();
             PostInitialize();
-            IsInitialized = true;
+            LifecycleState = EntityLifecycleState.Initialized;
+        }
+
+        internal void UnInitializeComponent()
+        {
+            if (LifecycleState == EntityLifecycleState.UnInitializing)
+            {
+                return;
+            }
+            if (LifecycleState == EntityLifecycleState.UnInitialized)
+            {
+                return;
+            }
+            if (LifecycleState == EntityLifecycleState.Created)
+            {
+                OwnerEntity = null;
+                LifecycleState = EntityLifecycleState.UnInitialized;
+                return;
+            }
+
+            LifecycleState = EntityLifecycleState.UnInitializing;
+            try
+            {
+                UnInitialize();
+            }
+            finally
+            {
+                OwnerEntity = null;
+                LifecycleState = EntityLifecycleState.UnInitialized;
+            }
         }
 
         protected virtual void PreInitialize()
@@ -39,6 +76,10 @@ namespace DE.Share.Entities
         }
 
         protected virtual void PostInitialize()
+        {
+        }
+
+        protected virtual void UnInitialize()
         {
         }
     }

@@ -27,17 +27,21 @@ namespace DE.Client.Entities
             {
                 _entities.Remove(entityId);
                 InvokeSafely(item => item.OnRemovedFromSpace(), entity);
+                InvokeSafely(item => item.UnInitializeEntity(), entity);
                 InvokeSafely(EntityRemoved, entity);
             }
         }
 
-        internal void Release()
+        protected override void UnInitialize()
         {
             foreach (var id in new List<Guid>(_entities.Keys))
             {
                 Remove(id);
             }
             InvokeSafely(item => item.OnRemovedFromSpace(), this);
+            EntityAdded = null;
+            EntityRemoved = null;
+            base.UnInitialize();
         }
 
         internal static void InvokeSafely<T>(Action<T> callback, T argument)
@@ -98,6 +102,7 @@ namespace DE.Client.Entities
             entity.InitializeEntity(snapshot.Data, EntitySerializeReason.Broadcase);
             if (entity.Guid != snapshot.EntityId)
             {
+                entity.UnInitializeEntity();
                 throw new InvalidOperationException("Invalid client entity snapshot.");
             }
             return entity;

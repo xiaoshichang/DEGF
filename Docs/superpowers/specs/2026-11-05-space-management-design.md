@@ -36,7 +36,9 @@ AOI 第一版使用同一 Space 内全量可见，接口允许后续替换空间
 - SpaceStub 主文件保留 InitStub 等生命周期和分配入口，Init、Stat 两个 partial 子文件分别处理启动流程和负载统计。
 - 分配请求调用 Stub RPC，结果通过 Avatar Mailbox RPC 返回。
 - 不再使用 SpaceManagement 系统命令或 GameServerRuntimeState.Space 专用协议、计时器与分发逻辑。
-- 运行时清理释放定时器和索引。本次不增加节点故障自动补建或动态扩缩容。
+- 实体通过 UnInitializeEntity 统一反初始化，UnInitialize 释放定时器和索引，随后逆序清理组件，不提供实体专用 Shutdown。
+- 反初始化包含尚未注册的迁移候选 Avatar；重复清理幂等，初始化失败也会清理已启动的部分。
+- 本次不增加节点故障自动补建或动态扩缩容。
 
 ## Avatar 场景组件
 

@@ -9,12 +9,12 @@ namespace DE.Server.Stubs
 {
     public enum SpaceStubState
     {
-        Uninitialized,
+        Created,
         Initializing,
-        WaitingForSpaceCreation,
+        WaitingForPersistentSpaceCreation,
         Ready,
         Failed,
-        Shutdown,
+        UnInitialized,
     }
 
     public partial class SpaceStub : ServerStubEntity
@@ -22,7 +22,7 @@ namespace DE.Server.Stubs
         private readonly Dictionary<Guid, SpaceEntityStubProxy> _spaceProxiesById = new();
         private readonly Dictionary<int, ISpaceAllocationStrategy> _allocationStrategiesBySpaceNo = new();
         private readonly Dictionary<Guid, CachedSpaceAllocationResult> _allocationResultsByRequestId = new();
-        public SpaceStubState State { get; private set; } = SpaceStubState.Uninitialized;
+        public SpaceStubState State { get; private set; } = SpaceStubState.Created;
         public IReadOnlyCollection<SpaceEntityStubProxy> Spaces => _spaceProxiesById.Values;
         public bool AreSpacesReady => _spaceProxiesById.Values.All(spaceProxy => spaceProxy.IsReady);
         public ISpaceCreationStrategy CreationStrategy { get; set; } = new RoundRobinSpaceCreationStrategy();
@@ -65,7 +65,7 @@ namespace DE.Server.Stubs
             {
                 return;
             }
-            if (State == SpaceStubState.Shutdown)
+            if (State == SpaceStubState.UnInitialized)
             {
                 DELogger.Error(nameof(SpaceStub), $"Space allocation rejected because the Stub is stopped, requestId={requestId}.");
                 SendResolution(requestId, avatarMailbox, null, "Space service is not ready");
@@ -130,11 +130,13 @@ namespace DE.Server.Stubs
                 spaceProxy?.MailBox ?? default(EntityMailBox), spaceProxy?.SpaceNo ?? 0, error);
         }
 
-        internal void Shutdown()
+        protected override void UnInitialize()
         {
-            State = SpaceStubState.Shutdown;
+            State = SpaceStubState.UnInitialized;
             _allocationResultsByRequestId.Clear();
             _spaceProxiesById.Clear();
+            _allocationStrategiesBySpaceNo.Clear();
+            base.UnInitialize();
         }
 
         private sealed class CachedSpaceAllocationResult

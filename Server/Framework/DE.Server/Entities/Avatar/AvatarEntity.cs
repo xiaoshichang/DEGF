@@ -34,6 +34,13 @@ namespace DE.Server.Entities
             Rotation = Quaternion.Identity;
         }
 
+        protected override void UnInitialize()
+        {
+            CancelSpaceRequest();
+            CurrentSpace = null;
+            base.UnInitialize();
+        }
+
         public SpaceComponent Space { get; }
         
         public EntityProxy Proxy { get; private set; }
@@ -84,6 +91,12 @@ namespace DE.Server.Entities
         {
             base.PreInitialize();
             _ownerAvatar = (AvatarEntity)OwnerEntity;
+        }
+
+        protected override void UnInitialize()
+        {
+            _ownerAvatar = null;
+            base.UnInitialize();
         }
     }
 }

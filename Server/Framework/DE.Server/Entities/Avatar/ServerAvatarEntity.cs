@@ -1,4 +1,4 @@
-﻿using DE.Server.NativeBridge;
+using DE.Server.NativeBridge;
 using DE.Share.Entities;
 using DE.Share.Foundation.Mathematics;
 using DE.Share.Rpc;
@@ -11,17 +11,17 @@ namespace DE.Server.Entities
         ReplacedByNewLogin = 2,
     }
 
-    public partial class AvatarEntity : ServerEntity, ISpatialEntity
+    public partial class ServerAvatarEntity : ServerEntity, ISpatialEntity
     {
-        public AvatarEntity()
+        public ServerAvatarEntity()
         {
-            Space = AddComponent(new SpaceComponent());
+            Space = AddComponent(new ServerSpaceComponent());
             AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
-        public AvatarEntity(object entityDocument) : base(entityDocument)
+        public ServerAvatarEntity(object entityDocument) : base(entityDocument)
         {
-            Space = AddComponent(new SpaceComponent());
+            Space = AddComponent(new ServerSpaceComponent());
             AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
@@ -43,7 +43,7 @@ namespace DE.Server.Entities
             base.UnInitialize();
         }
 
-        public SpaceComponent Space { get; }
+        public ServerSpaceComponent Space { get; }
         public AOIAgentComponent AOIAgent { get; }
         
         public EntityProxy Proxy { get; private set; }
@@ -64,7 +64,7 @@ namespace DE.Server.Entities
         public virtual void OnAvatarLoginFinish()
         {
 #if DEBUG
-            DELogger.Info(nameof(AvatarEntity), $"Avatar login registration finished, avatarId={Guid}.");
+            DELogger.Info(nameof(ServerAvatarEntity), $"Avatar login registration finished, avatarId={Guid}.");
 #endif
         }
 
@@ -72,34 +72,17 @@ namespace DE.Server.Entities
         public virtual void OnAvatarClientAttached(ulong clientSessionId)
         {
 #if DEBUG
-            DELogger.Info(nameof(AvatarEntity), $"Avatar client attached, avatarId={Guid}, clientSessionId={clientSessionId}.");
+            DELogger.Info(nameof(ServerAvatarEntity), $"Avatar client attached, avatarId={Guid}, clientSessionId={clientSessionId}.");
 #endif
+            EnterLoginSpace();
         }
 
         [ServerRpc]
         public virtual void OnAvatarClientDetached(ulong clientSessionId, AvatarClientDetachReason reason)
         {
 #if DEBUG
-            DELogger.Info(nameof(AvatarEntity), $"Avatar client detached, avatarId={Guid}, clientSessionId={clientSessionId}, reason={reason}.");
+            DELogger.Info(nameof(ServerAvatarEntity), $"Avatar client detached, avatarId={Guid}, clientSessionId={clientSessionId}, reason={reason}.");
 #endif
-        }
-    }
-
-    public class AvatarComponent : EntityComponent
-    {
-        private AvatarEntity _ownerAvatar;
-        public AvatarEntity OwnerAvatar => _ownerAvatar;
-
-        protected override void PreInitialize()
-        {
-            base.PreInitialize();
-            _ownerAvatar = (AvatarEntity)OwnerEntity;
-        }
-
-        protected override void UnInitialize()
-        {
-            _ownerAvatar = null;
-            base.UnInitialize();
         }
     }
 }

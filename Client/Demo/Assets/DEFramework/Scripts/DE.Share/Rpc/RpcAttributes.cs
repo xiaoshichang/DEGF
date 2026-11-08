@@ -50,6 +50,16 @@ namespace DE.Share.Rpc
                     typeNames[i] = "byte[]";
                     continue;
                 }
+                if (arg is string[])
+                {
+                    typeNames[i] = "string[]";
+                    continue;
+                }
+                if (arg is byte[][])
+                {
+                    typeNames[i] = "byte[][]";
+                    continue;
+                }
                 if (arg == null || arg is string)
                 {
                     typeNames[i] = "string";

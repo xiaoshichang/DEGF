@@ -126,7 +126,7 @@ namespace DE.Server.Stubs
 
         private void SendResolution(Guid requestId, EntityMailBox avatarMailbox, SpaceEntityStubProxy spaceProxy, string error)
         {
-            ServerMailboxCaller.Call(avatarMailbox, nameof(AvatarEntity.OnSpaceResolved), requestId,
+            ServerMailboxCaller.Call(avatarMailbox, nameof(ServerAvatarEntity.OnRequestedSpaceReady), requestId,
                 spaceProxy?.MailBox ?? default(EntityMailBox), spaceProxy?.SpaceNo ?? 0, error);
         }
 

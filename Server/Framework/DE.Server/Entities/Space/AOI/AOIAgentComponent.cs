@@ -4,7 +4,7 @@ using DE.Share.Foundation.Mathematics;
 
 namespace DE.Server.Entities
 {
-    public class AOIAgentComponent : EntityComponent
+    public class AOIAgentComponent : ServerEntityComponent
     {
         public AOIAgent Agent { get; private set; }
         public IAOISpace CurrentSpace => Agent?.Space;

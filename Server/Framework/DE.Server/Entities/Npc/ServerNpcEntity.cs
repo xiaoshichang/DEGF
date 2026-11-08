@@ -1,13 +1,13 @@
-﻿namespace DE.Server.Entities
+namespace DE.Server.Entities
 {
-    public partial class NpcEntity : ServerEntity
+    public partial class ServerNpcEntity : ServerEntity
     {
-        public NpcEntity()
+        public ServerNpcEntity()
         {
             AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
-        public NpcEntity(object entityDocument) : base(entityDocument)
+        public ServerNpcEntity(object entityDocument) : base(entityDocument)
         {
             AOIAgent = AddComponent(new AOIAgentComponent());
         }

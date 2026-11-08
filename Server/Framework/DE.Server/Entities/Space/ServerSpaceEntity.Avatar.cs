@@ -6,11 +6,11 @@ namespace DE.Server.Entities
 {
     public partial class ServerSpaceEntity
     {
-        private readonly Dictionary<Guid, AvatarEntity> _avatars = new Dictionary<Guid, AvatarEntity>();
+        private readonly Dictionary<Guid, ServerAvatarEntity> _avatars = new Dictionary<Guid, ServerAvatarEntity>();
 
-        public IReadOnlyDictionary<Guid, AvatarEntity> Avatars => _avatars;
+        public IReadOnlyDictionary<Guid, ServerAvatarEntity> Avatars => _avatars;
 
-        public bool Enter(AvatarEntity avatar)
+        public bool Enter(ServerAvatarEntity avatar)
         {
             if (avatar == null)
             {
@@ -86,23 +86,29 @@ namespace DE.Server.Entities
                 DELogger.Error(nameof(ServerSpaceEntity), $"Space Enter rejected due to capacity, avatarId={avatar.Guid}, spaceId={Guid}.");
                 return false;
             }
+            avatar.OnBeforeEnterSpace(this);
+            var previousSpaceId = avatar.SpaceId;
+            var previousSpaceNo = avatar.SpaceNo;
             _avatars.Add(avatar.Guid, avatar);
             avatar.CurrentSpace = this;
             avatar.Space.SetSpace(Guid, SpaceNo);
-            try
+            // Migration activation reserves membership; AOI entry waits for the Gate route commit.
+            if (avatar.ImmigrationState == AvatarImmigrationState.TargetPrepared)
             {
-                avatar.OnEnterSpace(this);
+                return true;
             }
-            catch (Exception exception)
+            if (!AOISpace.AddAOIAgent(avatar))
             {
-                DELogger.Error(nameof(ServerSpaceEntity), $"OnEnterSpace failed, avatarId={avatar.Guid}, spaceId={Guid}: {exception}");
+                _avatars.Remove(avatar.Guid);
+                avatar.CurrentSpace = null;
+                avatar.Space.SetSpace(previousSpaceId, previousSpaceNo);
+                return false;
             }
-
-            AOISpace.CompleteAvatarEntry(avatar);
+            avatar.OnAfterEnterSpace(this);
             return true;
         }
 
-        public bool Leave(AvatarEntity avatar)
+        public bool Leave(ServerAvatarEntity avatar)
         {
             if (avatar == null)
             {
@@ -167,6 +173,7 @@ namespace DE.Server.Entities
                 return false;
             }
 
+            avatar.OnBeforeLeaveSpace(this);
             if (!_avatars.Remove(avatar.Guid))
             {
                 DELogger.Error(nameof(ServerSpaceEntity), $"Space Leave failed to remove Avatar after membership validation, avatarId={avatar.Guid}, spaceId={Guid}.");
@@ -174,15 +181,8 @@ namespace DE.Server.Entities
             }
 
             avatar.CurrentSpace = null;
-            AOISpace.RemoveVisibleEntity(avatar);
-            try
-            {
-                avatar.OnLeaveSpace(this);
-            }
-            catch (Exception exception)
-            {
-                DELogger.Error(nameof(ServerSpaceEntity), $"OnLeaveSpace failed, avatarId={avatar.Guid}, spaceId={Guid}: {exception}");
-            }
+            AOISpace.RemoveAOIAgent(avatar);
+            avatar.OnAfterLeaveSpace(this);
 
             return true;
         }

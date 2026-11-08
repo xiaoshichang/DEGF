@@ -24,23 +24,11 @@ namespace DE.Server.Entities
         Failed = 11,
     }
 
-    public partial class AvatarEntity
+    public partial class ServerAvatarEntity
     {
         public AvatarImmigrationState ImmigrationState { get; private set; }
         public Guid ImmigrationId { get; private set; }
         public EntityMailBox ImmigrationTargetSpace { get; private set; }
-
-        internal void ResetCompletedImmigration()
-        {
-            if (ImmigrationState != AvatarImmigrationState.Completed)
-            {
-                throw new InvalidOperationException("Only completed immigration can be reset.");
-            }
-            DELogger.Info(nameof(AvatarEntity), $"Reset completed immigration for a new Space entry request, avatarId={Guid}, migrationId={ImmigrationId}.");
-            ImmigrationState = AvatarImmigrationState.Idle;
-            ImmigrationId = Guid.Empty;
-            ImmigrationTargetSpace = default;
-        }
 
         public override bool IsAllowImmigrate()
         {
@@ -57,8 +45,9 @@ namespace DE.Server.Entities
         {
             if (!IsValidImmigrationStateTransition(ImmigrationState, state))
             {
-                var error = $"Invalid Avatar immigration state transition, avatarId={Guid}, migrationId={migrationId}, currentState={ImmigrationState}, targetState={state}.";
-                DELogger.Error(nameof(AvatarEntity), error);
+                var error = $"Invalid Avatar immigration state transition, avatarId={Guid}, migrationId={migrationId}, "
+                    + $"currentState={ImmigrationState}, targetState={state}.";
+                DELogger.Error(nameof(ServerAvatarEntity), error);
                 throw new InvalidOperationException(error);
             }
 
@@ -66,22 +55,27 @@ namespace DE.Server.Entities
             {
                 if (ImmigrationId != migrationId)
                 {
-                    var error = $"Avatar immigration state transition rejected because migration id changed, avatarId={Guid}, currentMigrationId={ImmigrationId}, incomingMigrationId={migrationId}, currentState={ImmigrationState}, targetState={state}.";
-                    DELogger.Error(nameof(AvatarEntity), error);
+                    var error = $"Avatar immigration state transition rejected because migration id changed, avatarId={Guid}, "
+                        + $"currentMigrationId={ImmigrationId}, incomingMigrationId={migrationId}, currentState={ImmigrationState}, targetState={state}.";
+                    DELogger.Error(nameof(ServerAvatarEntity), error);
                     throw new InvalidOperationException(error);
                 }
 
                 if (ImmigrationTargetSpace.EntityId != targetSpace.EntityId)
                 {
-                    var error = $"Avatar immigration state transition rejected because target Space id changed, avatarId={Guid}, migrationId={migrationId}, currentTargetSpaceId={ImmigrationTargetSpace.EntityId}, incomingTargetSpaceId={targetSpace.EntityId}.";
-                    DELogger.Error(nameof(AvatarEntity), error);
+                    var error = $"Avatar immigration state transition rejected because target Space id changed, avatarId={Guid}, "
+                        + $"migrationId={migrationId}, currentTargetSpaceId={ImmigrationTargetSpace.EntityId}, "
+                        + $"incomingTargetSpaceId={targetSpace.EntityId}.";
+                    DELogger.Error(nameof(ServerAvatarEntity), error);
                     throw new InvalidOperationException(error);
                 }
 
                 if (!string.Equals(ImmigrationTargetSpace.BindingGame, targetSpace.BindingGame, StringComparison.Ordinal))
                 {
-                    var error = $"Avatar immigration state transition rejected because target Game id changed, avatarId={Guid}, migrationId={migrationId}, currentTargetGameServerId={ImmigrationTargetSpace.BindingGame}, incomingTargetGameServerId={targetSpace.BindingGame}.";
-                    DELogger.Error(nameof(AvatarEntity), error);
+                    var error = $"Avatar immigration state transition rejected because target Game id changed, avatarId={Guid}, "
+                        + $"migrationId={migrationId}, currentTargetGameServerId={ImmigrationTargetSpace.BindingGame}, "
+                        + $"incomingTargetGameServerId={targetSpace.BindingGame}.";
+                    DELogger.Error(nameof(ServerAvatarEntity), error);
                     throw new InvalidOperationException(error);
                 }
             }
@@ -90,8 +84,9 @@ namespace DE.Server.Entities
             ImmigrationId = migrationId;
             ImmigrationTargetSpace = targetSpace;
             DELogger.Info(
-                nameof(AvatarEntity),
-                $"Avatar immigration state changed, avatarId={Guid}, migrationId={migrationId}, state={state}, sourceGameServerId={sourceGameServerId}, targetGameServerId={targetGameServerId}, targetSpaceId={targetSpace.EntityId}."
+                nameof(ServerAvatarEntity),
+                $"Avatar immigration state changed, avatarId={Guid}, migrationId={migrationId}, state={state}, "
+                    + $"sourceGameServerId={sourceGameServerId}, targetGameServerId={targetGameServerId}, targetSpaceId={targetSpace.EntityId}."
             );
         }
 
@@ -375,7 +370,7 @@ namespace DE.Server.NativeBridge
 
     internal sealed class SourceAvatarMigrationContext
     {
-        public AvatarEntity Avatar;
+        public ServerAvatarEntity Avatar;
         public AvatarMigrationMessage Message;
         public EntityMailBox TargetSpace;
         public Guid SourceSpaceId;
@@ -385,7 +380,7 @@ namespace DE.Server.NativeBridge
 
     internal sealed class TargetAvatarMigrationContext
     {
-        public AvatarEntity Avatar;
+        public ServerAvatarEntity Avatar;
         public AvatarMigrationMessage Message;
         public bool IsActivated;
     }

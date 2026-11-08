@@ -36,6 +36,16 @@ namespace DE.Share.Rpc
                 WriteByteArray(bytes);
                 return;
             }
+            if (value is string[] strings)
+            {
+                WriteStringArray(strings);
+                return;
+            }
+            if (value is byte[][] byteArrays)
+            {
+                WriteByteArrays(byteArrays);
+                return;
+            }
             if (value == null || value is string)
             {
                 WriteString((string)value);
@@ -97,6 +107,24 @@ namespace DE.Share.Rpc
             _buffer[_count++] = (byte)((value >> 16) & 0xff);
             _buffer[_count++] = (byte)((value >> 8) & 0xff);
             _buffer[_count++] = (byte)(value & 0xff);
+        }
+
+        public void WriteStringArray(string[] values)
+        {
+            WriteInt32(values.Length);
+            foreach (var value in values)
+            {
+                WriteString(value);
+            }
+        }
+
+        public void WriteByteArrays(byte[][] values)
+        {
+            WriteInt32(values.Length);
+            foreach (var value in values)
+            {
+                WriteByteArray(value);
+            }
         }
 
         public void WriteUInt64(ulong value)
@@ -168,6 +196,31 @@ namespace DE.Share.Rpc
 
     public sealed class RpcBinaryReader
     {
+        public string[] ReadStringArray()
+        {
+            return ReadArray(ReadString);
+        }
+
+        public byte[][] ReadByteArrays()
+        {
+            return ReadArray(ReadByteArray);
+        }
+
+        private T[] ReadArray<T>(Func<T> read)
+        {
+            int count = ReadInt32();
+            if (count < 0 || count > Remaining / sizeof(int))
+            {
+                throw new InvalidOperationException("Invalid RPC array payload.");
+            }
+            var values = new T[count];
+            for (int index = 0; index < count; index++)
+            {
+                values[index] = read();
+            }
+            return values;
+        }
+
         public int Remaining => _buffer.Length - _offset;
 
         public byte[] ReadByteArray()

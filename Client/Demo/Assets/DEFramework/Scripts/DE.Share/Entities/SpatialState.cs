@@ -11,24 +11,13 @@ namespace DE.Share.Entities
         Quaternion Rotation { get; set; }
     }
 
-    public sealed class SpaceComponent : EntityComponent
+    public sealed class SpatialState
     {
-        private ISpatialEntity _owner;
+        private readonly ISpatialEntity _owner;
 
-        protected override void PreInitialize()
+        public SpatialState(ISpatialEntity owner)
         {
-            base.PreInitialize();
-            _owner = OwnerEntity as ISpatialEntity;
-            if (_owner == null)
-            {
-                throw new InvalidOperationException("SpaceComponent requires an entity implementing ISpatialEntity.");
-            }
-        }
-
-        protected override void UnInitialize()
-        {
-            _owner = null;
-            base.UnInitialize();
+            _owner = owner;
         }
 
         public void SetTransform(Vector3 position, Quaternion rotation)

@@ -68,9 +68,9 @@ namespace DE.Client.Entities
     {
         private static readonly Dictionary<string, Type> EntityTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         {
-            // Server snapshots identify the framework Space by its server-side type name.
             { "ServerSpaceEntity", typeof(ClientSpaceEntity) },
-            { nameof(AvatarEntity), typeof(AvatarEntity) },
+            { "ServerAvatarEntity", typeof(ClientAvatarEntity) },
+            { "ServerNpcEntity", typeof(ClientNpcEntity) },
         };
 
         public static void Register<T>() where T : ClientEntity, new()
@@ -92,19 +92,14 @@ namespace DE.Client.Entities
             EntityTypes[entityType.Name] = entityType;
         }
 
-        public static ClientEntity Create(EntitySnapshot snapshot)
+        public static ClientEntity Create(string typeName, byte[] data)
         {
-            if (snapshot == null || !EntityTypes.TryGetValue(snapshot.TypeName, out var entityType))
+            if (!EntityTypes.TryGetValue(typeName, out var entityType))
             {
-                throw new InvalidOperationException("Unregistered client entity type: " + snapshot?.TypeName);
+                throw new InvalidOperationException("Unregistered client entity type: " + typeName);
             }
             var entity = (ClientEntity)Activator.CreateInstance(entityType);
-            entity.InitializeEntity(snapshot.Data, EntitySerializeReason.Broadcase);
-            if (entity.Guid != snapshot.EntityId)
-            {
-                entity.UnInitializeEntity();
-                throw new InvalidOperationException("Invalid client entity snapshot.");
-            }
+            entity.InitializeEntity(data, EntitySerializeReason.Broadcase);
             return entity;
         }
     }

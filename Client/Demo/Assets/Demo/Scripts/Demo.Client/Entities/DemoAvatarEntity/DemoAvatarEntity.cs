@@ -1,8 +1,9 @@
+using DE.Client.Entities;
 using DE.Share.Entities;
 
 namespace Assets.Scripts.Demo.Client.Entities
 {
-    public partial class DemoAvatarEntity : AvatarEntity
+    public partial class DemoAvatarEntity : ClientAvatarEntity
     {
         public DemoAvatarEntity()
         {

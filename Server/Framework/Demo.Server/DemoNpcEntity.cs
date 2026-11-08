@@ -1,8 +1,8 @@
-﻿using DE.Server.Entities;
+using DE.Server.Entities;
 
 namespace Demo;
 
-public partial class DemoNpcEntity : NpcEntity
+public partial class DemoNpcEntity : ServerNpcEntity
 {
     
 }

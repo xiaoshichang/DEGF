@@ -3,12 +3,60 @@ using System.Linq;
 using DE.Server.NativeBridge;
 using DE.Share.Data;
 using DE.Share.DataFramework;
+using DE.Share.Entities;
+using DE.Share.Foundation.Mathematics;
 using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
-    public partial class AvatarEntity
+    public partial class ServerAvatarEntity
     {
+        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
+        private Guid __SpaceId;
+
+        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
+        private int __SpaceNo;
+
+        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
+        private Vector3 __Position;
+
+        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
+        private Quaternion __Rotation;
+
+        /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
+        public ServerSpaceEntity CurrentSpace { get; internal set; }
+
+        partial void OnPositionChanged(Vector3 value)
+        {
+            AOIAgent.Move(value);
+        }
+
+        public virtual void OnBeforeEnterSpace(ServerSpaceEntity space)
+        {
+        }
+
+        public virtual void OnAfterEnterSpace(ServerSpaceEntity space)
+        {
+            var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
+            var visible = space.AOISpace.GetVisibleAgents(Guid).Select(agent => runtime.Entities[agent.Id]).ToArray();
+            var entityTypes = visible.Select(entity => entity.GetType().Name).ToArray();
+            var entityData = visible.Select(entity => EntitySerializer.Serialize(entity, EntitySerializeReason.Broadcase)).ToArray();
+            if (!CallClient("OnEnterSpace", space.GetType().Name,
+                EntitySerializer.Serialize(space, EntitySerializeReason.Broadcase),
+                EntitySerializer.Serialize(this, EntitySerializeReason.OwnerSync), entityTypes, entityData))
+            {
+                DELogger.Error(nameof(ServerAvatarEntity), $"Failed to notify Space entry, avatarId={Guid}, spaceId={space.Guid}.");
+            }
+        }
+
+        public virtual void OnBeforeLeaveSpace(ServerSpaceEntity space)
+        {
+        }
+
+        public virtual void OnAfterLeaveSpace(ServerSpaceEntity space)
+        {
+        }
+
         private SpaceRequest _spaceRequest;
         private ulong _spaceRequestTimer;
         private int _spaceRequestAttempts;
@@ -66,7 +114,7 @@ namespace DE.Server.Entities
         }
 
         [ServerRpc]
-        public void OnSpaceResolved(Guid requestId, EntityMailBox space, int spaceNo, string error)
+        public void OnRequestedSpaceReady(Guid requestId, EntityMailBox space, int spaceNo, string error)
         {
             var request = _spaceRequest;
             if (request == null || request.RequestId != requestId)
@@ -88,18 +136,21 @@ namespace DE.Server.Entities
             }
             if (CurrentSpace != null && CurrentSpace.Guid == space.EntityId)
             {
-                CurrentSpace.AOISpace.CompleteAvatarEntry(this);
+                NotifySpaceEnterFailed($"Space allocation returned the current Space, spaceId={space.EntityId}");
+                return;
+            }
+            if (ImmigrationState == AvatarImmigrationState.Completed && space.BindingGame != MailBox.BindingGame)
+            {
+                NotifySpaceEnterFailed($"Cannot start another cross-Game migration after completion, "
+                    + $"targetSpaceId={space.EntityId}, targetGame={space.BindingGame}");
                 return;
             }
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
-            if (ImmigrationState == AvatarImmigrationState.Completed && space.BindingGame != MailBox.BindingGame)
+            var teleportError = runtime.Teleport(this, space);
+            if (teleportError != TeleportErrorCode.Success)
             {
-                // The explicit Avatar request starts a new lifecycle; Teleport itself retains its terminal-state guard.
-                ResetCompletedImmigration();
-            }
-            if (!runtime.Teleport(this, space))
-            {
-                NotifySpaceEnterFailed("Failed to enter the requested Space");
+                NotifySpaceEnterFailed($"Failed to enter the requested Space, errorCode={teleportError}, "
+                    + $"targetSpaceId={space.EntityId}, targetGame={space.BindingGame}");
             }
         }
 
@@ -113,21 +164,8 @@ namespace DE.Server.Entities
             }
         }
 
-        /// <summary>The client invokes this after constructing its Avatar, to enter or resynchronize the current Space.</summary>
-        [ServerRpc]
-        public void OnSpaceClientReady()
+        private void EnterLoginSpace()
         {
-            if (_spaceRequest != null
-                || (ImmigrationState != AvatarImmigrationState.Idle && ImmigrationState != AvatarImmigrationState.Completed
-                    && ImmigrationState != AvatarImmigrationState.Failed))
-            {
-                return;
-            }
-            if (CurrentSpace != null)
-            {
-                CurrentSpace.AOISpace.CompleteAvatarEntry(this);
-                return;
-            }
             bool accepted;
             if (SpaceId != Guid.Empty)
             {
@@ -151,7 +189,7 @@ namespace DE.Server.Entities
 
         internal void NotifySpaceEnterFailed(string error)
         {
-            DELogger.Error(nameof(AvatarEntity), $"Space entry failed, avatarId={Guid}, error={error}.");
+            DELogger.Error(nameof(ServerAvatarEntity), $"Space entry failed, avatarId={Guid}, error={error}.");
             CallClient("NotifySpaceEnterFailed", error ?? "Space entry failed");
         }
 

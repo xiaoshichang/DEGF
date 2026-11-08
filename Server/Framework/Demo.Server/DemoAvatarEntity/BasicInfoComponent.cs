@@ -1,11 +1,11 @@
-﻿using DE.Server.Entities;
+using DE.Server.Entities;
 using DE.Share.Entities;
 using DE.Share.Rpc;
 
 namespace Demo;
 
 
-public partial class BasicInfoComponent : AvatarComponent
+public partial class BasicInfoComponent : ServerEntityComponent
 {
     private DemoAvatarEntity _owner = null!;
 

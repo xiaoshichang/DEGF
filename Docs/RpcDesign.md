@@ -131,6 +131,7 @@ Generator 扫描以下目标：
 | `Guid` | 支持，16 字节 |
 | enum | 支持，按底层整数 |
 | `byte[]` | 支持 |
+| `string[]` / `byte[][]` | 支持，复用 RPC 数组参数；用于实体类型名及 `EntitySerializer` 状态数据 |
 | struct/class DTO | 第一版不支持，后续通过接口扩展 |
 
 ### Generator 输出

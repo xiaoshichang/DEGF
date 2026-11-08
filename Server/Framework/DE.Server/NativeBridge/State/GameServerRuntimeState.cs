@@ -21,7 +21,7 @@ namespace DE.Server.NativeBridge
 
         public Dictionary<Type, DateTime> ReadyStubs { get; } = new();
         public Dictionary<Type, ServerStubEntity> StubInstances { get; } = new();
-        public Dictionary<Guid, AvatarEntity> Avatars { get; } = new();
+        public Dictionary<Guid, ServerAvatarEntity> Avatars { get; } = new();
         public Dictionary<Guid, ServerEntity> Entities { get; } = new();
         public Dictionary<Guid, ulong> AvatarClientSessionIds { get; } = new();
 
@@ -141,7 +141,7 @@ namespace DE.Server.NativeBridge
 
             if (string.Equals(gameServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
             {
-                return CreateAvatarLocal(avatarId, string.Empty, 0).IsSuccess;
+                return CreateAvatarLocal(avatarId, string.Empty).IsSuccess;
             }
 
             return SendCreateAvatarCommand(gameServerId, avatarId, string.Empty, 0);
@@ -181,7 +181,7 @@ namespace DE.Server.NativeBridge
                 throw new InvalidOperationException($"Another entity with guid {entity.Guid} is already registered.");
             }
 
-            if (entity is AvatarEntity registeringAvatar
+            if (entity is ServerAvatarEntity registeringAvatar
                 && Avatars.TryGetValue(entity.Guid, out var existingAvatar)
                 && !ReferenceEquals(existingAvatar, registeringAvatar))
             {
@@ -190,7 +190,7 @@ namespace DE.Server.NativeBridge
 
             entity.AttachToGameServer(_managedRuntimeState.ServerId);
             Entities[entity.Guid] = entity;
-            if (entity is AvatarEntity avatar)
+            if (entity is ServerAvatarEntity avatar)
             {
                 Avatars[entity.Guid] = avatar;
             }
@@ -370,7 +370,7 @@ namespace DE.Server.NativeBridge
             stubEntity.InitStub();
         }
 
-        private CreateAvatarResult CreateAvatarLocal(Guid avatarId, string gateServerId, ulong clientSessionId)
+        private CreateAvatarResult CreateAvatarLocal(Guid avatarId, string gateServerId)
         {
             if (Avatars.ContainsKey(avatarId))
             {
@@ -379,8 +379,6 @@ namespace DE.Server.NativeBridge
                 {
                     existedAvatar.AttachToGateServer(gateServerId);
                 }
-
-                NotifyAvatarClientAttached(existedAvatar, clientSessionId);
 
                 return new CreateAvatarResult(
                     true,
@@ -412,8 +410,6 @@ namespace DE.Server.NativeBridge
             }
             RegisterLocalEntity(avatar);
             avatar.AttachToGateServer(gateServerId);
-            NotifyAvatarClientAttached(avatar, clientSessionId);
-
             ServerStubCaller.Call("LoginStub", "OnAvatarLogin", avatar.Proxy);
 
             DELogger.Info(
@@ -428,7 +424,7 @@ namespace DE.Server.NativeBridge
             );
         }
 
-        private bool NotifyAvatarClientAttached(AvatarEntity avatar, ulong clientSessionId)
+        private bool NotifyAvatarClientAttached(ServerAvatarEntity avatar, ulong clientSessionId)
         {
             if (avatar == null || clientSessionId == 0)
             {
@@ -458,7 +454,7 @@ namespace DE.Server.NativeBridge
                 return true;
             }
 
-            foreach (EntityComponent component in entity.Components)
+            foreach (ServerEntityComponent component in entity.Components)
             {
                 if (InvokeGeneratedServerRpcOnTarget(component, methodId, argsPayload))
                 {
@@ -524,8 +520,8 @@ namespace DE.Server.NativeBridge
 
         private void SearchImportEntityTypeFromGameplayDll()
         {
-            AvatarType = SearchSingleImportEntityType(typeof(AvatarEntity));
-            NpcType = SearchSingleImportEntityType(typeof(NpcEntity));
+            AvatarType = SearchSingleImportEntityType(typeof(ServerAvatarEntity));
+            NpcType = SearchSingleImportEntityType(typeof(ServerNpcEntity));
             SpaceType = SearchSingleImportEntityType(typeof(ServerSpaceEntity));
 
             DELogger.Info(

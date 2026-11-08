@@ -24,7 +24,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public string ClientHost;
         public int ClientPort;
         public Guid AvatarId;
-        public AvatarEntity Avatar;
+        public ClientAvatarEntity Avatar;
     }
 
     public enum AuthState
@@ -76,7 +76,7 @@ namespace Assets.Scripts.DE.Client.Framework
         public Type AvatarType => _AvatarType;
         public event Action<AuthAccountInfo> AvatarUpdated;
 
-        public void RegisterAvatarType<TAvatar>() where TAvatar : AvatarEntity, new()
+        public void RegisterAvatarType<TAvatar>() where TAvatar : ClientAvatarEntity, new()
         {
             RegisterAvatarType(typeof(TAvatar));
         }
@@ -88,9 +88,9 @@ namespace Assets.Scripts.DE.Client.Framework
                 throw new ArgumentNullException(nameof(avatarType));
             }
 
-            if (!typeof(AvatarEntity).IsAssignableFrom(avatarType))
+            if (!typeof(ClientAvatarEntity).IsAssignableFrom(avatarType))
             {
-                throw new ArgumentException("Avatar type must derive from AvatarEntity.", nameof(avatarType));
+                throw new ArgumentException("Avatar type must derive from ClientAvatarEntity.", nameof(avatarType));
             }
 
             if (avatarType.GetConstructor(Type.EmptyTypes) == null)
@@ -450,12 +450,6 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void _HandleRpcNtf(byte[] payload)
         {
-            if (_State != AuthState.Authenticated || _CurrentAccountInfo == null || _CurrentAccountInfo.Avatar == null)
-            {
-                DELogger.Warn(LogTag, "Ignore RPC notification because auth is not completed.");
-                return;
-            }
-
             MessageDef.AvatarRpc rpc;
             if (!MessageDef.AvatarRpc.TryDeserialize(payload, 0, payload == null ? 0 : payload.Length, out rpc))
             {
@@ -463,6 +457,11 @@ namespace Assets.Scripts.DE.Client.Framework
                 return;
             }
 
+            if (_State != AuthState.Authenticated || _CurrentAccountInfo?.Avatar == null)
+            {
+                DELogger.Error(LogTag, "Received Avatar RPC before LoginRsp created the client Avatar.");
+                return;
+            }
             if (rpc.AvatarId != _CurrentAccountInfo.AvatarId)
             {
                 DELogger.Warn(LogTag, "Ignore avatar RPC because avatar id mismatched, expected=" + _CurrentAccountInfo.AvatarId + ", actual=" + rpc.AvatarId + ".");
@@ -582,18 +581,14 @@ namespace Assets.Scripts.DE.Client.Framework
                 LogTag,
                 "Login succeeded, account=" + _CurrentAccountInfo.Account + ", gate=" + _CurrentAccountInfo.ServerId + ", sessionId=" + _CurrentAccountInfo.SessionId + ", conv=" + _CurrentAccountInfo.Conv + ", avatarId=" + _CurrentAccountInfo.AvatarId + ".");
             _NotifyLoginSucceeded(_CurrentAccountInfo);
-            if (_State == AuthState.Authenticated && _CurrentAccountInfo?.Avatar == avatar)
-            {
-                avatar.CallServer("OnSpaceClientReady");
-            }
         }
 
-        private AvatarEntity _CreateAvatar()
+        private ClientAvatarEntity _CreateAvatar()
         {
-            return Activator.CreateInstance(_AvatarType) as AvatarEntity;
+            return Activator.CreateInstance(_AvatarType) as ClientAvatarEntity;
         }
 
-        private bool _InvokeGeneratedClientRpc(AvatarEntity avatar, uint methodId, byte[] argsPayload)
+        private bool _InvokeGeneratedClientRpc(ClientAvatarEntity avatar, uint methodId, byte[] argsPayload)
         {
             if (avatar == null)
             {
@@ -605,7 +600,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 return true;
             }
 
-            foreach (EntityComponent component in avatar.Components)
+            foreach (ClientEntityComponent component in avatar.Components)
             {
                 if (_InvokeGeneratedClientRpcOnTarget(component, methodId, argsPayload))
                 {
@@ -866,7 +861,7 @@ namespace Assets.Scripts.DE.Client.Framework
         private Action<AuthState> _PendingStateChangedCallback;
         private Action<AuthAccountInfo> _PendingSucceededCallback;
         private Action<string> _PendingFailedCallback;
-        private Type _AvatarType = typeof(AvatarEntity);
+        private Type _AvatarType = typeof(ClientAvatarEntity);
         private readonly List<byte> _ReceiveBuffer = new List<byte>();
     }
 }

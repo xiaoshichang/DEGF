@@ -3,7 +3,7 @@ using DE.Share.Entities;
 
 namespace Demo;
 
-public partial class DemoAvatarEntity : AvatarEntity
+public partial class DemoAvatarEntity : ServerAvatarEntity
 {
     public DemoAvatarEntity()
     {

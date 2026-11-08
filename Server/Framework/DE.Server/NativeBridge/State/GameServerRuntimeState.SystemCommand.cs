@@ -69,12 +69,12 @@ namespace DE.Server.NativeBridge
             {
                 return false;
             }
-            var result = CreateAvatarLocal(command.EntityId, request.OwnerGateId, request.ClientSessionId);
+            var result = CreateAvatarLocal(command.EntityId, request.OwnerGateId);
             request.Success = result.IsSuccess;
             request.StatusCode = result.StatusCode;
             request.Error = result.Error;
             request.AvatarData = result.AvatarData;
-            return SystemCommandCaller.Send(new SystemCommandPayload
+            var sent = SystemCommandCaller.Send(new SystemCommandPayload
             {
                 Version = SystemCommandPayload.CurrentVersion,
                 Kind = SystemCommandKind.CreateAvatarResponse,
@@ -82,6 +82,16 @@ namespace DE.Server.NativeBridge
                 TargetServerId = request.OriginServerId,
                 Data = JsonSerializer.SerializeToUtf8Bytes(request),
             });
+            if (!sent)
+            {
+                return false;
+            }
+            if (result.IsSuccess)
+            {
+                // The response and subsequent client RPCs share the same ordered Game-to-Gate connection.
+                NotifyAvatarClientAttached(Avatars[command.EntityId], request.ClientSessionId);
+            }
+            return true;
         }
 
         internal static bool SendCreateAvatarCommand(string targetServerId, Guid avatarId, string ownerGateId, ulong clientSessionId)

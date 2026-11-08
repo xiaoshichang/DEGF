@@ -17,6 +17,7 @@ namespace Demo.Client.Application
             DELogger.Info("DemoGameInstance initialized");
             AuthSystem.Instance.RegisterAvatarType<DemoAvatarEntity>();
             ClientEntityFactory.Register<DemoSpaceEntity>();
+            ClientEntityFactory.Register<DemoNpcEntity>();
             UIManager.Instance.PushPanel<LoginPanel>();
         }
     

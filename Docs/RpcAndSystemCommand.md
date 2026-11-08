@@ -14,7 +14,7 @@ They have separate message IDs, envelopes, native send APIs and managed receive 
 | ServerAvatarProxy | OwnerGate ID and Avatar Guid | OwnerGate resolves the current Game, buffering during migration. |
 | ClientAvatarProxy | OwnerGate ID and Avatar Guid | OwnerGate resolves the current client session, buffering during migration. |
 
-`ServerStubCaller`, `ServerMailboxCaller`, `AvatarRpcCaller.CallAvatarProxy` and `AvatarEntity.CallClient` provide these paths.
+`ServerStubCaller`, `ServerMailboxCaller`, `AvatarRpcCaller.CallAvatarProxy` and `ServerAvatarEntity.CallClient` provide these paths.
 Game-to-Game calls pass through a Gate. ServerMailbox is a fixed address; Avatar proxies follow the OwnerGate's dynamic route.
 The Gate converts ClientAvatarProxy calls to the existing client Avatar RPC wire format, so the login/client protocol remains unchanged.
 Client-originated Avatar RPCs are assigned the authenticated Avatar ID at the Gate and forwarded as ServerAvatarProxy calls.
@@ -95,10 +95,32 @@ Game runtime teardown invokes the same lifecycle for Stubs, registered entities 
 Entity and component lifecycle states prevent repeated cleanup and reuse. Components clean up in reverse order and release their owner references.
 Initialization failures clean up partially initialized entities; cleanup continues across entities/components before reporting aggregated errors.
 
-Avatar allocation requests use SpaceStub.RequestSpaceByNo/RequestSpaceById RPCs; the reply invokes AvatarEntity.OnSpaceResolved through its Mailbox.
+Avatar allocation requests use SpaceStub.RequestSpaceByNo/RequestSpaceById RPCs; the reply invokes ServerAvatarEntity.OnRequestedSpaceReady through its Mailbox.
 Space allocation and reporting do not use SystemCommand, and GameServerRuntimeState has no Space management partial or protocol.
+
+## Client Space entry
+
+ServerAvatarEntity and ClientAvatarEntity are separate types, as are ServerNpcEntity and ClientNpcEntity.
+ServerEntity and ClientEntity manage their respective ServerEntityComponent and ClientEntityComponent collections.
+Shared SpatialState and EntityComponentCollection objects provide common logic without sharing concrete components.
+
+After entry or migration commit, ServerAvatarEntity.OnAfterEnterSpace invokes ClientAvatarEntity.OnEnterSpace through an entity RPC.
+Space membership changes are bracketed by OnBeforeEnterSpace/OnAfterEnterSpace and OnBeforeLeaveSpace/OnAfterLeaveSpace.
+Migration activation runs only the before-entry phase; the after-entry phase follows the Gate route commit and AOI registration.
+AOISpaceComponent.AddAOIAgent/RemoveAOIAgent manage agents without an Avatar-entry completion concept.
+The arguments are the Space type name, serialized Space state, serialized OwnerSync state, visible type names and visible entity states.
+All entity states use EntitySerializer; string[] and byte[][] use the existing RPC binary reader, writer and generated dispatch.
+Visibility deltas use the entity type name and serialized state directly. There is no separate Space snapshot codec.
+Game sends the creation response before OnAvatarClientAttached starts entry, without a client-ready RPC.
+Gate sends LoginRsp when handling the creation response and forwards subsequent Avatar RPCs directly.
+Reconnection and old in-flight RPCs are outside the current scope; there is no login-stage RPC queue.
+AuthSystem constructs the Avatar and completes login callbacks while processing LoginRsp before dispatching later RPCs.
+An RPC before Avatar creation is a protocol-order error. ClientSpaceManager retains pending entities when no loader is installed.
+Installing the loader starts the pending context once; AOI deltas continue updating it while waiting or loading.
+ClientSpaceManager applies OwnerSync state when loading completes.
 
 ## Verification
 
-No test cases are added. The existing migration protocol tests cover the new envelope round trip and mismatched command rejection.
+Migration protocol tests cover the envelope round trip and mismatched command rejection.
+RPC array tests cover generated entry calls and invalid array lengths; component tests cover typed ownership and lifecycle ordering.
 Verify the framework solution, client solution and native engine after changing the shared transport or native API table.

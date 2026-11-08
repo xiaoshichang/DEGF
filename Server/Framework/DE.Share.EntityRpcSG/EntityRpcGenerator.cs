@@ -130,7 +130,8 @@ namespace DE.Share.EntityRpcSG
 
         private static bool IsSupportedRpcParameterType(ITypeSymbol typeSymbol)
         {
-            return IsGuid(typeSymbol) || IsByteArray(typeSymbol) || typeSymbol.SpecialType == SpecialType.System_String
+            return IsGuid(typeSymbol) || IsByteArray(typeSymbol) || IsStringArray(typeSymbol) || IsByteArrays(typeSymbol)
+                || typeSymbol.SpecialType == SpecialType.System_String
                 || typeSymbol.SpecialType == SpecialType.System_Int32
                 || typeSymbol.SpecialType == SpecialType.System_UInt64
                 || typeSymbol.TypeKind == TypeKind.Enum
@@ -140,6 +141,14 @@ namespace DE.Share.EntityRpcSG
 
         private static string GetRpcReaderMethodName(ITypeSymbol typeSymbol)
         {
+            if (IsStringArray(typeSymbol))
+            {
+                return "ReadStringArray";
+            }
+            if (IsByteArrays(typeSymbol))
+            {
+                return "ReadByteArrays";
+            }
             if (IsGuid(typeSymbol))
             {
                 return "ReadGuid";
@@ -178,6 +187,14 @@ namespace DE.Share.EntityRpcSG
 
         private static string GetRpcParameterTypeName(ITypeSymbol typeSymbol)
         {
+            if (IsStringArray(typeSymbol))
+            {
+                return "string[]";
+            }
+            if (IsByteArrays(typeSymbol))
+            {
+                return "byte[][]";
+            }
             if (IsGuid(typeSymbol))
             {
                 return "System.Guid";
@@ -228,6 +245,16 @@ namespace DE.Share.EntityRpcSG
         private static bool IsByteArray(ITypeSymbol typeSymbol)
         {
             return typeSymbol is IArrayTypeSymbol array && array.Rank == 1 && array.ElementType.SpecialType == SpecialType.System_Byte;
+        }
+
+        private static bool IsStringArray(ITypeSymbol typeSymbol)
+        {
+            return typeSymbol is IArrayTypeSymbol array && array.Rank == 1 && array.ElementType.SpecialType == SpecialType.System_String;
+        }
+
+        private static bool IsByteArrays(ITypeSymbol typeSymbol)
+        {
+            return typeSymbol is IArrayTypeSymbol array && array.Rank == 1 && IsByteArray(array.ElementType);
         }
 
         private static bool IsEntityMailBoxType(ITypeSymbol typeSymbol)

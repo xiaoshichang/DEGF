@@ -1,11 +1,11 @@
-﻿using DE.Server.NativeBridge;
+using DE.Server.NativeBridge;
 using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
     public static class AvatarRpcCaller
     {
-        public static bool CallClient(AvatarEntity avatar, uint methodId, byte[] argsPayload)
+        public static bool CallClient(ServerAvatarEntity avatar, uint methodId, byte[] argsPayload)
         {
             if (avatar == null)
             {

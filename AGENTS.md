@@ -19,15 +19,25 @@
 
 - `Entity` 以 `Guid` 唯一标识，提供属性描述和序列化能力；客户端和服务器分别派生 `ClientEntity`、`ServerEntity`。
 - 实体统一通过 `UnInitializeEntity()` 结束生命周期，由 `UnInitialize()` 清理自身资源，再按逆序清理组件；重复调用不重复执行。
-- 当前可跨 Game 迁移的实体是 `AvatarEntity`。同一角色的客户端与服务器 Avatar 通过属性同步和 RPC 通信。
-- `NpcEntity`、`ServerSpaceEntity` 等属于不可迁移实体；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
+- Avatar 分为 `ServerAvatarEntity`、`ClientAvatarEntity`，Npc 分为 `ServerNpcEntity`、`ClientNpcEntity`。同一角色的双端 Avatar 通过属性同步和 RPC 通信。
+- `ServerAvatarEntity` 支持跨 Game 迁移；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
+- `ServerEntity`、`ClientEntity` 分别管理 `ServerEntityComponent`、`ClientEntityComponent`，共享 `Entity` 不持有组件集合。
+- `ServerSpaceComponent`、`ClientSpaceComponent` 使用共享的 `SpatialState`；通用组件集合逻辑由共享对象 `EntityComponentCollection<T>` 提供。
 - 普通远端实体通过 `EntityMailBox` 固定寻址；Avatar 通过绑定 OwnerGate 的 `EntityProxy` 动态寻址。
 - 实体 RPC 由 `[ServerRpc]`、`[ClientRpc]` 显式暴露，调用和分发代码由 `DE.Share.EntityRpcSG` 生成。
 - `SystemCommand` 用于迁移、远程实体创建等框架操作，与实体 RPC 使用独立的消息和分发入口。
 - `SpaceStub` 直接管理空间实例，按 SpaceNo 规划常驻空间，通过创建策略选择 Game 并发起远程创建；空间完成创建后主动报告。
 - `SpaceEntityStubProxy` 表示 Space 在 Stub 上的代理，保存创建状态及统计；InitStub 一次发出全部创建请求，不使用待创建轮询。
 - `SpaceStub.Init.cs` 处理启动和创建确认，`SpaceStub.Stat.cs` 处理负载统计。空间每分钟上报 UTC 时间和当前人数，不维护版本戳。
-- 空间实体在服务端命名为 `ServerSpaceEntity`，客户端对应 `ClientSpaceEntity`；快照工厂负责映射两端类型名。
+- 空间实体在服务端命名为 `ServerSpaceEntity`，客户端对应 `ClientSpaceEntity`；`ClientEntityFactory` 映射双端类型名。
+- 服务器入场成功后调用客户端 `OnEnterSpace` RPC，传递空间、Owner 和可见实体的 `EntitySerializer` 数据，不定义场景专用快照或编解码器。
+- Game 发出创建响应后才执行会话绑定回调并主动入场；Gate 按连接顺序发送 LoginRsp 和后续 Avatar RPC，确保客户端先创建 Avatar。
+- 当前不处理重连和在途旧 RPC；Gate 不增加登录阶段的 RPC 缓存，服务器不通过重新绑定重发当前场景状态。
+- 不等待客户端就绪 RPC；客户端仅在加载器设置前保留待加载场景和 AOI 变化，不缓存 Avatar 创建前的 RPC。
+- 服务器 Avatar 使用 `OnBeforeEnterSpace` / `OnAfterEnterSpace`、`OnBeforeLeaveSpace` / `OnAfterLeaveSpace` 回调；入场通知由 `OnAfterEnterSpace` 发起。
+- 迁移目标激活时只预留成员关系，Gate 提交路由后才注册 AOIAgent 并执行 `OnAfterEnterSpace`；AOI 不维护 Avatar 入场完成状态。
+- `Teleport` 返回 `TeleportErrorCode`，由调用方记录错误或提示玩家；跨 Game 的 Success 仅表示迁移发起成功，后续结果由异步协议处理。
+- AOI 模型位于 `DE.Server/AOI`，实体组件位于 `Entities/Space/AOI`；模型通过 `AgentEventEnter`、`AgentEventLeave` 报告可见性变化。
 
 ## 模块与依赖边界
 

@@ -17,8 +17,8 @@ namespace DE.Share.EntityPropertySG
 
         private static readonly DiagnosticDescriptor InvalidTargetTypeDescriptor = new DiagnosticDescriptor(
             id: "DEEP001",
-            title: "EntityProperty target must derive from Entity",
-            messageFormat: "Field '{0}' must be declared inside a type deriving from DE.Share.Entities.Entity",
+            title: "EntityProperty target must derive from Entity or EntityComponent",
+            messageFormat: "Field '{0}' must be declared inside a type deriving from Entity or EntityComponent",
             category: "EntityProperty",
             DiagnosticSeverity.Error,
             isEnabledByDefault: true
@@ -203,7 +203,8 @@ namespace DE.Share.EntityPropertySG
             propertyName = string.Empty;
             var location = fieldSymbol.Locations.FirstOrDefault();
 
-            if (!InheritsFrom(fieldSymbol.ContainingType, entitySymbol))
+            if (!InheritsFrom(fieldSymbol.ContainingType, entitySymbol)
+                && !InheritsFrom(fieldSymbol.ContainingType, context.Compilation.GetTypeByMetadataName("DE.Share.Entities.EntityComponent")))
             {
                 context.ReportDiagnostic(Diagnostic.Create(InvalidTargetTypeDescriptor, location, fieldSymbol.Name));
                 return false;
@@ -244,11 +245,11 @@ namespace DE.Share.EntityPropertySG
             return true;
         }
 
-        private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol baseTypeSymbol)
+        private static bool InheritsFrom(INamedTypeSymbol typeSymbol, INamedTypeSymbol? baseTypeSymbol)
         {
             for (var current = typeSymbol; current != null; current = current.BaseType)
             {
-                if (SymbolEqualityComparer.Default.Equals(current, baseTypeSymbol))
+                if (baseTypeSymbol != null && SymbolEqualityComparer.Default.Equals(current, baseTypeSymbol))
                 {
                     return true;
                 }
@@ -389,16 +390,16 @@ namespace DE.Share.EntityPropertySG
                 builder.Append(new string(' ', (indentLevel + 2) * 4));
                 builder.AppendLine("}");
                 builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.Append("On");
+                builder.Append("OnBefore");
                 builder.Append(fieldInfo.PropertyName);
-                builder.AppendLine("Changing(value);");
+                builder.AppendLine("Change(value);");
                 builder.Append(new string(' ', (indentLevel + 2) * 4));
                 builder.Append(fieldInfo.FieldSymbol.Name);
                 builder.AppendLine(" = value;");
                 builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.Append("On");
+                builder.Append("OnAfter");
                 builder.Append(fieldInfo.PropertyName);
-                builder.AppendLine("Changed(value);");
+                builder.AppendLine("Change(value);");
                 builder.Append(new string(' ', (indentLevel + 1) * 4));
                 builder.AppendLine("}");
 
@@ -407,15 +408,15 @@ namespace DE.Share.EntityPropertySG
                 builder.AppendLine();
 
                 builder.Append(new string(' ', indentLevel * 4));
-                builder.Append("partial void On");
+                builder.Append("partial void OnBefore");
                 builder.Append(fieldInfo.PropertyName);
-                builder.Append("Changing(");
+                builder.Append("Change(");
                 builder.Append(fieldInfo.TypeName);
                 builder.AppendLine(" value);");
                 builder.Append(new string(' ', indentLevel * 4));
-                builder.Append("partial void On");
+                builder.Append("partial void OnAfter");
                 builder.Append(fieldInfo.PropertyName);
-                builder.Append("Changed(");
+                builder.Append("Change(");
                 builder.Append(fieldInfo.TypeName);
                 builder.AppendLine(" value);");
                 builder.AppendLine();

@@ -4,7 +4,7 @@ using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
-    public abstract partial class ServerEntity : Entity
+    public abstract partial class ServerEntity : Entity, IEntityComponentProvider
     {
         private readonly EntityComponentCollection<ServerEntityComponent> _components = new();
 
@@ -12,11 +12,13 @@ namespace DE.Server.Entities
         {
         }
 
-        protected ServerEntity(object entityDocument) : base(entityDocument)
+        protected ServerEntity(object entityDocument)
         {
         }
 
         public EntityMailBox MailBox { get; private set; }
+        public IEnumerable<EntityComponent> PropertyComponents => _components.Items;
+
         public IReadOnlyList<ServerEntityComponent> Components => _components.Items;
 
         protected TComponent AddComponent<TComponent>(TComponent component) where TComponent : ServerEntityComponent
@@ -24,25 +26,46 @@ namespace DE.Server.Entities
             return _components.Add(this, component);
         }
 
-        public bool TryGetComponent<TComponent>(out TComponent component) where TComponent : ServerEntityComponent
-        {
-            return _components.TryGet(out component);
-        }
-
+        /// <summary>获取指定类型的组件；未装配该组件时返回 null。</summary>
         public TComponent GetComponent<TComponent>() where TComponent : ServerEntityComponent
         {
-            TryGetComponent(out TComponent component);
+            _components.TryGet(out TComponent component);
             return component;
         }
 
-        protected sealed override void InitializeComponents()
+        /// <summary>全部组件已构造并准备默认值，按装配顺序处理组件依赖初始化。</summary>
+        protected override void Initialize()
         {
+            base.Initialize();
             _components.Initialize();
         }
 
-        protected sealed override void UnInitializeComponents()
+        /// <summary>全部组件依赖初始化后，按装配顺序执行组件收尾逻辑。</summary>
+        protected override void PostInitialize()
+        {
+            base.PostInitialize();
+            _components.PostInitialize();
+        }
+
+        /// <summary>逆序撤销组件收尾逻辑并停止活动，保留组件依赖供后续清理。</summary>
+        protected override void PreUnInitialize()
+        {
+            _components.PreUnInitialize();
+            base.PreUnInitialize();
+        }
+
+        /// <summary>逆序解除组件依赖并释放相关资源。</summary>
+        protected override void UnInitialize()
         {
             _components.UnInitialize();
+            base.UnInitialize();
+        }
+
+        /// <summary>逆序清理组件字段并解除挂载，清空组件集合。</summary>
+        protected override void PostUnInitialize()
+        {
+            _components.PostUnInitialize();
+            base.PostUnInitialize();
         }
 
         public abstract bool IsAllowImmigrate();

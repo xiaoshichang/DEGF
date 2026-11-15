@@ -40,7 +40,7 @@ namespace DE.Server.NativeBridge
                 return BeginAvatarImmigration(avatar, space);
             }
 
-            switch (avatar.ImmigrationState)
+            switch (avatar.ImmigateCmpt.ImmigrationState)
             {
             case AvatarImmigrationState.Idle:
             case AvatarImmigrationState.Completed:
@@ -60,29 +60,29 @@ namespace DE.Server.NativeBridge
                 return TeleportErrorCode.TargetEntityIsNotSpace;
             }
 
-            if (ReferenceEquals(avatar.CurrentSpace, targetSpace))
+            if (ReferenceEquals(avatar.SpaceCmpt.CurrentSpace, targetSpace))
             {
                 return TeleportErrorCode.AlreadyInTargetSpace;
             }
 
-            if (targetSpace.MaxPlayers > 0 && targetSpace.Avatars.Count >= targetSpace.MaxPlayers)
+            if (targetSpace.MaxPlayers > 0 && targetSpace.AvatarManageCmpt.Avatars.Count >= targetSpace.MaxPlayers)
             {
                 return TeleportErrorCode.TargetSpaceFull;
             }
-            var sourceSpace = avatar.CurrentSpace;
+            var sourceSpace = avatar.SpaceCmpt.CurrentSpace;
             if (sourceSpace != null)
             {
-                if (!sourceSpace.Leave(avatar))
+                if (!sourceSpace.AvatarManageCmpt.Leave(avatar))
                 {
                     return TeleportErrorCode.LeaveSourceSpaceFailed;
                 }
             }
 
-            if (!targetSpace.Enter(avatar))
+            if (!targetSpace.AvatarManageCmpt.Enter(avatar))
             {
                 if (sourceSpace != null)
                 {
-                    if (!sourceSpace.Enter(avatar))
+                    if (!sourceSpace.AvatarManageCmpt.Enter(avatar))
                     {
                         return TeleportErrorCode.RestoreSourceSpaceFailed;
                     }
@@ -100,7 +100,7 @@ namespace DE.Server.NativeBridge
 
         private TeleportErrorCode BeginAvatarImmigration(ServerAvatarEntity avatar, EntityMailBox targetSpace)
         {
-            if (avatar.ImmigrationState != AvatarImmigrationState.Idle)
+            if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Idle)
             {
                 return TeleportErrorCode.ImmigrationStateNotIdle;
             }
@@ -132,10 +132,10 @@ namespace DE.Server.NativeBridge
                 Avatar = avatar,
                 Message = message,
                 TargetSpace = targetSpace,
-                SourceSpaceId = avatar.CurrentSpace?.Guid ?? Guid.Empty,
+                SourceSpaceId = avatar.SpaceCmpt.CurrentSpace?.Guid ?? Guid.Empty,
             };
             _sourceAvatarMigrations.Add(migrationId, context);
-            avatar.SetImmigrationState(
+            avatar.ImmigateCmpt.SetImmigrationState(
                 AvatarImmigrationState.FreezingRoute,
                 migrationId,
                 targetSpace,
@@ -145,7 +145,7 @@ namespace DE.Server.NativeBridge
             var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(message.GateServerId, message);
             if (!NativeAPI.SendSystemCommandToServer(message.GateServerId, payload))
             {
-                avatar.SetImmigrationState(AvatarImmigrationState.Failed, migrationId, targetSpace,
+                avatar.ImmigateCmpt.SetImmigrationState(AvatarImmigrationState.Failed, migrationId, targetSpace,
                     message.SourceGameServerId, message.TargetGameServerId);
                 _sourceAvatarMigrations.Remove(migrationId);
                 return TeleportErrorCode.FreezeRouteRequestFailed;
@@ -282,18 +282,18 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            if (avatar.ImmigrationId != response.MigrationId)
+            if (avatar.ImmigateCmpt.ImmigrationId != response.MigrationId)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Rejected Avatar source migration response because Avatar migration id does not match, avatarId={avatar.Guid}, avatarMigrationId={avatar.ImmigrationId}, responseMigrationId={response.MigrationId}, command={response.Command}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Rejected Avatar source migration response because Avatar migration id does not match, avatarId={avatar.Guid}, avatarMigrationId={avatar.ImmigateCmpt.ImmigrationId}, responseMigrationId={response.MigrationId}, command={response.Command}.");
                 return false;
             }
 
             switch (response.Command)
             {
             case AvatarMigrationCommand.RouteFrozen:
-                if (avatar.ImmigrationState != AvatarImmigrationState.FreezingRoute)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.FreezingRoute)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected route-frozen response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.FreezingRoute}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected route-frozen response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.FreezingRoute}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -304,7 +304,7 @@ namespace DE.Server.NativeBridge
                     return true;
                 }
 
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.Serializing,
                     response.MigrationId,
                     context.TargetSpace,
@@ -321,7 +321,7 @@ namespace DE.Server.NativeBridge
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization because the Entity is not a Space, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}, sourceEntityType={frozenSourceEntity?.GetType().FullName ?? "<null>"}.");
                     }
-                    else if (!frozenSourceSpace.Leave(avatar))
+                    else if (!frozenSourceSpace.AvatarManageCmpt.Leave(avatar))
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
                     }
@@ -338,7 +338,7 @@ namespace DE.Server.NativeBridge
                     return true;
                 }
 
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.PreparingTarget,
                     response.MigrationId,
                     context.TargetSpace,
@@ -349,9 +349,9 @@ namespace DE.Server.NativeBridge
                 return true;
 
             case AvatarMigrationCommand.TargetPrepared:
-                if (avatar.ImmigrationState != AvatarImmigrationState.PreparingTarget)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.PreparingTarget)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Ignored target-prepared response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.PreparingTarget}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Ignored target-prepared response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.PreparingTarget}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -364,14 +364,14 @@ namespace DE.Server.NativeBridge
 
                 context.TargetWasPrepared = true;
                 context.AvatarData = Array.Empty<byte>();
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.TargetPrepared,
                     response.MigrationId,
                     context.TargetSpace,
                     response.SourceGameServerId,
                     response.TargetGameServerId
                 );
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.ActivatingTarget,
                     response.MigrationId,
                     context.TargetSpace,
@@ -382,9 +382,9 @@ namespace DE.Server.NativeBridge
                 return true;
 
             case AvatarMigrationCommand.TargetActivated:
-                if (avatar.ImmigrationState != AvatarImmigrationState.ActivatingTarget)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.ActivatingTarget)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Ignored target-activated response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.ActivatingTarget}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Ignored target-activated response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.ActivatingTarget}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -395,14 +395,14 @@ namespace DE.Server.NativeBridge
                     return true;
                 }
 
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.TargetActivated,
                     response.MigrationId,
                     context.TargetSpace,
                     response.SourceGameServerId,
                     response.TargetGameServerId
                 );
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.CommittingRoute,
                     response.MigrationId,
                     context.TargetSpace,
@@ -413,14 +413,14 @@ namespace DE.Server.NativeBridge
                 return true;
 
             case AvatarMigrationCommand.RouteCommitted:
-                if (avatar.ImmigrationState == AvatarImmigrationState.CompletingTarget)
+                if (avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.CompletingTarget)
                 {
                     return true;
                 }
 
-                if (avatar.ImmigrationState != AvatarImmigrationState.CommittingRoute)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.CommittingRoute)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Ignored route-committed response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.CommittingRoute}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Ignored route-committed response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.CommittingRoute}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -432,7 +432,7 @@ namespace DE.Server.NativeBridge
                 }
 
                 UnregisterLocalEntity(avatar);
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.CompletingTarget,
                     response.MigrationId,
                     context.TargetSpace,
@@ -443,9 +443,9 @@ namespace DE.Server.NativeBridge
                 return true;
 
             case AvatarMigrationCommand.TargetCompleted:
-                if (avatar.ImmigrationState != AvatarImmigrationState.CompletingTarget)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.CompletingTarget)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected target-completed response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.CompletingTarget}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected target-completed response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.CompletingTarget}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -459,9 +459,9 @@ namespace DE.Server.NativeBridge
                 return true;
 
             case AvatarMigrationCommand.TargetAborted:
-                if (avatar.ImmigrationState != AvatarImmigrationState.RollingBack)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.RollingBack)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected target-aborted response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.RollingBack}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected target-aborted response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.RollingBack}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -475,9 +475,9 @@ namespace DE.Server.NativeBridge
                 return true;
 
             case AvatarMigrationCommand.RouteRolledBack:
-                if (avatar.ImmigrationState != AvatarImmigrationState.RollingBack)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.RollingBack)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected route-rolled-back response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.RollingBack}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Rejected route-rolled-back response because Avatar immigration state is unexpected, avatarId={avatar.Guid}, migrationId={response.MigrationId}, expectedState={AvatarImmigrationState.RollingBack}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return true;
                 }
 
@@ -496,7 +496,7 @@ namespace DE.Server.NativeBridge
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar after immigration rollback because source Entity is not a Space, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}, sourceEntityType={rollbackSourceEntity?.GetType().FullName ?? "<null>"}.");
                     }
-                    else if (!rollbackSourceSpace.Enter(avatar))
+                    else if (!rollbackSourceSpace.AvatarManageCmpt.Enter(avatar))
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar to source Space after immigration rollback, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
                     }
@@ -559,13 +559,13 @@ namespace DE.Server.NativeBridge
 
                 if (existingContext.IsActivated)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because existing migration is already activated, avatarId={request.AvatarId}, migrationId={request.MigrationId}, state={existingContext.Avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because existing migration is already activated, avatarId={request.AvatarId}, migrationId={request.MigrationId}, state={existingContext.Avatar.ImmigateCmpt.ImmigrationState}.");
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "target Avatar is already activated");
                 }
 
-                if (existingContext.Avatar.ImmigrationState != AvatarImmigrationState.TargetPrepared)
+                if (existingContext.Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.TargetPrepared)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because existing Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetPrepared}, actualState={existingContext.Avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because existing Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetPrepared}, actualState={existingContext.Avatar.ImmigateCmpt.ImmigrationState}.");
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "prepared Avatar state is invalid");
                 }
 
@@ -609,14 +609,14 @@ namespace DE.Server.NativeBridge
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "failed to construct target Avatar");
                 }
 
-                if (candidate.ImmigrationState != AvatarImmigrationState.Idle)
+                candidate.InitializeEntity(request.AvatarData, EntitySerializeReason.Migrate);
+
+                if (candidate.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Idle)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because newly constructed Avatar is not Idle, avatarId={request.AvatarId}, migrationId={request.MigrationId}, state={candidate.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to prepare target Avatar because newly initialized Avatar is not Idle, avatarId={request.AvatarId}, migrationId={request.MigrationId}, state={candidate.ImmigateCmpt.ImmigrationState}.");
                     candidate.UnInitializeEntity();
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "new target Avatar is not Idle");
                 }
-
-                candidate.InitializeEntity(request.AvatarData, EntitySerializeReason.Migrate);
 
                 if (candidate.Guid != request.AvatarId)
                 {
@@ -628,7 +628,7 @@ namespace DE.Server.NativeBridge
                 candidate.AttachToGateServer(request.GateServerId);
                 request.AvatarData = Array.Empty<byte>();
                 var targetSpace = new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId);
-                candidate.SetImmigrationState(
+                candidate.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.TargetPrepared,
                     request.MigrationId,
                     targetSpace,
@@ -684,26 +684,26 @@ namespace DE.Server.NativeBridge
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "prepared Avatar does not exist");
             }
 
-            if (avatar.ImmigrationId != request.MigrationId)
+            if (avatar.ImmigateCmpt.ImmigrationId != request.MigrationId)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to activate target Avatar because Avatar migration id does not match, avatarId={request.AvatarId}, requestMigrationId={request.MigrationId}, avatarMigrationId={avatar.ImmigrationId}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to activate target Avatar because Avatar migration id does not match, avatarId={request.AvatarId}, requestMigrationId={request.MigrationId}, avatarMigrationId={avatar.ImmigateCmpt.ImmigrationId}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "prepared Avatar migration id mismatch");
             }
 
             if (context.IsActivated)
             {
-                if (avatar.ImmigrationState != AvatarImmigrationState.TargetActivated)
+                if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.TargetActivated)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to handle repeated target activation because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetActivated}, actualState={avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to handle repeated target activation because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetActivated}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "activated Avatar state is invalid");
                 }
 
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, true);
             }
 
-            if (avatar.ImmigrationState != AvatarImmigrationState.TargetPrepared)
+            if (avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.TargetPrepared)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to activate target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetPrepared}, actualState={avatar.ImmigrationState}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to activate target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetPrepared}, actualState={avatar.ImmigateCmpt.ImmigrationState}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "prepared Avatar state is invalid");
             }
 
@@ -738,14 +738,14 @@ namespace DE.Server.NativeBridge
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "target entity is not a Space");
                 }
 
-                if (!targetSpace.Enter(avatar))
+                if (!targetSpace.AvatarManageCmpt.Enter(avatar))
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to activate target Avatar because Avatar could not enter target Space, avatarId={avatar.Guid}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}.");
                     UnregisterLocalEntity(avatar);
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetActivated, false, "failed to enter target Space");
                 }
 
-                avatar.SetImmigrationState(
+                avatar.ImmigateCmpt.SetImmigrationState(
                     AvatarImmigrationState.TargetActivated,
                     request.MigrationId,
                     new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId),
@@ -765,7 +765,7 @@ namespace DE.Server.NativeBridge
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to clean up target Avatar after activation exception because target Entity is not a Space, avatarId={avatar.Guid}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                 }
-                else if (!targetSpace.Leave(avatar))
+                else if (!targetSpace.AvatarManageCmpt.Leave(avatar))
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to remove target Avatar from target Space after activation exception, avatarId={avatar.Guid}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}.");
                 }
@@ -816,15 +816,15 @@ namespace DE.Server.NativeBridge
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, false, "active Avatar does not exist");
             }
 
-            if (context.Avatar.ImmigrationId != request.MigrationId)
+            if (context.Avatar.ImmigateCmpt.ImmigrationId != request.MigrationId)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to complete target Avatar because Avatar migration id does not match, avatarId={request.AvatarId}, requestMigrationId={request.MigrationId}, avatarMigrationId={context.Avatar.ImmigrationId}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to complete target Avatar because Avatar migration id does not match, avatarId={request.AvatarId}, requestMigrationId={request.MigrationId}, avatarMigrationId={context.Avatar.ImmigateCmpt.ImmigrationId}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, false, "active Avatar migration id mismatch");
             }
 
-            if (context.Avatar.ImmigrationState != AvatarImmigrationState.TargetActivated)
+            if (context.Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.TargetActivated)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to complete target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetActivated}, actualState={context.Avatar.ImmigrationState}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to complete target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetActivated}, actualState={context.Avatar.ImmigateCmpt.ImmigrationState}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, false, "active Avatar state is invalid");
             }
 
@@ -845,7 +845,7 @@ namespace DE.Server.NativeBridge
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, false, "failed to add target AOI agent");
             }
 
-            context.Avatar.SetImmigrationState(
+            context.Avatar.ImmigateCmpt.SetImmigrationState(
                 AvatarImmigrationState.Completed,
                 request.MigrationId,
                 new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId),
@@ -856,7 +856,7 @@ namespace DE.Server.NativeBridge
             _lastAbortedTargetAvatarMigrations.Remove(request.AvatarId);
             _targetAvatarMigrations.Remove(request.MigrationId);
 
-            context.Avatar.OnAfterEnterSpace(enteredSpace);
+            context.Avatar.SpaceCmpt.OnAfterEnterSpace(enteredSpace);
             return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, true);
         }
 
@@ -903,17 +903,17 @@ namespace DE.Server.NativeBridge
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, false, "target Avatar does not exist");
             }
 
-            if (context.Avatar.ImmigrationId != request.MigrationId)
+            if (context.Avatar.ImmigateCmpt.ImmigrationId != request.MigrationId)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to abort target Avatar because Avatar migration id does not match, avatarId={request.AvatarId}, requestMigrationId={request.MigrationId}, avatarMigrationId={context.Avatar.ImmigrationId}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to abort target Avatar because Avatar migration id does not match, avatarId={request.AvatarId}, requestMigrationId={request.MigrationId}, avatarMigrationId={context.Avatar.ImmigateCmpt.ImmigrationId}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, false, "target Avatar migration id mismatch");
             }
 
             if (context.IsActivated)
             {
-                if (context.Avatar.ImmigrationState != AvatarImmigrationState.TargetActivated)
+                if (context.Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.TargetActivated)
                 {
-                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to abort active target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetActivated}, actualState={context.Avatar.ImmigrationState}.");
+                    DELogger.Error(nameof(GameServerRuntimeState), $"Failed to abort active target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetActivated}, actualState={context.Avatar.ImmigateCmpt.ImmigrationState}.");
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, false, "active target Avatar state is invalid");
                 }
 
@@ -925,7 +925,7 @@ namespace DE.Server.NativeBridge
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to remove aborted target Avatar from Space because target Entity is not a Space, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}, targetEntityType={targetEntity?.GetType().FullName ?? "<null>"}.");
                 }
-                else if (!targetSpace.Leave(context.Avatar))
+                else if (!targetSpace.AvatarManageCmpt.Leave(context.Avatar))
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to remove aborted target Avatar from target Space, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetSpaceId={request.TargetSpaceId}.");
                 }
@@ -935,13 +935,13 @@ namespace DE.Server.NativeBridge
                     DELogger.Error(nameof(GameServerRuntimeState), $"Failed to unregister aborted target Avatar, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
                 }
             }
-            else if (context.Avatar.ImmigrationState != AvatarImmigrationState.TargetPrepared)
+            else if (context.Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.TargetPrepared)
             {
-                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to abort prepared target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetPrepared}, actualState={context.Avatar.ImmigrationState}.");
+                DELogger.Error(nameof(GameServerRuntimeState), $"Failed to abort prepared target Avatar because Avatar state is unexpected, avatarId={request.AvatarId}, migrationId={request.MigrationId}, expectedState={AvatarImmigrationState.TargetPrepared}, actualState={context.Avatar.ImmigateCmpt.ImmigrationState}.");
                 return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, false, "prepared target Avatar state is invalid");
             }
 
-            context.Avatar.SetImmigrationState(
+            context.Avatar.ImmigateCmpt.SetImmigrationState(
                 AvatarImmigrationState.Failed,
                 request.MigrationId,
                 new EntityMailBox(request.TargetSpaceId, request.TargetGameServerId),
@@ -956,7 +956,7 @@ namespace DE.Server.NativeBridge
 
         private void BeginAvatarMigrationRollback(SourceAvatarMigrationContext context)
         {
-            context.Avatar.SetImmigrationState(
+            context.Avatar.ImmigateCmpt.SetImmigrationState(
                 AvatarImmigrationState.RollingBack,
                 context.Message.MigrationId,
                 context.TargetSpace,
@@ -1035,7 +1035,7 @@ namespace DE.Server.NativeBridge
 
         private void FinishSourceMigration(SourceAvatarMigrationContext context, AvatarImmigrationState state)
         {
-            context.Avatar.SetImmigrationState(
+            context.Avatar.ImmigateCmpt.SetImmigrationState(
                 state,
                 context.Message.MigrationId,
                 context.TargetSpace,
@@ -1045,7 +1045,7 @@ namespace DE.Server.NativeBridge
             _sourceAvatarMigrations.Remove(context.Message.MigrationId);
             if (state == AvatarImmigrationState.Failed)
             {
-                context.Avatar.NotifySpaceEnterFailed("Avatar migration to the requested Space failed");
+                context.Avatar.SpaceCmpt.NotifySpaceEnterFailed("Avatar migration to the requested Space failed");
             }
         }
 

@@ -1,51 +1,36 @@
-using DE.Server.NativeBridge;
-using DE.Share.Entities;
-using DE.Share.Foundation.Mathematics;
 using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
-    public enum AvatarClientDetachReason
-    {
-        Disconnected = 1,
-        ReplacedByNewLogin = 2,
-    }
-
-    public partial class ServerAvatarEntity : ServerEntity, ISpatialEntity
+    public partial class ServerAvatarEntity : ServerEntity
     {
         public ServerAvatarEntity()
         {
-            Space = AddComponent(new ServerSpaceComponent());
-            AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
         public ServerAvatarEntity(object entityDocument) : base(entityDocument)
         {
-            Space = AddComponent(new ServerSpaceComponent());
-            AOIAgent = AddComponent(new AOIAgentComponent());
         }
 
+        /// <summary>初始化 Avatar 字段，并构造组件及其默认属性；此阶段不处理组件依赖。</summary>
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            CurrentSpace = null;
-            ImmigrationState = AvatarImmigrationState.Idle;
-            SpaceId = System.Guid.Empty;
-            SpaceNo = 0;
-            Position = default;
-            Rotation = Quaternion.Identity;
+            ImmigateCmpt = AddComponent(new ServerAvatarImmigateComponent());
+            TransformCmpt = AddComponent(new ServerAvatarTransformComponent());
+            SpaceCmpt = AddComponent(new ServerAvatarSpaceComponent());
+            SessionCmpt = AddComponent(new ServerAvatarSessionComponent());
+            AOIAgentCmpt = AddComponent(new ServerAvatarAOIAgentComponent());
         }
 
-        protected override void UnInitialize()
-        {
-            CancelSpaceRequest();
-            CurrentSpace = null;
-            base.UnInitialize();
-        }
-
-        public ServerSpaceComponent Space { get; }
-        public AOIAgentComponent AOIAgent { get; }
+        public ServerAvatarSessionComponent SessionCmpt { get; private set; }
+        public ServerAvatarImmigateComponent ImmigateCmpt { get; private set; }
+        public ServerAvatarTransformComponent TransformCmpt { get; private set; }
+        public ServerAvatarSpaceComponent SpaceCmpt { get; private set; }
+        public ServerAvatarAOIAgentComponent AOIAgentCmpt { get; private set; }
         
+        public override bool IsAllowImmigrate() => true;
+
         public EntityProxy Proxy { get; private set; }
 
         internal void AttachToGateServer(string bindingGate)
@@ -60,29 +45,5 @@ namespace DE.Server.Entities
             return AvatarRpcCaller.CallClient(this, methodId, argsPayload);
         }
 
-        [ServerRpc]
-        public virtual void OnAvatarLoginFinish()
-        {
-#if DEBUG
-            DELogger.Info(nameof(ServerAvatarEntity), $"Avatar login registration finished, avatarId={Guid}.");
-#endif
-        }
-
-        [ServerRpc]
-        public virtual void OnAvatarClientAttached(ulong clientSessionId)
-        {
-#if DEBUG
-            DELogger.Info(nameof(ServerAvatarEntity), $"Avatar client attached, avatarId={Guid}, clientSessionId={clientSessionId}.");
-#endif
-            EnterLoginSpace();
-        }
-
-        [ServerRpc]
-        public virtual void OnAvatarClientDetached(ulong clientSessionId, AvatarClientDetachReason reason)
-        {
-#if DEBUG
-            DELogger.Info(nameof(ServerAvatarEntity), $"Avatar client detached, avatarId={Guid}, clientSessionId={clientSessionId}, reason={reason}.");
-#endif
-        }
     }
 }

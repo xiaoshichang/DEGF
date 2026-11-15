@@ -1,24 +1,31 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using DE.Server.AOI;
 using DE.Server.NativeBridge;
 using DE.Share.Entities;
 
 namespace DE.Server.Entities
 {
-    public class AOISpaceComponent : ServerEntityComponent
+    public class ServerSpaceAOIComponent : ServerEntityComponent
     {
         public IAOISpace Space { get; private set; }
 
+        /// <summary>构造本地 AOI 模型字段，不建立事件依赖。</summary>
+        protected override void PreInitialize()
+        {
+            base.PreInitialize();
+            Space = CreateSpace();
+        }
+
+        /// <summary>建立 AOI 模型与空间实体间的可见性事件依赖。</summary>
         protected override void Initialize()
         {
             base.Initialize();
-            Space = CreateSpace();
             Space.AgentEventEnter += OnAgentEventEnter;
             Space.AgentEventLeave += OnAgentEventLeave;
         }
 
+        /// <summary>取消事件依赖并移除全部 Agent，模型字段保留至 PostUnInitialize。</summary>
         protected override void UnInitialize()
         {
             if (Space != null)
@@ -26,9 +33,15 @@ namespace DE.Server.Entities
                 Space.AgentEventEnter -= OnAgentEventEnter;
                 Space.AgentEventLeave -= OnAgentEventLeave;
                 Space.Clear();
-                Space = null;
             }
             base.UnInitialize();
+        }
+
+        /// <summary>依赖解除后释放 AOI 模型字段。</summary>
+        protected override void PostUnInitialize()
+        {
+            Space = null;
+            base.PostUnInitialize();
         }
 
         protected virtual IAOISpace CreateSpace()
@@ -43,11 +56,6 @@ namespace DE.Server.Entities
 
         public bool Enter(AOIAgent agent)
         {
-            if (!IsInitialized)
-            {
-                DELogger.Error(nameof(AOISpaceComponent), "Cannot enter an uninitialized AOI Space.");
-                return false;
-            }
             return Space.Enter(agent);
         }
 
@@ -61,44 +69,45 @@ namespace DE.Server.Entities
             return Space.Agents[observerId].ObservingAgents;
         }
 
-        public bool AddAOIAgent(ServerEntity entity)
+        public bool AddAOIAgent(ServerAvatarEntity entity)
         {
             var spaceId = OwnerEntity.Guid;
             if (entity == null)
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"Cannot publish a null entity, spaceId={spaceId}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), $"Cannot publish a null entity, spaceId={spaceId}.");
                 return false;
             }
             if (entity.Guid == spaceId)
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"A Space cannot publish itself as an AOI agent, spaceId={spaceId}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), $"A Space cannot publish itself as an AOI agent, spaceId={spaceId}.");
                 return false;
             }
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
             if (!runtime.Entities.TryGetValue(entity.Guid, out var registered))
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"Cannot publish an unregistered entity, spaceId={spaceId}, entityId={entity.Guid}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), $"Cannot publish an unregistered entity, spaceId={spaceId}, entityId={entity.Guid}.");
                 return false;
             }
             if (!ReferenceEquals(entity, registered))
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"Another entity uses this ID, spaceId={spaceId}, entityId={entity.Guid}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), $"Another entity uses this ID, spaceId={spaceId}, entityId={entity.Guid}.");
                 return false;
             }
             if (Contains(entity.Guid))
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"Entity is already published in AOI, spaceId={spaceId}, entityId={entity.Guid}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), $"Entity is already published in AOI, spaceId={spaceId}, entityId={entity.Guid}.");
                 return false;
             }
-            var component = entity.Components.OfType<AOIAgentComponent>().SingleOrDefault();
-            if (component == null)
+            var component = entity.AOIAgentCmpt;
+            if (component?.Agent == null)
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"Entity has no AOIAgentComponent, spaceId={spaceId}, entityId={entity.Guid}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), "Avatar has no initialized ServerAvatarAOIAgentComponent, "
+                    + $"spaceId={spaceId}, entityId={entity.Guid}.");
                 return false;
             }
-            if (entity is ISpatialEntity spatialEntity)
+            if (component.Agent.Space == null)
             {
-                component.Agent.Position = spatialEntity.Position;
+                component.Agent.Move(entity.TransformCmpt.Position);
             }
             return Enter(component.Agent);
         }
@@ -107,7 +116,7 @@ namespace DE.Server.Entities
         {
             if (entity == null)
             {
-                DELogger.Error(nameof(AOISpaceComponent), $"Cannot remove a null entity from AOI, spaceId={OwnerEntity.Guid}.");
+                DELogger.Error(nameof(ServerSpaceAOIComponent), $"Cannot remove a null entity from AOI, spaceId={OwnerEntity.Guid}.");
                 return false;
             }
             // Prepared migration candidates may leave without ever becoming visible.

@@ -5,28 +5,20 @@ namespace Assets.Scripts.Demo.Client.Entities
 {
     public partial class DemoAvatarEntity : ClientAvatarEntity
     {
-        public DemoAvatarEntity()
-        {
-            BasicInfo = AddComponent(new BasicInfoComponent());
-        }
-
-        [EntityProperty(EntityPropertyFlag.ClientServer)]
-        private string __HeadIcon;
-
-        [EntityProperty(EntityPropertyFlag.ClientServer)]
-        private int __Score;
-
+        /// <summary>构造基础信息组件并初始化其默认属性与字段。</summary>
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            HeadIcon = string.Empty;
-            Score = 0;
+            BasicInfo = AddComponent(new ClientAvatarBasicInfoComponent());
         }
 
+
+
+        /// <summary>在组件初始化完成后安装 Demo 空间加载回调。</summary>
         protected override void PostInitialize()
         {
             base.PostInitialize();
-            Spaces.Load = context =>
+            TransformCmpt.Spaces.Load = context =>
             {
                 // The Demo has no per-Space static resource mapping yet. Replace this loader to load resources by SpaceNo.
                 Assets.Scripts.DE.Client.Core.DELogger.Info("Space loading, spaceNo=" + context.SpaceNo + ", spaceId=" + context.Space.Guid);
@@ -34,6 +26,6 @@ namespace Assets.Scripts.Demo.Client.Entities
             };
         }
 
-        public BasicInfoComponent BasicInfo { get; }
+        public ClientAvatarBasicInfoComponent BasicInfo { get; private set; }
     }
 }

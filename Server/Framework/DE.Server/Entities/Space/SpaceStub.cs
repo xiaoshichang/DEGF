@@ -126,10 +126,11 @@ namespace DE.Server.Stubs
 
         private void SendResolution(Guid requestId, EntityMailBox avatarMailbox, SpaceEntityStubProxy spaceProxy, string error)
         {
-            ServerMailboxCaller.Call(avatarMailbox, nameof(ServerAvatarEntity.OnRequestedSpaceReady), requestId,
+            ServerMailboxCaller.Call(avatarMailbox, nameof(ServerAvatarSpaceComponent.OnRequestedSpaceReady), requestId,
                 spaceProxy?.MailBox ?? default(EntityMailBox), spaceProxy?.SpaceNo ?? 0, error);
         }
 
+        /// <summary>停止空间分配并清空代理、策略及请求结果缓存，然后清理组件。</summary>
         protected override void UnInitialize()
         {
             State = SpaceStubState.UnInitialized;

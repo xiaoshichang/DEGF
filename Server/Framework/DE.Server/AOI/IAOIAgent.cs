@@ -12,5 +12,7 @@ namespace DE.Server.AOI
         IAOISpace Space { get; }
         IReadOnlyCollection<AOIAgent> ObservingAgents { get; }
         IReadOnlyCollection<AOIAgent> Observers { get; }
+        bool Move(Vector3 position);
+        bool LeaveSpace();
     }
 }

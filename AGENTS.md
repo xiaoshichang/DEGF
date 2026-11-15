@@ -18,17 +18,25 @@
 ### 分布式实体与通信
 
 - `Entity` 以 `Guid` 唯一标识，提供属性描述和序列化能力；客户端和服务器分别派生 `ClientEntity`、`ServerEntity`。
-- 实体统一通过 `UnInitializeEntity()` 结束生命周期，由 `UnInitialize()` 清理自身资源，再按逆序清理组件；重复调用不重复执行。
+- 实体统一通过 `UnInitializeEntity()` 结束生命周期，依次执行 `PreUnInitialize()`、`UnInitialize()`、`PostUnInitialize()`；组件清理由对应的 base 阶段逐阶段逆序执行，重复或重入清理无效。
 - Avatar 分为 `ServerAvatarEntity`、`ClientAvatarEntity`，Npc 分为 `ServerNpcEntity`、`ClientNpcEntity`。同一角色的双端 Avatar 通过属性同步和 RPC 通信。
+- `ServerAvatarImmigateComponent` 封装 Avatar 迁移状态；`ServerAvatarSpaceComponent` 封装空间出入、请求及 `SpaceId` / `SpaceNo`；Transform 组件封装位置和旋转；
+- `[EntityProperty]` 可定义在 Entity 或 Component；组件属性以去掉 Server/Client 前缀的组件名作为序列化作用域。属性回调采用 `OnBeforeXChange` / `OnAfterXChange`。
 - `ServerAvatarEntity` 支持跨 Game 迁移；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
+- 初始化职责：`PreInitialize` 初始化实体属性和字段，构造组件并准备组件属性和字段，随后恢复身份及属性快照；`Initialize` 处理组件依赖初始化；`PostInitialize` 处理收尾逻辑。
+- 清理职责：`PreUnInitialize` 逆序撤销收尾逻辑并停止活动；`UnInitialize` 逆序解除组件依赖；`PostUnInitialize` 逆序清理属性、字段及组件挂载。实体清理入口顺序执行三个阶段，不捕获异常；任一阶段异常直接向外传播并中断后续阶段。
+- `EntityComponent` 不维护 `LifecycleState` 或 `IsInitialized`，生命周期入口直接调用对应阶段，不做组件状态检查。
+- 所有生命周期函数需有明确职责注释；派生类调用对应 base 方法，清理需容忍部分初始化状态。
+- 组件只允许在实体 `PreInitialize` 中添加，添加时立即执行组件 `PreInitialize`。组件后续五个阶段由 `ServerEntity` / `ClientEntity` 对应生命周期函数逐阶段调用；派生类调用对应的 base 方法。
 - `ServerEntity`、`ClientEntity` 分别管理 `ServerEntityComponent`、`ClientEntityComponent`，共享 `Entity` 不持有组件集合。
-- `ServerSpaceComponent`、`ClientSpaceComponent` 使用共享的 `SpatialState`；通用组件集合逻辑由共享对象 `EntityComponentCollection<T>` 提供。
+- `ServerAvatarTransformComponent`、`ClientAvatarTransformComponent` 使用共享的 `EntityTransform`；通用组件集合逻辑由共享对象 `EntityComponentCollection<T>` 提供。
 - 普通远端实体通过 `EntityMailBox` 固定寻址；Avatar 通过绑定 OwnerGate 的 `EntityProxy` 动态寻址。
 - 实体 RPC 由 `[ServerRpc]`、`[ClientRpc]` 显式暴露，调用和分发代码由 `DE.Share.EntityRpcSG` 生成。
 - `SystemCommand` 用于迁移、远程实体创建等框架操作，与实体 RPC 使用独立的消息和分发入口。
-- `SpaceStub` 直接管理空间实例，按 SpaceNo 规划常驻空间，通过创建策略选择 Game 并发起远程创建；空间完成创建后主动报告。
+- `SpaceStub` 直接管理空间实例，按 SpaceNo 规划常驻空间，通过创建策略选择 Game 并发起远程创建；空间注册后由创建命令处理流程报告 SpaceStub。
 - `SpaceEntityStubProxy` 表示 Space 在 Stub 上的代理，保存创建状态及统计；InitStub 一次发出全部创建请求，不使用待创建轮询。
 - `SpaceStub.Init.cs` 处理启动和创建确认，`SpaceStub.Stat.cs` 处理负载统计。空间每分钟上报 UTC 时间和当前人数，不维护版本戳。
+- `ServerSpaceAvatarManageComponent` 管理空间 Avatar 成员和进出，`ServerSpaceStatisticsComponent` 在组件初始化时启动每分钟人数上报，并在清理时注销定时器；实体分别通过 `AvatarManageCmpt`、`StatisticsCmpt` 引用。
 - 空间实体在服务端命名为 `ServerSpaceEntity`，客户端对应 `ClientSpaceEntity`；`ClientEntityFactory` 映射双端类型名。
 - 服务器入场成功后调用客户端 `OnEnterSpace` RPC，传递空间、Owner 和可见实体的 `EntitySerializer` 数据，不定义场景专用快照或编解码器。
 - Game 发出创建响应后才执行会话绑定回调并主动入场；Gate 按连接顺序发送 LoginRsp 和后续 Avatar RPC，确保客户端先创建 Avatar。
@@ -37,7 +45,7 @@
 - 服务器 Avatar 使用 `OnBeforeEnterSpace` / `OnAfterEnterSpace`、`OnBeforeLeaveSpace` / `OnAfterLeaveSpace` 回调；入场通知由 `OnAfterEnterSpace` 发起。
 - 迁移目标激活时只预留成员关系，Gate 提交路由后才注册 AOIAgent 并执行 `OnAfterEnterSpace`；AOI 不维护 Avatar 入场完成状态。
 - `Teleport` 返回 `TeleportErrorCode`，由调用方记录错误或提示玩家；跨 Game 的 Success 仅表示迁移发起成功，后续结果由异步协议处理。
-- AOI 模型位于 `DE.Server/AOI`，实体组件位于 `Entities/Space/AOI`；模型通过 `AgentEventEnter`、`AgentEventLeave` 报告可见性变化。
+- AOI 模型位于 `DE.Server/AOI`；Avatar 使用 `Entities/Avatar/ServerAvatarAOIAgentComponent`，Npc 暂不装配 AOI 组件；空间组件位于 `Entities/Space`。公共状态、移动和离场逻辑封装在 `AOIAgent` 中；模型通过 `AgentEventEnter`、`AgentEventLeave` 报告可见性变化。
 
 ## 模块与依赖边界
 
@@ -78,7 +86,7 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 - `DE.Share.Foundation`、`DE.Share`、`DE.Share.DataFramework`、`DE.Share.Data` 链接 Unity 框架目录中的共享源码。
 - `Demo.Share.Data` 链接 Unity Demo 目录中的共享数据源码。修改共享类型时直接修改这些源文件，不维护服务端副本。
 - `DE.Share.EntityPropertySG`、`DE.Share.EntityRpcSG`、`DE.Share.DataTableSG` 分别生成属性序列化、RPC 和配置表代码。
-- `DE.Share.Tests`、`DE.Server.Tests` 为 xUnit 测试工程。
+- `DE.Share.Tests` 保留共享层测试工程；当前阶段仅做编译验证，不新增或运行测试。
 
 ### 数据、配置与启动脚本
 
@@ -99,7 +107,6 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 
 ```powershell
 dotnet build Server/Framework/Framework.sln -c Debug
-dotnet test Server/Framework/Framework.sln -c Debug --no-build --no-restore
 ```
 
 也可使用 `Server/Framework/build_framework.bat Debug`。局部修改可先构建受影响的 `.csproj`。
@@ -127,7 +134,7 @@ cmd /d /c "call Server\Engine\build_test.bat Debug <nul"
 该脚本只同步 `DE.Share.DataTableSG.dll` 和 `ExcelDataReader.dll`，其他生成器需单独同步。
 不要手改生成的 C# 文件或 Unity 自动生成的工程文件。
 共享源码修改需验证客户端与服务端；NativeBridge API 表、结构布局或消息协议修改需同步检查 C++ 和 C# 两端，并重新构建。
-按改动范围运行现有测试；仅文档修改无需编译。
+当前阶段仅按改动范围编译验证，不新增或运行测试；仅文档修改无需编译。
 
 ## 编码规范
 
@@ -135,7 +142,7 @@ cmd /d /c "call Server\Engine\build_test.bat Debug <nul"
 2. 目录名和文件名禁止中文。
 3. 类名和函数名采用大写驼峰，修改已有类型时保持周边命名风格。
 4. 单行最大长度为 160 个字符。
-5. Entity 和 Component 的 `PreInitialize`、`Initialize`、`PostInitialize`、`UnInitialize` 等核心生命周期函数必须放在类型主文件中。
+5. Entity 和 Component 的 `PreInitialize`、`Initialize`、`PostInitialize`、`PreUnInitialize`、`UnInitialize`、`PostUnInitialize` 六个核心生命周期函数必须放在类型主文件中。
    不能放在功能拆分的 partial 文件中；功能逻辑可按现有目录结构拆分。
 6. 初始化和清理遵循依赖顺序：先清理实体和节点，再关闭数据服务，最后注销程序集解析与异常处理、重置身份信息。
 7. 异常处理放在需要恢复、补充上下文或跨语言边界的位置，避免给普通顺序逻辑添加冗余的 try 保护。

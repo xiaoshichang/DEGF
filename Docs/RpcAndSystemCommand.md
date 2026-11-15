@@ -90,10 +90,19 @@ An identical repeated CreateEntity command still resends the confirmation and re
 ServerSpaceEntity sends an initial statistic and repeats every 60 seconds through SpaceStub.ReportSpaceStat.
 Reports carry Mailbox, SpaceNo, UTC Unix milliseconds and current player count. SpaceEntityStubProxy stores PlayerCount and ReportTimeMilliseconds.
 The Stub validates the planned identity and host, ignores reports older than the stored report time, and never uses a revision counter.
-Membership changes no longer trigger immediate reports. Entity.UnInitializeEntity cancels Space statistics timers through its UnInitialize hook.
+Membership changes no longer trigger immediate reports. Entity.UnInitializeEntity cancels Space statistics timers through its PreUnInitialize hook.
 Game runtime teardown invokes the same lifecycle for Stubs, registered entities and unregistered migration candidates, deduplicating shared references.
-Entity and component lifecycle states prevent repeated cleanup and reuse. Components clean up in reverse order and release their owner references.
-Initialization failures clean up partially initialized entities; cleanup continues across entities/components before reporting aggregated errors.
+Entity lifecycle state prevents repeated cleanup and reuse; components carry no lifecycle state or initialization flag. `PreInitialize` prepares entity fields,
+constructs components and immediately prepares each component's fields without component dependencies. Snapshot restoration
+follows this stage. `Initialize` processes dependencies after all components have been constructed and properties restored;
+`PostInitialize` runs finalization after all component dependency initialization has finished.
+Cleanup reverses this order: `PreUnInitialize` undoes finalization and stops activity, `UnInitialize` releases dependencies,
+and `PostUnInitialize` clears fields and detaches components. Each stage runs across components in reverse assembly order
+before the next stage begins. Component collections aggregate errors within the current phase;
+`UnInitializeEntity` does not catch exceptions, so a failed phase interrupts subsequent phases.
+`ServerEntity` and `ClientEntity` drive components from their corresponding lifecycle methods. Components can only be added
+in entity `PreInitialize`; derived entities call the corresponding base methods.
+Callers clean up partially initialized entities through the same lifecycle entry point.
 
 Avatar allocation requests use SpaceStub.RequestSpaceByNo/RequestSpaceById RPCs; the reply invokes ServerAvatarEntity.OnRequestedSpaceReady through its Mailbox.
 Space allocation and reporting do not use SystemCommand, and GameServerRuntimeState has no Space management partial or protocol.
@@ -102,7 +111,7 @@ Space allocation and reporting do not use SystemCommand, and GameServerRuntimeSt
 
 ServerAvatarEntity and ClientAvatarEntity are separate types, as are ServerNpcEntity and ClientNpcEntity.
 ServerEntity and ClientEntity manage their respective ServerEntityComponent and ClientEntityComponent collections.
-Shared SpatialState and EntityComponentCollection objects provide common logic without sharing concrete components.
+Shared EntityTransform and EntityComponentCollection objects provide common logic without sharing concrete components.
 
 After entry or migration commit, ServerAvatarEntity.OnAfterEnterSpace invokes ClientAvatarEntity.OnEnterSpace through an entity RPC.
 Space membership changes are bracketed by OnBeforeEnterSpace/OnAfterEnterSpace and OnBeforeLeaveSpace/OnAfterLeaveSpace.

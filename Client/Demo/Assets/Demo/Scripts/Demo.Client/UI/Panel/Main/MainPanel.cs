@@ -56,10 +56,10 @@ namespace Assets.Scripts.Demo.Client.UI
             }
 
             DemoAvatarEntity avatar = accountInfo.Avatar as DemoAvatarEntity;
-            string headIcon = avatar == null || string.IsNullOrEmpty(avatar.HeadIcon)
+            string headIcon = avatar == null || string.IsNullOrEmpty(avatar.BasicInfo.HeadIcon)
                 ? "--"
-                : avatar.HeadIcon;
-            string score = avatar == null ? "--" : avatar.Score.ToString();
+                : avatar.BasicInfo.HeadIcon;
+            string score = avatar == null ? "--" : avatar.BasicInfo.Score.ToString();
 
             _AvatarInfoText.text =
                 "Avatar Guid: " + accountInfo.Avatar.Guid

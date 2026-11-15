@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using DE.Server.Entities;
+using DE.Server.Stubs;
 
 namespace DE.Server.NativeBridge
 {
@@ -32,7 +33,9 @@ namespace DE.Server.NativeBridge
                     {
                         if (existing is ServerSpaceEntity existingSpace)
                         {
-                            existingSpace.CompleteCreation();
+                            ServerStubCaller.Call(nameof(SpaceStub), nameof(SpaceStub.ReportSpaceCreated),
+                                existingSpace.MailBox, existingSpace.SpaceNo);
+                            existingSpace.StatisticsCmpt.ReportStatistics();
                         }
                         return true;
                     }
@@ -63,7 +66,8 @@ namespace DE.Server.NativeBridge
                 RegisterLocalEntity(entity);
                 if (entity is ServerSpaceEntity space)
                 {
-                    space.CompleteCreation();
+                    ServerStubCaller.Call(nameof(SpaceStub), nameof(SpaceStub.ReportSpaceCreated), space.MailBox, space.SpaceNo);
+                    space.StatisticsCmpt.ReportStatistics();
                 }
                 return true;
             }

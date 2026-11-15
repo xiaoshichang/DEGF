@@ -442,8 +442,8 @@ namespace DE.Server.NativeBridge
             }
 
             AvatarClientSessionIds[avatar.Guid] = clientSessionId;
-            avatar.CancelSpaceRequest();
-            avatar.OnAvatarClientAttached(clientSessionId);
+            avatar.SpaceCmpt.CancelSpaceRequest();
+            avatar.SessionCmpt.OnAvatarClientAttached(clientSessionId);
             return true;
         }
 

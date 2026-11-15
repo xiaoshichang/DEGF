@@ -2,6 +2,16 @@
 
 本文档描述 DEGF 中 `ServerAvatarEntity` 从一个 Game 节点迁移到另一个 Game 节点，并在迁移完成后进入目标 `ServerSpaceEntity` 的方案。文档中的“源 Game”表示迁移开始时承载 Avatar 的 Game，“目标 Game”表示目标 Space 所在的 Game，“OwnerGate”表示 Avatar 的 `EntityProxy.BindingGate` 指向的 Gate。
 
+## 组件边界
+
+`ServerAvatarEntity` 负责组件装配、MailBox / Proxy 和 RPC 发送。`ServerAvatarImmigateComponent` 保存迁移状态、迁移编号和目标空间；`ServerAvatarSpaceComponent` 保存 `SpaceId`、`SpaceNo` 及当前空间，处理空间请求和进出回调；`ServerAvatarTransformComponent` 保存位置和旋转；`ServerAvatarSessionComponent` 处理会话通知。
+
+客户端由 `ClientAvatarSpaceComponent` 接收空间标识属性，`ClientAvatarTransformComponent` 处理变换、空间加载和 AOI 通知。双端 Transform 组件复用共享 `EntityTransform`，不依赖 Unity 类型。
+
+Entity 和 Component 均可声明 `[EntityProperty]`。组件属性使用去掉 Server / Client 前缀的组件名加属性名作为稳定键，不同组件可以声明同名属性。组件在实体 PreInitialize 中构造并准备默认值，随后恢复数据直接写入字段，不触发 `OnBeforeXChange` / `OnAfterXChange`。组件默认值在组件 PreInitialize 中设置；Initialize 只处理依赖，避免覆盖恢复数据。
+
+本次调整改变了 Avatar 属性的序列化键，客户端和服务器需同步更新；旧版 Avatar 属性快照不能直接按新作用域恢复。
+
 ## 设计结论
 
 迁移采用由源 Game 驱动、OwnerGate 充当路由屏障、目标 Game 预创建实体的分阶段提交协议。第一版固定以 `EntityMailBox` 指定目标 Space；迁移成功后的标准行为是进入该 Space，不支持业务自定义完成回调。
@@ -292,10 +302,12 @@ RPC 携带空间类型名及其 `Broadcase` 序列化数据、OwnerSync 数据�
 
 ## 实体注册生命周期
 
-`ServerEntity`、`ServerAvatarEntity`、`ServerNpcEntity` 和 `ServerSpaceEntity` 的构造函数只组装组件和保留输入，不调用虚方法或自动注册。
-创建方先调用 `InitializeEntity`：实体 `PreInitialize` 设置默认属性，恢复序列化数据后执行实体 `Initialize`，
-再由 `ServerEntity` 的组件集合执行组件三阶段，最后执行实体 `PostInitialize`。
-`ClientEntity` 使用对应的客户端组件集合；组件不声明 EntityProperty，所有同步字段由 Entity 持有。完成初始化后统一调用：
+实体构造函数只保留输入，不组装组件、不调用虚方法，也不自动注册。
+创建方调用 `InitializeEntity`：实体 `PreInitialize` 初始化属性和字段并构造组件，组件挂载时立即执行其 `PreInitialize`。
+随后恢复实体身份和 EntityProperty 快照，再由实体 `Initialize` 处理各组件的依赖初始化，实体 `PostInitialize` 处理收尾逻辑。
+`ClientEntity` 使用同样的阶段顺序；Entity 和 Component 都可以声明 EntityProperty。
+清理按 `PreUnInitialize`、`UnInitialize`、`PostUnInitialize` 分阶段逆序撤销收尾、解除依赖、清理字段和组件引用。
+完成初始化后统一调用：
 
 ```csharp
 gameRuntimeState.RegisterLocalEntity(entity);

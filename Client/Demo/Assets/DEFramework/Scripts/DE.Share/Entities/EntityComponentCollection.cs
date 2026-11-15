@@ -12,9 +12,9 @@ namespace DE.Share.Entities
 
         public T Add<T>(Entity owner, T component) where T : TComponent
         {
-            if (owner.LifecycleState != EntityLifecycleState.Created)
+            if (!owner.IsPreInitializing || owner.LifecycleState != EntityLifecycleState.Initializing)
             {
-                throw new InvalidOperationException("Components must be constructed before entity initialization starts.");
+                throw new InvalidOperationException("Components must be constructed during entity PreInitialize.");
             }
             if (component == null)
             {
@@ -28,6 +28,7 @@ namespace DE.Share.Entities
             component.Attach(owner);
             _components.Add(component);
             _componentsByType.Add(type, component);
+            component.PreInitializeComponent();
             return component;
         }
 
@@ -42,6 +43,7 @@ namespace DE.Share.Entities
             return false;
         }
 
+        /// <summary>在实体 Initialize 中按装配顺序处理各组件的依赖初始化。</summary>
         public void Initialize()
         {
             foreach (var component in _components)
@@ -50,14 +52,49 @@ namespace DE.Share.Entities
             }
         }
 
+        /// <summary>在实体 PostInitialize 中按装配顺序处理各组件的收尾逻辑。</summary>
+        public void PostInitialize()
+        {
+            foreach (var component in _components)
+            {
+                component.PostInitializeComponent();
+            }
+        }
+
+        /// <summary>在实体 PreUnInitialize 中逆序撤销组件收尾逻辑，单个组件失败不阻断其他组件。</summary>
+        public void PreUnInitialize()
+        {
+            RunCleanup(static component => component.PreUnInitializeComponent());
+        }
+
+        /// <summary>在实体 UnInitialize 中逆序解除各组件的依赖关系。</summary>
         public void UnInitialize()
+        {
+            RunCleanup(static component => component.UnInitializeComponent());
+        }
+
+        /// <summary>在实体 PostUnInitialize 中逆序清理组件字段并解除挂载，最终清空组件集合。</summary>
+        public void PostUnInitialize()
+        {
+            try
+            {
+                RunCleanup(static component => component.PostUnInitializeComponent());
+            }
+            finally
+            {
+                _components.Clear();
+                _componentsByType.Clear();
+            }
+        }
+
+        private void RunCleanup(Action<TComponent> cleanup)
         {
             List<Exception> errors = null;
             for (int index = _components.Count - 1; index >= 0; index--)
             {
                 try
                 {
-                    _components[index].UnInitializeComponent();
+                    cleanup(_components[index]);
                 }
                 catch (Exception exception)
                 {

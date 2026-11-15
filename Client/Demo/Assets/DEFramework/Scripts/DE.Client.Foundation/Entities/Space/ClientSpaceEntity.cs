@@ -32,6 +32,7 @@ namespace DE.Client.Entities
             }
         }
 
+        /// <summary>移除并清理可见实体，解除空间事件订阅，然后清理组件。</summary>
         protected override void UnInitialize()
         {
             foreach (var id in new List<Guid>(_entities.Keys))

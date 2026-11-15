@@ -150,7 +150,7 @@ namespace DE.Share.Tests
 
             public int ClientServerValueChangedCount { get; private set; }
 
-            partial void OnClientServerValueChanged(int value)
+            partial void OnAfterClientServerValueChange(int value)
             {
                 ClientServerValueChangedCount++;
             }

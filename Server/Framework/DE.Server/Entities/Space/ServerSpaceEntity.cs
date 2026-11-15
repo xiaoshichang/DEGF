@@ -1,5 +1,4 @@
-﻿using System;
-using DE.Server.Stubs;
+using System;
 using DE.Share.Data;
 using DE.Share.DataFramework;
 using DE.Share.Entities;
@@ -9,7 +8,7 @@ namespace DE.Server.Entities
     public struct SpaceInitializer
     {
         public int SpaceNo;
-        public AOISpaceComponent AOISpaceComponent;
+        public ServerSpaceAOIComponent ServerSpaceAOIComponent;
     }
     
     public partial class ServerSpaceEntity : ServerEntity
@@ -17,35 +16,35 @@ namespace DE.Server.Entities
         public ServerSpaceEntity(SpaceInitializer initializer)
         {
             _initializer = initializer;
-            AOISpace = AddComponent(initializer.AOISpaceComponent ?? new AOISpaceComponent());
         }
 
-        public AOISpaceComponent AOISpace { get; }
+        public ServerSpaceAOIComponent AOISpace { get; private set; }
+        public ServerSpaceAvatarManageComponent AvatarManageCmpt { get; private set; }
+        public ServerSpaceStatisticsComponent StatisticsCmpt { get; private set; }
 
+        /// <summary>设置空间编号和默认字段，构造空间组件并准备组件默认属性。</summary>
         protected override void PreInitialize()
         {
             base.PreInitialize();
             SpaceNo = _initializer.SpaceNo;
-            _dataRow = DataRuntime.GetTable<SpaceDataTable>().GetRow(DataTableKey.FromInt32(SpaceNo));
-        }
-
-        internal void CompleteCreation()
-        {
-            StartStatistics();
-            ServerStubCaller.Call(nameof(SpaceStub), nameof(SpaceStub.ReportSpaceCreated), MailBox, SpaceNo);
-            ReportStatistics();
-        }
-
-        protected override void UnInitialize()
-        {
-            StopStatistics();
-            foreach (var avatar in _avatars.Values)
-            {
-                avatar.CurrentSpace = null;
-            }
-            _avatars.Clear();
             _dataRow = null;
-            base.UnInitialize();
+            AOISpace = AddComponent(_initializer.ServerSpaceAOIComponent ?? new ServerSpaceAOIComponent());
+            AvatarManageCmpt = AddComponent(new ServerSpaceAvatarManageComponent());
+            StatisticsCmpt = AddComponent(new ServerSpaceStatisticsComponent());
+        }
+
+        /// <summary>组件和默认字段准备完成、属性恢复后，加载空间配置并初始化组件依赖。</summary>
+        protected override void Initialize()
+        {
+            _dataRow = DataRuntime.GetTable<SpaceDataTable>().GetRow(DataTableKey.FromInt32(SpaceNo));
+            base.Initialize();
+        }
+
+        /// <summary>组件清理完成后释放空间配置引用。</summary>
+        protected override void PostUnInitialize()
+        {
+            _dataRow = null;
+            base.PostUnInitialize();
         }
 
         public ServerSpaceEntity(object entityDocument) : base(entityDocument)

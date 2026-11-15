@@ -23,6 +23,21 @@ namespace DE.Server.AOI
         public IReadOnlyCollection<AOIAgent> ObservingAgents => _observingAgentsById.Values;
         public IReadOnlyCollection<AOIAgent> Observers => _observersById.Values;
 
+        public bool Move(Vector3 position)
+        {
+            if (Space == null)
+            {
+                Position = position;
+                return true;
+            }
+            return Space.Move(this, position);
+        }
+
+        public bool LeaveSpace()
+        {
+            return Space?.Leave(this) ?? false;
+        }
+
         internal bool IsObserving(AOIAgent target)
         {
             return _observingAgentsById.ContainsKey(target.Id);

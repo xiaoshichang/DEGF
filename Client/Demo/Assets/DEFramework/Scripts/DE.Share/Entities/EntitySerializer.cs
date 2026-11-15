@@ -17,8 +17,8 @@ namespace DE.Share.Entities
     {
         private const ushort CurrentVersion = 1;
 
-        private static readonly Dictionary<Type, EntityPropertyMember[]> s_Members =
-            new Dictionary<Type, EntityPropertyMember[]>();
+        private static readonly Dictionary<(Type, string), EntityPropertyMember[]> s_Members =
+            new Dictionary<(Type, string), EntityPropertyMember[]>();
 
         public static byte[] Serialize(Entity entity, EntitySerializeReason reason)
         {
@@ -143,6 +143,17 @@ namespace DE.Share.Entities
                 accessors.Add(entityMembers[i].CreateAccessor(entity));
             }
 
+            if (entity is IEntityComponentProvider provider)
+            {
+                foreach (var component in provider.PropertyComponents)
+                {
+                    foreach (var member in GetMembers(component.GetType(), component.PropertyScope))
+                    {
+                        accessors.Add(member.CreateAccessor(component));
+                    }
+                }
+            }
+
             accessors.Sort(CompareAccessor);
             EnsureUniquePropertyIds(entity.GetType(), accessors);
             return accessors.ToArray();
@@ -164,10 +175,10 @@ namespace DE.Share.Entities
         {
             lock (s_Members)
             {
-                if (!s_Members.TryGetValue(ownerType, out EntityPropertyMember[] members))
+                if (!s_Members.TryGetValue((ownerType, propertyScope), out EntityPropertyMember[] members))
                 {
                     members = BuildMembers(ownerType, propertyScope);
-                    s_Members.Add(ownerType, members);
+                    s_Members.Add((ownerType, propertyScope), members);
                 }
 
                 return members;

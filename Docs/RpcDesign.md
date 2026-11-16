@@ -111,7 +111,7 @@ RPC 生成器位于独立的 `DE.Share.EntityRpcSG` 项目，与 `DE.Share.Entit
 Generator 扫描以下目标：
 
 1. 标记了 RPC Attribute 的方法。
-2. 方法所在类型必须是 `Entity`、`EntityComponent`、`ServerEntity`、`ServerStubEntity`、`ClientEntity` 或 Avatar 派生类型。
+2. 实体方法使用服务端 `ServerEntity` 或客户端 `ClientEntity` 继承链，组件分别使用 `ServerEntityComponent` 或 `ClientEntityComponent`。
 3. 方法必须是实例方法。
 4. 方法必须返回 `void`。
 5. 方法不能是泛型方法。

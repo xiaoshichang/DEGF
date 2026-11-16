@@ -7,7 +7,7 @@ public partial class DemoAvatarEntity : ServerAvatarEntity
     protected override void PreInitialize()
     {
         base.PreInitialize();
-        BasicInfo = AddComponent(new ServerAvatarBasicInfoComponent());
+        BasicInfo = AddComponent(new ServerAvatarBasicInfoComponent(), nameof(BasicInfo));
     }
 
     public ServerAvatarBasicInfoComponent BasicInfo { get; private set; } = null!;

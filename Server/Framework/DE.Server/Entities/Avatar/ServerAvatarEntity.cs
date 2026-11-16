@@ -16,11 +16,11 @@ namespace DE.Server.Entities
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            ImmigateCmpt = AddComponent(new ServerAvatarImmigateComponent());
-            TransformCmpt = AddComponent(new ServerAvatarTransformComponent());
-            SpaceCmpt = AddComponent(new ServerAvatarSpaceComponent());
-            SessionCmpt = AddComponent(new ServerAvatarSessionComponent());
-            AOIAgentCmpt = AddComponent(new ServerAvatarAOIAgentComponent());
+            ImmigateCmpt = AddComponent(new ServerAvatarImmigateComponent(), nameof(ImmigateCmpt));
+            TransformCmpt = AddComponent(new ServerAvatarTransformComponent(), nameof(TransformCmpt));
+            SpaceCmpt = AddComponent(new ServerAvatarSpaceComponent(), nameof(SpaceCmpt));
+            SessionCmpt = AddComponent(new ServerAvatarSessionComponent(), nameof(SessionCmpt));
+            AOIAgentCmpt = AddComponent(new ServerAvatarAOIAgentComponent(), nameof(AOIAgentCmpt));
         }
 
         public ServerAvatarSessionComponent SessionCmpt { get; private set; }

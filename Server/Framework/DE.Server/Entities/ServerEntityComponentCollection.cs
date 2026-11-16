@@ -1,16 +1,18 @@
 using System;
 using System.Collections.Generic;
 
-namespace DE.Share.Entities
+namespace DE.Server.Entities
 {
-    public sealed class EntityComponentCollection<TComponent> where TComponent : EntityComponent
+    public sealed class ServerEntityComponentCollection<TComponent> where TComponent : ServerEntityComponent
     {
         private readonly List<TComponent> _components = new List<TComponent>();
         private readonly Dictionary<Type, TComponent> _componentsByType = new Dictionary<Type, TComponent>();
 
+        private readonly Dictionary<string, TComponent> _componentsByPropertyName = new Dictionary<string, TComponent>(StringComparer.Ordinal);
+
         public IReadOnlyList<TComponent> Items => _components;
 
-        public T Add<T>(Entity owner, T component) where T : TComponent
+        public T Add<T>(ServerEntity owner, T component, string ownerPropertyName) where T : TComponent
         {
             if (!owner.IsPreInitializing || owner.LifecycleState != EntityLifecycleState.Initializing)
             {
@@ -20,14 +22,23 @@ namespace DE.Share.Entities
             {
                 throw new ArgumentNullException(nameof(component));
             }
+            if (string.IsNullOrEmpty(ownerPropertyName))
+            {
+                throw new ArgumentException("The owning component property name is required.", nameof(ownerPropertyName));
+            }
+            if (_componentsByPropertyName.ContainsKey(ownerPropertyName))
+            {
+                throw new InvalidOperationException("Entity component property already exists: " + ownerPropertyName);
+            }
             var type = component.GetType();
             if (_componentsByType.ContainsKey(type))
             {
-                throw new InvalidOperationException("Entity component already exists: " + type.FullName);
+                throw new InvalidOperationException("ServerEntity component already exists: " + type.FullName);
             }
-            component.Attach(owner);
+            component.Attach(owner, ownerPropertyName);
             _components.Add(component);
             _componentsByType.Add(type, component);
+            _componentsByPropertyName.Add(ownerPropertyName, component);
             component.PreInitializeComponent();
             return component;
         }
@@ -84,6 +95,7 @@ namespace DE.Share.Entities
             {
                 _components.Clear();
                 _componentsByType.Clear();
+                _componentsByPropertyName.Clear();
             }
         }
 
@@ -104,7 +116,7 @@ namespace DE.Share.Entities
             }
             if (errors != null)
             {
-                throw new AggregateException("Entity component cleanup failed.", errors);
+                throw new AggregateException("ServerEntity component cleanup failed.", errors);
             }
         }
     }

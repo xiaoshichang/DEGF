@@ -20,3 +20,12 @@ Demo 通过 `ApplicationRoot.RegisterGameplay` 注册业务程序集和 `GameIns
 
 在 Unity 中刷新资源并重新生成 IDE 项目文件后，可构建 `Demo/Demo.sln`。
 启动注册的回归验证位于 Unity Test Runner 的 EditMode 测试 `Demo.Client.Tests.GameplayRegistrationTests`。
+
+实体框架从 `DE.Client.Foundation/Entities/ClientEntity` 开始派生，组件从 `ClientEntityComponent` 派生。
+客户端独立维护生命周期、组件集合、EntityPropertyAttribute / EntityPropertyFlag 和 EntitySerializer。
+服务器在 DE.Server.Entities 内实现对应类型，双端使用版本 3 的实体快照。
+EntityPropertySG 生成双方属性、逐类元数据和直接字段读写委托；通过组件名哈希与属性名哈希定位属性，不分配递增 ID。
+名称哈希均为 UTF-8 FNV-1a 64 位；组件标识使用实体持有它的属性名，如 `TransformCmpt`，装配时通过 `nameof` 绑定；实体本身使用空组件名。
+组件类名、装配顺序、继承层次和单端属性数量可以不同；对应属性保留相同组件持有属性名、同步属性名、兼容的值类型及同步标记即可。
+长度字段支持跳过未知组件和属性，缺失属性保留当前值；已知属性不兼容或报文结构错误时整包拒绝，不写入任何属性。
+共享组件功能对象位于 `DE.Share/Components`，如 EntityTransform，通过组合用于双端具体组件。

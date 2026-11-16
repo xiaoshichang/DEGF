@@ -1,5 +1,4 @@
 using DE.Client.Entities;
-using DE.Share.Entities;
 using DE.Share.Rpc;
 
 namespace Assets.Scripts.Demo.Client.Entities

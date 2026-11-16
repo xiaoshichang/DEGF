@@ -5,7 +5,6 @@ using Assets.Scripts.DE.Client.Core;
 using DE.Client.Entities;
 using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Share;
-using DE.Share.Entities;
 using DE.Share.Rpc;
 using DE.Share.Utils;
 using UnityEngine;

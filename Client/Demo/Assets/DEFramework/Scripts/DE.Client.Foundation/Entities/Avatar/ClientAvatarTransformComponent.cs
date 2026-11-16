@@ -1,6 +1,6 @@
+using DE.Share.Components;
 using System;
 using DE.Share.Rpc;
-using DE.Share.Entities;
 using DE.Share.Foundation.Mathematics;
 
 namespace DE.Client.Entities

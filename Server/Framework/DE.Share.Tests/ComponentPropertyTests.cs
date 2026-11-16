@@ -1,5 +1,4 @@
-using System.Collections.Generic;
-using DE.Share.Entities;
+using DE.Server.Entities;
 using Xunit;
 
 namespace DE.Share.Tests
@@ -37,53 +36,28 @@ namespace DE.Share.Tests
             Assert.Equal(1, targetComponent.AfterChanges);
         }
 
-        private sealed class ComponentEntity : Entity, IEntityComponentProvider
+        private sealed class ComponentEntity : ServerEntity
         {
-            private readonly EntityComponentCollection<EntityComponent> _components = new EntityComponentCollection<EntityComponent>();
-
-            public ComponentEntity(EntityComponent first, OtherComponent other)
+            public ComponentEntity(ServerEntityComponent first, OtherComponent other)
             {
                 First = first;
                 Other = other;
             }
 
-            public EntityComponent First { get; }
+            public ServerEntityComponent First { get; }
             public OtherComponent Other { get; }
-            public IEnumerable<EntityComponent> PropertyComponents => _components.Items;
+            public override bool IsAllowImmigrate() => false;
+
+            /// <summary>Prepare the supplied fixture components before restoring their properties.</summary>
             protected override void PreInitialize()
             {
                 base.PreInitialize();
-                _components.Add(this, First);
-                _components.Add(this, Other);
-            }
-            protected override void PostInitialize()
-            {
-                base.PostInitialize();
-                _components.PostInitialize();
-            }
-            protected override void PreUnInitialize()
-            {
-                _components.PreUnInitialize();
-                base.PreUnInitialize();
-            }
-            protected override void PostUnInitialize()
-            {
-                _components.PostUnInitialize();
-                base.PostUnInitialize();
-            }
-            protected override void Initialize()
-            {
-                base.Initialize();
-                _components.Initialize();
-            }
-            protected override void UnInitialize()
-            {
-                _components.UnInitialize();
-                base.UnInitialize();
+                AddComponent(First, nameof(First));
+                AddComponent(Other, nameof(Other));
             }
         }
 
-        private sealed partial class ServerTestTransformComponent : EntityComponent
+        private sealed partial class ServerTestTransformComponent : ServerEntityComponent
         {
             [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients)]
             private int __Value;
@@ -92,13 +66,13 @@ namespace DE.Share.Tests
             private int __ServerValue;
         }
 
-        private sealed partial class OtherComponent : EntityComponent
+        private sealed partial class OtherComponent : ServerEntityComponent
         {
             [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients)]
             private int __Value;
         }
 
-        private sealed partial class ClientTestTransformComponent : EntityComponent
+        private sealed partial class ClientTestTransformComponent : ServerEntityComponent
         {
             [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients)]
             private int __Value = -1;

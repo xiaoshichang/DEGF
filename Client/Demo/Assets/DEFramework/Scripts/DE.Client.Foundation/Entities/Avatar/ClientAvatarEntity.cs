@@ -17,8 +17,8 @@ namespace DE.Client.Entities
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            SpaceCmpt = AddComponent(new ClientAvatarSpaceComponent());
-            TransformCmpt = AddComponent(new ClientAvatarTransformComponent());
+            SpaceCmpt = AddComponent(new ClientAvatarSpaceComponent(), nameof(SpaceCmpt));
+            TransformCmpt = AddComponent(new ClientAvatarTransformComponent(), nameof(TransformCmpt));
         }
 
         public ClientAvatarSpaceComponent SpaceCmpt { get; private set; }

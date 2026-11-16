@@ -17,19 +17,26 @@
 
 ### 分布式实体与通信
 
-- `Entity` 以 `Guid` 唯一标识，提供属性描述和序列化能力；客户端和服务器分别派生 `ClientEntity`、`ServerEntity`。
+- `ServerEntity`、`ClientEntity` 分别作为双端实体继承根，以 `Guid` 唯一标识，各自实现生命周期、组件管理、属性描述和序列化。
 - 实体统一通过 `UnInitializeEntity()` 结束生命周期，依次执行 `PreUnInitialize()`、`UnInitialize()`、`PostUnInitialize()`；组件清理由对应的 base 阶段逐阶段逆序执行，重复或重入清理无效。
 - Avatar 分为 `ServerAvatarEntity`、`ClientAvatarEntity`，Npc 分为 `ServerNpcEntity`、`ClientNpcEntity`。同一角色的双端 Avatar 通过属性同步和 RPC 通信。
 - `ServerAvatarImmigateComponent` 封装 Avatar 迁移状态；`ServerAvatarSpaceComponent` 封装空间出入、请求及 `SpaceId` / `SpaceNo`；Transform 组件封装位置和旋转；
-- `[EntityProperty]` 可定义在 Entity 或 Component；组件属性以去掉 Server/Client 前缀的组件名作为序列化作用域。属性回调采用 `OnBeforeXChange` / `OnAfterXChange`。
+- 双端各自定义 `[EntityProperty]` 及属性标记，可用于实体或组件；SG 生成每层类的属性元数据和直接字段读写委托。
+  属性通过“实体上持有组件的属性名哈希 + 组件内同步属性名哈希”定位，均采用 UTF-8 FNV-1a 64 位算法；SG 输出同步属性名哈希常量，不分配递增 ID。
+  不同组件允许同名属性，不做跨组件重名 analyzer 检查；继承合并后的属性哈希及实体内组件哈希冲突由运行时明确拒绝。
+  属性回调采用 `OnBeforeXChange` / `OnAfterXChange`；快照恢复通过生成的委托直接写字段，不触发回调。
+- 实体快照采用 v3：组件以实体上的持有属性名计算哈希，如 `TransformCmpt`；装配时通过 `AddComponent(component, nameof(TransformCmpt))` 显式绑定。
+  组件类名不参与协议标识，双端持有属性名须一致；同一实体中组件持有属性名不得为空或重复。实体本身使用空组件名的哈希。
+  组件组和属性值分别携带长度，未知组件及未知属性可跳过，缺失属性保留当前值；已知属性的类型或同步标记不兼容则拒绝快照。
+  反序列化在整包结构及已知属性校验通过后才写入字段；组件持有属性名或同步属性名变更视为新的协议标识，组件类重命名不影响标识。
 - `ServerAvatarEntity` 支持跨 Game 迁移；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
 - 初始化职责：`PreInitialize` 初始化实体属性和字段，构造组件并准备组件属性和字段，随后恢复身份及属性快照；`Initialize` 处理组件依赖初始化；`PostInitialize` 处理收尾逻辑。
 - 清理职责：`PreUnInitialize` 逆序撤销收尾逻辑并停止活动；`UnInitialize` 逆序解除组件依赖；`PostUnInitialize` 逆序清理属性、字段及组件挂载。实体清理入口顺序执行三个阶段，不捕获异常；任一阶段异常直接向外传播并中断后续阶段。
-- `EntityComponent` 不维护 `LifecycleState` 或 `IsInitialized`，生命周期入口直接调用对应阶段，不做组件状态检查。
+- `ServerEntityComponent`、`ClientEntityComponent` 不维护 `LifecycleState` 或 `IsInitialized`，生命周期入口直接调用对应阶段，不做组件状态检查。
 - 所有生命周期函数需有明确职责注释；派生类调用对应 base 方法，清理需容忍部分初始化状态。
 - 组件只允许在实体 `PreInitialize` 中添加，添加时立即执行组件 `PreInitialize`。组件后续五个阶段由 `ServerEntity` / `ClientEntity` 对应生命周期函数逐阶段调用；派生类调用对应的 base 方法。
-- `ServerEntity`、`ClientEntity` 分别管理 `ServerEntityComponent`、`ClientEntityComponent`，共享 `Entity` 不持有组件集合。
-- `ServerAvatarTransformComponent`、`ClientAvatarTransformComponent` 使用共享的 `EntityTransform`；通用组件集合逻辑由共享对象 `EntityComponentCollection<T>` 提供。
+- `ServerEntity`、`ClientEntity` 分别管理 `ServerEntityComponent`、`ClientEntityComponent`，组件集合分别在双方模块内实现。
+- 共享组件功能位于 `DE.Share/Components`，通过组合使用；`ServerAvatarTransformComponent`、`ClientAvatarTransformComponent` 使用其中的 `EntityTransform`。
 - 普通远端实体通过 `EntityMailBox` 固定寻址；Avatar 通过绑定 OwnerGate 的 `EntityProxy` 动态寻址。
 - 实体 RPC 由 `[ServerRpc]`、`[ClientRpc]` 显式暴露，调用和分发代码由 `DE.Share.EntityRpcSG` 生成。
 - `SystemCommand` 用于迁移、远程实体创建等框架操作，与实体 RPC 使用独立的消息和分发入口。
@@ -59,7 +66,7 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 | `DE.Client.Features` | 可复用的游戏功能扩展层，当前保留程序集说明 |
 | `DE.Client.Editor/Editor` | 仅在 Unity Editor 编译的框架编辑器工具 |
 | `DE.Share.Foundation` | 双端共享的基础类型、定点数和纯 C# 数学类型 |
-| `DE.Share` | 双端共享的实体、组件、属性序列化和 RPC 定义 |
+| `DE.Share` | 双端共享的组件功能对象、消息和 RPC 定义 |
 | `DE.Share.DataFramework` | 配置表描述、加载、缓存、Provider 和 DataRuntime |
 | `DE.Share.Data` | 框架配置行定义，如 Space、Npc |
 
@@ -85,7 +92,8 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 - `DE.Server.Foundation` 为服务端基础层；`DE.Server` 实现实体框架、数据库、鉴权和 NativeBridge；`Demo.Server` 实现 Demo 业务。
 - `DE.Share.Foundation`、`DE.Share`、`DE.Share.DataFramework`、`DE.Share.Data` 链接 Unity 框架目录中的共享源码。
 - `Demo.Share.Data` 链接 Unity Demo 目录中的共享数据源码。修改共享类型时直接修改这些源文件，不维护服务端副本。
-- `DE.Share.EntityPropertySG`、`DE.Share.EntityRpcSG`、`DE.Share.DataTableSG` 分别生成属性序列化、RPC 和配置表代码。
+- `DE.Share.EntityPropertySG`、`DE.Share.EntityRpcSG`、`DE.Share.DataTableSG` 分别生成实体属性访问及回调、RPC 和配置表代码。
+  属性生成器同时生成双端各类的同步属性元数据，不进行跨组件属性重名检查。
 - `DE.Share.Tests` 保留共享层测试工程；当前阶段仅做编译验证，不新增或运行测试。
 
 ### 数据、配置与启动脚本
@@ -146,6 +154,11 @@ cmd /d /c "call Server\Engine\build_test.bat Debug <nul"
    不能放在功能拆分的 partial 文件中；功能逻辑可按现有目录结构拆分。
 6. 初始化和清理遵循依赖顺序：先清理实体和节点，再关闭数据服务，最后注销程序集解析与异常处理、重置身份信息。
 7. 异常处理放在需要恢复、补充上下文或跨语言边界的位置，避免给普通顺序逻辑添加冗余的 try 保护。
+
+## 工作文档约定
+
+- plan（实施计划）和 spec（任务规格）仅在当前会话中使用，不写入仓库、不提交、不存档。
+- 不因技能或工作流程要求创建 plan / spec 文件；需要长期保留的架构、契约和使用说明，直接更新现有正式文档。
 
 ## 参考文档
 

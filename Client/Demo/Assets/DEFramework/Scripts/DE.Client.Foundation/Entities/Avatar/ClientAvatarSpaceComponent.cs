@@ -1,5 +1,4 @@
 using System;
-using DE.Share.Entities;
 
 namespace DE.Client.Entities
 {

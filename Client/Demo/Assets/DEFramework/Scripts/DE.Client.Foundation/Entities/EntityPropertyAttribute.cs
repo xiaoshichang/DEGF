@@ -1,6 +1,6 @@
 using System;
 
-namespace DE.Share.Entities
+namespace DE.Client.Entities
 {
     [Flags]
     public enum EntityPropertyFlag : byte

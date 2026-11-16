@@ -1,5 +1,4 @@
 using DE.Server.Entities;
-using DE.Share.Entities;
 using DE.Share.Rpc;
 
 namespace Demo;

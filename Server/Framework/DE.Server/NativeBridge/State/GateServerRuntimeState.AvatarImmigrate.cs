@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using DE.Server.Entities;
-using DE.Share.Entities;
 using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge

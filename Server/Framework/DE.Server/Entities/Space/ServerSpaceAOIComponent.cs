@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using DE.Server.AOI;
 using DE.Server.NativeBridge;
-using DE.Share.Entities;
 
 namespace DE.Server.Entities
 {

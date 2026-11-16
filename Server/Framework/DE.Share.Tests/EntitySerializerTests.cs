@@ -1,6 +1,6 @@
 using System;
 using Assets.Scripts.DE.Share;
-using DE.Share.Entities;
+using DE.Server.Entities;
 using Xunit;
 
 namespace DE.Share.Tests
@@ -124,15 +124,17 @@ namespace DE.Share.Tests
             return entity;
         }
 
-        private static TEntity CreateEntity<TEntity>() where TEntity : Entity, new()
+        private static TEntity CreateEntity<TEntity>() where TEntity : ServerEntity, new()
         {
             var entity = new TEntity();
             entity.InitializeEntity();
             return entity;
         }
 
-        private sealed partial class TestEntity : Entity
+        private sealed partial class TestEntity : ServerEntity
         {
+            public override bool IsAllowImmigrate() => false;
+
             public TestEntity()
             {
             }
@@ -156,8 +158,10 @@ namespace DE.Share.Tests
             }
         }
 
-        private sealed partial class TestAvatarEntity : Entity
+        private sealed partial class TestAvatarEntity : ServerEntity
         {
+            public override bool IsAllowImmigrate() => false;
+
             public TestAvatarEntity()
             {
             }

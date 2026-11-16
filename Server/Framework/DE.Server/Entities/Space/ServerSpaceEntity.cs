@@ -1,7 +1,6 @@
 using System;
 using DE.Share.Data;
 using DE.Share.DataFramework;
-using DE.Share.Entities;
 
 namespace DE.Server.Entities
 {
@@ -28,9 +27,9 @@ namespace DE.Server.Entities
             base.PreInitialize();
             SpaceNo = _initializer.SpaceNo;
             _dataRow = null;
-            AOISpace = AddComponent(_initializer.ServerSpaceAOIComponent ?? new ServerSpaceAOIComponent());
-            AvatarManageCmpt = AddComponent(new ServerSpaceAvatarManageComponent());
-            StatisticsCmpt = AddComponent(new ServerSpaceStatisticsComponent());
+            AOISpace = AddComponent(_initializer.ServerSpaceAOIComponent ?? new ServerSpaceAOIComponent(), nameof(AOISpace));
+            AvatarManageCmpt = AddComponent(new ServerSpaceAvatarManageComponent(), nameof(AvatarManageCmpt));
+            StatisticsCmpt = AddComponent(new ServerSpaceStatisticsComponent(), nameof(StatisticsCmpt));
         }
 
         /// <summary>组件和默认字段准备完成、属性恢复后，加载空间配置并初始化组件依赖。</summary>

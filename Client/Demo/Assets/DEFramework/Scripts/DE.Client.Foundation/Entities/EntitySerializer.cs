@@ -1,10 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Text;
 using DE.Share.Foundation.Mathematics;
 
-namespace DE.Share.Entities
+namespace DE.Client.Entities
 {
     public enum EntitySerializeReason : byte
     {
@@ -15,12 +14,10 @@ namespace DE.Share.Entities
 
     public static class EntitySerializer
     {
-        private const ushort CurrentVersion = 1;
+        private const ushort CurrentVersion = 3;
+        private static readonly ulong EntityComponentId = EntityNameHash.Compute(string.Empty);
 
-        private static readonly Dictionary<(Type, string), EntityPropertyMember[]> s_Members =
-            new Dictionary<(Type, string), EntityPropertyMember[]>();
-
-        public static byte[] Serialize(Entity entity, EntitySerializeReason reason)
+        public static byte[] Serialize(ClientEntity entity, EntitySerializeReason reason)
         {
             if (entity == null)
             {
@@ -30,43 +27,56 @@ namespace DE.Share.Entities
             {
                 throw new InvalidOperationException("Entity must complete initialization before serialization.");
             }
-
             ValidateReason(reason);
 
-            EntityPropertyAccessor[] accessors = GetAccessors(entity);
-            List<EntityPropertyAccessor> selectedAccessors = new List<EntityPropertyAccessor>(accessors.Length);
+            var groups = new List<SelectedPropertyGroup>();
             int payloadSize = 0;
-            for (int i = 0; i < accessors.Length; i++)
+            foreach (var pair in GetPropertyOwners(entity))
             {
-                EntityPropertyAccessor accessor = accessors[i];
-                if (!CanSerialize(accessor.Attribute, reason))
+                var properties = new List<EntityPropertyMetadata>();
+                int groupSize = sizeof(ushort);
+                foreach (var property in pair.Value.Metadata.Properties)
+                {
+                    if (!CanSerialize(property.Flags, reason))
+                    {
+                        continue;
+                    }
+                    properties.Add(property);
+                    groupSize = checked(groupSize + sizeof(ulong) + sizeof(byte) + sizeof(uint)
+                        + GetValueWireSize(property.ValueType, property.GetValue(pair.Value.Target)));
+                }
+                if (properties.Count == 0)
                 {
                     continue;
                 }
-
-                selectedAccessors.Add(accessor);
-                object value = accessor.GetValue(entity);
-                payloadSize += sizeof(ushort) + sizeof(byte) + GetValueWireSize(accessor.ValueType, value);
+                payloadSize = checked(payloadSize + sizeof(ulong) + sizeof(uint) + groupSize);
+                groups.Add(new SelectedPropertyGroup(pair.Key, pair.Value.Target, properties, groupSize));
             }
+            groups.Sort((left, right) => left.ComponentId.CompareTo(right.ComponentId));
 
-            byte[] bytes = new byte[sizeof(ushort) + sizeof(byte) + sizeof(ushort) + payloadSize];
+            var bytes = new byte[checked(sizeof(ushort) + sizeof(byte) + sizeof(ushort) + payloadSize)];
             int offset = 0;
             WriteUInt16(bytes, ref offset, CurrentVersion);
             WriteByte(bytes, ref offset, (byte)reason);
-            WriteUInt16(bytes, ref offset, checked((ushort)selectedAccessors.Count));
-
-            for (int i = 0; i < selectedAccessors.Count; i++)
+            WriteUInt16(bytes, ref offset, checked((ushort)groups.Count));
+            foreach (var group in groups)
             {
-                EntityPropertyAccessor accessor = selectedAccessors[i];
-                WriteUInt16(bytes, ref offset, accessor.PropertyId);
-                WriteByte(bytes, ref offset, GetValueTypeCode(accessor.ValueType));
-                WriteValue(bytes, ref offset, accessor.ValueType, accessor.GetValue(entity));
+                WriteUInt64(bytes, ref offset, group.ComponentId);
+                WriteUInt32(bytes, ref offset, checked((uint)group.PayloadSize));
+                WriteUInt16(bytes, ref offset, checked((ushort)group.Properties.Count));
+                foreach (var property in group.Properties)
+                {
+                    object value = property.GetValue(group.Target);
+                    WriteUInt64(bytes, ref offset, property.Id);
+                    WriteByte(bytes, ref offset, GetValueTypeCode(property.ValueType));
+                    WriteUInt32(bytes, ref offset, checked((uint)GetValueWireSize(property.ValueType, value)));
+                    WriteValue(bytes, ref offset, property.ValueType, value);
+                }
             }
-
             return bytes;
         }
 
-        public static void Deserialize(Entity entity, EntitySerializeReason reason, byte[] data)
+        public static void Deserialize(ClientEntity entity, EntitySerializeReason reason, byte[] data)
         {
             if (!TryDeserialize(entity, reason, data, 0, data == null ? 0 : data.Length))
             {
@@ -74,215 +84,131 @@ namespace DE.Share.Entities
             }
         }
 
-        public static bool TryDeserialize(Entity entity, EntitySerializeReason reason, byte[] data)
+        public static bool TryDeserialize(ClientEntity entity, EntitySerializeReason reason, byte[] data)
         {
             return TryDeserialize(entity, reason, data, 0, data == null ? 0 : data.Length);
         }
 
-        public static bool TryDeserialize(Entity entity, EntitySerializeReason reason, byte[] data, int offset, int dataSize)
+        public static bool TryDeserialize(ClientEntity entity, EntitySerializeReason reason, byte[] data, int offset, int dataSize)
         {
-            if (entity == null || data == null || offset < 0 || dataSize < 0 || data.Length - offset < dataSize)
+            if (entity == null || data == null || offset < 0 || dataSize < 0 || data.Length - offset < dataSize || !IsValidReason(reason))
             {
                 return false;
             }
-
-            if (!IsValidReason(reason))
-            {
-                return false;
-            }
-
             int endOffset = offset + dataSize;
-            if (!TryReadUInt16(data, ref offset, endOffset, out ushort version) || version != CurrentVersion)
+            if (!TryReadUInt16(data, ref offset, endOffset, out ushort version) || version != CurrentVersion
+                || !TryReadByte(data, ref offset, endOffset, out byte serializedReason) || serializedReason != (byte)reason
+                || !TryReadUInt16(data, ref offset, endOffset, out ushort groupCount))
             {
                 return false;
             }
 
-            if (!TryReadByte(data, ref offset, endOffset, out byte serializedReason) || serializedReason != (byte)reason)
+            var owners = GetPropertyOwners(entity);
+            var seenGroups = new HashSet<ulong>();
+            var assignments = new List<PropertyAssignment>();
+            for (int groupIndex = 0; groupIndex < groupCount; groupIndex++)
             {
-                return false;
-            }
-
-            if (!TryReadUInt16(data, ref offset, endOffset, out ushort propertyCount))
-            {
-                return false;
-            }
-
-            Dictionary<ushort, EntityPropertyAccessor> accessors = GetAccessorsById(entity);
-            for (int i = 0; i < propertyCount; i++)
-            {
-                if (!TryReadUInt16(data, ref offset, endOffset, out ushort propertyId)
-                    || !TryReadByte(data, ref offset, endOffset, out byte valueTypeCode))
+                if (!TryReadUInt64(data, ref offset, endOffset, out ulong componentId) || !seenGroups.Add(componentId)
+                    || !TryReadUInt32(data, ref offset, endOffset, out uint groupSize)
+                    || groupSize < sizeof(ushort) || groupSize > (uint)(endOffset - offset))
+                {
+                    return false;
+                }
+                int groupEndOffset = offset + (int)groupSize;
+                if (!owners.TryGetValue(componentId, out PropertyOwner owner))
+                {
+                    offset = groupEndOffset;
+                    continue;
+                }
+                if (!TryReadUInt16(data, ref offset, groupEndOffset, out ushort propertyCount))
                 {
                     return false;
                 }
 
-                if (!accessors.TryGetValue(propertyId, out EntityPropertyAccessor accessor)
-                    || !CanSerialize(accessor.Attribute, reason)
-                    || valueTypeCode != GetValueTypeCode(accessor.ValueType))
+                var seenProperties = new HashSet<ulong>();
+                for (int index = 0; index < propertyCount; index++)
                 {
-                    return false;
-                }
-
-                if (!TryReadValue(data, ref offset, endOffset, accessor.ValueType, out object value))
-                {
-                    return false;
-                }
-
-                accessor.SetValue(entity, value);
-            }
-
-            return offset == endOffset;
-        }
-
-        private static EntityPropertyAccessor[] GetAccessors(Entity entity)
-        {
-            List<EntityPropertyAccessor> accessors = new List<EntityPropertyAccessor>();
-            EntityPropertyMember[] entityMembers = GetMembers(entity.GetType(), string.Empty);
-            for (int i = 0; i < entityMembers.Length; i++)
-            {
-                accessors.Add(entityMembers[i].CreateAccessor(entity));
-            }
-
-            if (entity is IEntityComponentProvider provider)
-            {
-                foreach (var component in provider.PropertyComponents)
-                {
-                    foreach (var member in GetMembers(component.GetType(), component.PropertyScope))
+                    if (!TryReadUInt64(data, ref offset, groupEndOffset, out ulong id) || !seenProperties.Add(id)
+                        || !TryReadByte(data, ref offset, groupEndOffset, out byte valueTypeCode)
+                        || !TryReadUInt32(data, ref offset, groupEndOffset, out uint valueSize)
+                        || valueSize > (uint)(groupEndOffset - offset))
                     {
-                        accessors.Add(member.CreateAccessor(component));
+                        return false;
                     }
-                }
-            }
-
-            accessors.Sort(CompareAccessor);
-            EnsureUniquePropertyIds(entity.GetType(), accessors);
-            return accessors.ToArray();
-        }
-
-        private static Dictionary<ushort, EntityPropertyAccessor> GetAccessorsById(Entity entity)
-        {
-            EntityPropertyAccessor[] accessors = GetAccessors(entity);
-            Dictionary<ushort, EntityPropertyAccessor> accessorsById = new Dictionary<ushort, EntityPropertyAccessor>(accessors.Length);
-            for (int i = 0; i < accessors.Length; i++)
-            {
-                accessorsById.Add(accessors[i].PropertyId, accessors[i]);
-            }
-
-            return accessorsById;
-        }
-
-        private static EntityPropertyMember[] GetMembers(Type ownerType, string propertyScope)
-        {
-            lock (s_Members)
-            {
-                if (!s_Members.TryGetValue((ownerType, propertyScope), out EntityPropertyMember[] members))
-                {
-                    members = BuildMembers(ownerType, propertyScope);
-                    s_Members.Add((ownerType, propertyScope), members);
-                }
-
-                return members;
-            }
-        }
-
-        private static EntityPropertyMember[] BuildMembers(Type ownerType, string propertyScope)
-        {
-            List<EntityPropertyMember> members = new List<EntityPropertyMember>();
-            Dictionary<string, PropertyInfo> propertiesByName = GetEntityPropertiesByName(ownerType);
-            Type currentType = ownerType;
-            Type stopType = typeof(Entity).IsAssignableFrom(ownerType) ? typeof(Entity) : typeof(EntityComponent);
-            while (currentType != null && stopType.IsAssignableFrom(currentType))
-            {
-                FieldInfo[] fields = currentType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly);
-                for (int i = 0; i < fields.Length; i++)
-                {
-                    FieldInfo field = fields[i];
-                    EntityPropertyAttribute attribute = field.GetCustomAttribute<EntityPropertyAttribute>(false);
-                    if (attribute == null)
+                    int valueEndOffset = offset + (int)valueSize;
+                    if (!owner.Metadata.TryGetProperty(id, out EntityPropertyMetadata property))
                     {
+                        offset = valueEndOffset;
                         continue;
                     }
-
-                    string propertyName = GetPropertyName(field);
-                    if (propertiesByName.TryGetValue(propertyName, out PropertyInfo property)
-                        && property.PropertyType == field.FieldType
-                        && property.CanRead
-                        && property.CanWrite)
+                    if (!CanSerialize(property.Flags, reason) || valueTypeCode != GetValueTypeCode(property.ValueType)
+                        || !TryReadValue(data, ref offset, valueEndOffset, property.ValueType, out object value)
+                        || offset != valueEndOffset)
                     {
-                        members.Add(new EntityPropertyMember(propertyScope, propertyName, property.PropertyType, attribute, property, field));
-                        continue;
+                        return false;
                     }
-
-                    members.Add(new EntityPropertyMember(propertyScope, propertyName, field.FieldType, attribute, null, field));
+                    assignments.Add(new PropertyAssignment(owner.Target, property, value));
                 }
-
-                currentType = currentType.BaseType;
+                if (offset != groupEndOffset)
+                {
+                    return false;
+                }
+            }
+            if (offset != endOffset)
+            {
+                return false;
             }
 
-            members.Sort(CompareMember);
-            return members.ToArray();
+            // Validate the entire snapshot before applying any field, including when unknown data is skipped.
+            foreach (var assignment in assignments)
+            {
+                assignment.Property.SetValue(assignment.Target, assignment.Value);
+            }
+            return true;
         }
 
-        private static Dictionary<string, PropertyInfo> GetEntityPropertiesByName(Type entityType)
+        private static Dictionary<ulong, PropertyOwner> GetPropertyOwners(ClientEntity entity)
         {
-            PropertyInfo[] properties = entityType.GetProperties(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            Dictionary<string, PropertyInfo> propertiesByName = new Dictionary<string, PropertyInfo>(properties.Length, StringComparer.Ordinal);
-            for (int i = 0; i < properties.Length; i++)
+            // The entity uses the empty name. Other owners use their component-holding property name.
+            var owners = new Dictionary<ulong, PropertyOwner>
             {
-                PropertyInfo property = properties[i];
-                if (property.GetIndexParameters().Length != 0)
+                { EntityComponentId, new PropertyOwner(string.Empty, entity, entity.PropertyMetadata) },
+            };
+            foreach (var component in entity.Components)
+            {
+                var metadata = component.PropertyMetadata;
+                if (metadata.PropertyCount == 0)
                 {
                     continue;
                 }
-
-                propertiesByName[property.Name] = property;
-            }
-
-            return propertiesByName;
-        }
-
-        private static string GetPropertyName(FieldInfo field)
-        {
-            const string Prefix = "__";
-            return field.Name.StartsWith(Prefix, StringComparison.Ordinal)
-                ? field.Name.Substring(Prefix.Length)
-                : field.Name;
-        }
-
-        private static int CompareAccessor(EntityPropertyAccessor left, EntityPropertyAccessor right)
-        {
-            return string.Compare(left.PropertyKey, right.PropertyKey, StringComparison.Ordinal);
-        }
-
-        private static int CompareMember(EntityPropertyMember left, EntityPropertyMember right)
-        {
-            return string.Compare(left.PropertyKey, right.PropertyKey, StringComparison.Ordinal);
-        }
-
-        private static void EnsureUniquePropertyIds(Type entityType, List<EntityPropertyAccessor> accessors)
-        {
-            HashSet<ushort> propertyIds = new HashSet<ushort>();
-            for (int i = 0; i < accessors.Count; i++)
-            {
-                if (!propertyIds.Add(accessors[i].PropertyId))
+                string name = component.OwnerPropertyName;
+                if (string.IsNullOrEmpty(name))
                 {
-                    throw new InvalidOperationException(entityType.FullName + " has duplicate entity property id: " + accessors[i].PropertyId);
+                    throw new InvalidOperationException("Entity component wire names must not be empty.");
                 }
+                ulong id = EntityNameHash.Compute(name);
+                if (owners.TryGetValue(id, out var previous))
+                {
+                    throw new InvalidOperationException(
+                        $"Component hash collision: '{previous.ComponentName}' and '{name}' (0x{id:X16}).");
+                }
+                owners.Add(id, new PropertyOwner(name, component, metadata));
             }
+            return owners;
         }
 
-        private static bool CanSerialize(EntityPropertyAttribute attribute, EntitySerializeReason reason)
+        private static bool CanSerialize(EntityPropertyFlag flags, EntitySerializeReason reason)
         {
             switch (reason)
             {
             case EntitySerializeReason.OwnerSync:
-                return attribute.HasFlag(EntityPropertyFlag.ClientServer);
+                return flags.HasFlag(EntityPropertyFlag.ClientServer);
             case EntitySerializeReason.Broadcase:
-                return attribute.HasFlag(EntityPropertyFlag.AllClients);
+                return flags.HasFlag(EntityPropertyFlag.AllClients);
             case EntitySerializeReason.Migrate:
-                return attribute.HasFlag(EntityPropertyFlag.ServerOnly)
-                    || attribute.HasFlag(EntityPropertyFlag.ClientServer)
-                    || attribute.HasFlag(EntityPropertyFlag.AllClients);
+                return flags.HasFlag(EntityPropertyFlag.ServerOnly)
+                    || flags.HasFlag(EntityPropertyFlag.ClientServer)
+                    || flags.HasFlag(EntityPropertyFlag.AllClients);
             default:
                 return false;
             }
@@ -355,7 +281,7 @@ namespace DE.Share.Entities
                 int byteCount = value == null ? 0 : Encoding.UTF8.GetByteCount((string)value);
                 if (byteCount > ushort.MaxValue)
                 {
-                    throw new InvalidOperationException("Entity string property is too long.");
+                    throw new InvalidOperationException("ClientEntity string property is too long.");
                 }
 
                 return sizeof(ushort) + byteCount;
@@ -366,7 +292,7 @@ namespace DE.Share.Entities
                 int byteCount = value == null ? 0 : ((byte[])value).Length;
                 if (byteCount > ushort.MaxValue)
                 {
-                    throw new InvalidOperationException("Entity byte array property is too long.");
+                    throw new InvalidOperationException("ClientEntity byte array property is too long.");
                 }
 
                 return sizeof(ushort) + byteCount;
@@ -1018,101 +944,48 @@ namespace DE.Share.Entities
             return true;
         }
 
-        private sealed class EntityPropertyAccessor
+        private sealed class PropertyOwner
         {
-            public EntityPropertyAccessor(
-                string propertyKey,
-                string propertyName,
-                Type valueType,
-                EntityPropertyAttribute attribute,
-                PropertyInfo property,
-                FieldInfo field,
-                object target
-            )
+            public PropertyOwner(string componentName, object target, EntityClassMetadata metadata)
             {
-                PropertyKey = propertyKey;
-                PropertyName = propertyName;
-                PropertyId = GetStablePropertyId(propertyKey);
-                ValueType = valueType;
-                Attribute = attribute;
-                Property = property;
-                Field = field;
+                ComponentName = componentName;
                 Target = target;
+                Metadata = metadata;
             }
 
-            public string PropertyKey { get; }
-            public string PropertyName { get; }
-            public ushort PropertyId { get; }
-            public Type ValueType { get; }
-            public EntityPropertyAttribute Attribute { get; }
-            private PropertyInfo Property { get; }
-            private FieldInfo Field { get; }
-            private object Target { get; }
-
-            public object GetValue(Entity entity)
-            {
-                return Property != null ? Property.GetValue(Target, null) : Field.GetValue(Target);
-            }
-
-            public void SetValue(Entity entity, object value)
-            {
-                if (Field != null)
-                {
-                    Field.SetValue(Target, value);
-                    return;
-                }
-
-                Property.SetValue(Target, value, null);
-            }
+            public string ComponentName { get; }
+            public object Target { get; }
+            public EntityClassMetadata Metadata { get; }
         }
 
-        private sealed class EntityPropertyMember
+        private sealed class SelectedPropertyGroup
         {
-            public EntityPropertyMember(
-                string propertyScope,
-                string propertyName,
-                Type valueType,
-                EntityPropertyAttribute attribute,
-                PropertyInfo property,
-                FieldInfo field
-            )
+            public SelectedPropertyGroup(ulong componentId, object target, List<EntityPropertyMetadata> properties, int payloadSize)
             {
-                PropertyScope = propertyScope ?? string.Empty;
-                PropertyName = propertyName;
-                PropertyKey = string.IsNullOrEmpty(PropertyScope) ? propertyName : PropertyScope + "." + propertyName;
-                ValueType = valueType;
-                Attribute = attribute;
+                ComponentId = componentId;
+                Target = target;
+                Properties = properties;
+                PayloadSize = payloadSize;
+            }
+
+            public ulong ComponentId { get; }
+            public object Target { get; }
+            public List<EntityPropertyMetadata> Properties { get; }
+            public int PayloadSize { get; }
+        }
+
+        private readonly struct PropertyAssignment
+        {
+            public PropertyAssignment(object target, EntityPropertyMetadata property, object value)
+            {
+                Target = target;
                 Property = property;
-                Field = field;
+                Value = value;
             }
 
-            public string PropertyScope { get; }
-            public string PropertyName { get; }
-            public string PropertyKey { get; }
-            public Type ValueType { get; }
-            public EntityPropertyAttribute Attribute { get; }
-            private PropertyInfo Property { get; }
-            private FieldInfo Field { get; }
-
-            public EntityPropertyAccessor CreateAccessor(object target)
-            {
-                return new EntityPropertyAccessor(PropertyKey, PropertyName, ValueType, Attribute, Property, Field, target);
-            }
-        }
-
-        private static ushort GetStablePropertyId(string propertyName)
-        {
-            const uint Offset = 2166136261u;
-            const uint Prime = 16777619u;
-
-            uint hash = Offset;
-            for (int i = 0; i < propertyName.Length; i++)
-            {
-                hash ^= propertyName[i];
-                hash *= Prime;
-            }
-
-            return (ushort)(((hash >> 16) ^ hash) & 0xffff);
+            public object Target { get; }
+            public EntityPropertyMetadata Property { get; }
+            public object Value { get; }
         }
     }
 }

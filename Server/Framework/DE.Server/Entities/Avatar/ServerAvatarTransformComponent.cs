@@ -1,4 +1,4 @@
-using DE.Share.Entities;
+using DE.Share.Components;
 using DE.Share.Foundation.Mathematics;
 
 namespace DE.Server.Entities

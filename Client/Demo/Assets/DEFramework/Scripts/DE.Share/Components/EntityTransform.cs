@@ -1,6 +1,6 @@
 using DE.Share.Foundation.Mathematics;
 
-namespace DE.Share.Entities
+namespace DE.Share.Components
 {
     public interface IEntityTransform
     {

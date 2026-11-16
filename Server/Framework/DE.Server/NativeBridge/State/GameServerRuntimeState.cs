@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using Assets.Scripts.DE.Share;
 using DE.Server.Entities;
-using DE.Share.Entities;
 using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge

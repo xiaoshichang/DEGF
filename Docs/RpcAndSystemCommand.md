@@ -90,7 +90,7 @@ An identical repeated CreateEntity command still resends the confirmation and re
 ServerSpaceEntity sends an initial statistic and repeats every 60 seconds through SpaceStub.ReportSpaceStat.
 Reports carry Mailbox, SpaceNo, UTC Unix milliseconds and current player count. SpaceEntityStubProxy stores PlayerCount and ReportTimeMilliseconds.
 The Stub validates the planned identity and host, ignores reports older than the stored report time, and never uses a revision counter.
-Membership changes no longer trigger immediate reports. Entity.UnInitializeEntity cancels Space statistics timers through its PreUnInitialize hook.
+Membership changes no longer trigger immediate reports. ServerEntity.UnInitializeEntity cancels Space statistics timers through its PreUnInitialize hook.
 Game runtime teardown invokes the same lifecycle for Stubs, registered entities and unregistered migration candidates, deduplicating shared references.
 Entity lifecycle state prevents repeated cleanup and reuse; components carry no lifecycle state or initialization flag. `PreInitialize` prepares entity fields,
 constructs components and immediately prepares each component's fields without component dependencies. Snapshot restoration
@@ -111,7 +111,18 @@ Space allocation and reporting do not use SystemCommand, and GameServerRuntimeSt
 
 ServerAvatarEntity and ClientAvatarEntity are separate types, as are ServerNpcEntity and ClientNpcEntity.
 ServerEntity and ClientEntity manage their respective ServerEntityComponent and ClientEntityComponent collections.
-Shared EntityTransform and EntityComponentCollection objects provide common logic without sharing concrete components.
+ServerEntity and ClientEntity are independent inheritance roots, each owning its lifecycle, component collection,
+property attributes and EntitySerializer. Shared component functionality lives in DE.Share.Components;
+Transform components compose EntityTransform.
+EntityPropertySG generates per-class metadata and direct field access delegates. Each property is identified by
+the pair of component-holding property-name hash and synchronized property-name hash, using UTF-8 FNV-1a 64-bit hashes with no incremental IDs.
+Entity properties and each component's properties form separate groups, so different components may reuse property names.
+Components match by the entity property holding them, such as TransformCmpt; component class names and attachment order may differ across peers.
+AddComponent(component, nameof(TransformCmpt)) binds the name during attachment. Empty or duplicate property names are rejected.
+There is no cross-component property-name analyzer. Inheritance and property order may differ across peers;
+matching component names, property names, compatible types and synchronization flags define the shared contract.
+Local metadata rejects property-hash collisions and duplicate component hashes instead of choosing an ambiguous target.
+Entity snapshot version 3 rejects older snapshots; deploy matching protocol versions together.
 
 After entry or migration commit, ServerAvatarEntity.OnAfterEnterSpace invokes ClientAvatarEntity.OnEnterSpace through an entity RPC.
 Space membership changes are bracketed by OnBeforeEnterSpace/OnAfterEnterSpace and OnBeforeLeaveSpace/OnAfterLeaveSpace.
@@ -127,6 +138,34 @@ AuthSystem constructs the Avatar and completes login callbacks while processing 
 An RPC before Avatar creation is a protocol-order error. ClientSpaceManager retains pending entities when no loader is installed.
 Installing the loader starts the pending context once; AOI deltas continue updating it while waiting or loading.
 ClientSpaceManager applies OwnerSync state when loading completes.
+
+## Entity snapshot encoding
+
+The v3 snapshot uses big-endian integers and the existing value codecs:
+
+| Level | Field | Encoding |
+| --- | --- | --- |
+| Snapshot | Version, reason, component group count | uint16, uint8, uint16 |
+| Component group | Component name hash, group payload byte length | uint64, uint32 |
+| Group payload | Property count, followed by property entries | uint16, entries |
+| Property entry | Property name hash, type code, value byte length, value | uint64, uint8, uint32, bytes |
+
+The group length includes its property count and all property entries, excluding the group header.
+The value length covers exactly the encoded value, including any nullable marker or string length prefix.
+The effective property key is `(componentNameHash, propertyNameHash)`; the component hash is stored once per group.
+For entity-owned properties the component name is empty. For components it is the entity's holding property name, such as TransformCmpt.
+The component class name is never hashed; the key for Position in that slot is (hash("TransformCmpt"), hash("Position")).
+Names are case-sensitive; both hashes use UTF-8 FNV-1a with offset 14695981039346656037 and prime 1099511628211,
+using unchecked 64-bit arithmetic. The generator emits property hashes as constants; runtime component hashes use the same algorithm.
+
+Adding, removing or reordering another property does not change an existing key, including changes in a base class.
+Renaming a component-holding property or synchronized property creates a new key; renaming a component class does not.
+Unknown component groups and unknown properties are skipped by length;
+properties absent from a snapshot retain their current values, which are initialization defaults during entity creation.
+Known properties must have compatible type codes and synchronization flags. Invalid lengths, duplicate group hashes,
+duplicate property hashes in a known group, invalid known values and trailing bytes reject the snapshot.
+The reader validates and collects all known values before applying generated field setters, preventing partial writes from malformed data.
+The native engine and NativeBridge continue to transport these snapshots as opaque byte arrays without ABI changes.
 
 ## Verification
 

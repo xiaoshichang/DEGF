@@ -6,11 +6,19 @@
 
 `ServerAvatarEntity` 负责组件装配、MailBox / Proxy 和 RPC 发送。`ServerAvatarImmigateComponent` 保存迁移状态、迁移编号和目标空间；`ServerAvatarSpaceComponent` 保存 `SpaceId`、`SpaceNo` 及当前空间，处理空间请求和进出回调；`ServerAvatarTransformComponent` 保存位置和旋转；`ServerAvatarSessionComponent` 处理会话通知。
 
-客户端由 `ClientAvatarSpaceComponent` 接收空间标识属性，`ClientAvatarTransformComponent` 处理变换、空间加载和 AOI 通知。双端 Transform 组件复用共享 `EntityTransform`，不依赖 Unity 类型。
+客户端由 `ClientAvatarSpaceComponent` 接收空间标识属性，`ClientAvatarTransformComponent` 处理变换、空间加载和 AOI 通知。
+双端 Transform 组件通过组合复用 `DE.Share.Components.EntityTransform`，不依赖 Unity 类型。
+实体、组件基类、集合及序列化分别由 DE.Server.Entities / DE.Client.Entities 实现。
 
-Entity 和 Component 均可声明 `[EntityProperty]`。组件属性使用去掉 Server / Client 前缀的组件名加属性名作为稳定键，不同组件可以声明同名属性。组件在实体 PreInitialize 中构造并准备默认值，随后恢复数据直接写入字段，不触发 `OnBeforeXChange` / `OnAfterXChange`。组件默认值在组件 PreInitialize 中设置；Initialize 只处理依赖，避免覆盖恢复数据。
+双端各自的实体和组件均可声明本模块的 `[EntityProperty]`。SG 生成逐类属性元数据和直接字段读写委托，属性以组件名哈希和属性名哈希定位，
+均使用 UTF-8 FNV-1a 64 位算法，不依赖声明顺序或基类属性数量。允许不同组件声明同名属性，不做跨组件重名 analyzer 检查。
+双端组件按实体持有属性名对应，如 `TransformCmpt`，装配时用 `AddComponent(component, nameof(TransformCmpt))` 绑定，组件类名及装配顺序可以不同。
+组件在实体 PreInitialize 中构造并准备默认值，随后恢复数据直接写入字段，
+不触发 `OnBeforeXChange` / `OnAfterXChange`。组件默认值在组件 PreInitialize 中设置；Initialize 只处理依赖，避免覆盖恢复数据。
 
-本次调整改变了 Avatar 属性的序列化键，客户端和服务器需同步更新；旧版 Avatar 属性快照不能直接按新作用域恢复。
+实体快照版本为 3，客户端和服务器需同步更新协议；双方拒绝版本 1、2 的实体快照。
+组件组和属性值均带长度，接收端跳过未知组件和属性，缺失属性保留当前值；已知属性的类型和同步标记必须兼容。
+接收端先校验整包，再通过生成委托恢复属性，不因坏包产生部分字段更新。
 
 ## 设计结论
 

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace DE.Client.Entities
 {
-    /// <summary>属性树 v4 编解码入口；Snapshot 保存状态，Patch 保留逐次赋值的全实体顺序。</summary>
+    /// <summary>属性树 v4 编解码入口；Snapshot 保存完整状态，Patch 仅携带各脏属性的最新值。</summary>
     public static class EntitySerializer
     {
         private const ushort CurrentVersion = 4;
@@ -283,7 +283,7 @@ namespace DE.Client.Entities
                     return false;
                 }
                 context.ResetPropertyRecognition();
-                // Ordered transport defines application order; every received record is applied, including repeats.
+                // Apply the current values in this packet, including repeats; records do not represent an assignment history.
                 if (!node.ReadProperty(id, tag, ref value, context) || value.Remaining != 0)
                 {
                     return false;

@@ -11,12 +11,12 @@ namespace DE.Server.Entities
         public virtual bool AutoSyncProperty => false;
 
         private static readonly ulong GuidPropertyId = EntityNameHash.Compute("Guid");
-        private EntityPropertyChangeJournal _propertyChanges;
+        private EntityDirtyPropertySet _dirtyProperties;
         private bool _propertyWritesFrozen;
 
         public bool IsPropertyChangeTrackingEnabled => AutoSyncProperty && IsInitialized;
 
-        private EntityPropertyChangeJournal DirtyProperties => _propertyChanges ?? (_propertyChanges = new EntityPropertyChangeJournal());
+        private EntityDirtyPropertySet DirtyProperties => _dirtyProperties ?? (_dirtyProperties = new EntityDirtyPropertySet());
 
         public void ValidatePropertyWrite(ulong propertyId, ServerEntityComponent component = null)
         {
@@ -31,15 +31,11 @@ namespace DE.Server.Entities
             }
         }
 
-        public void ValidatePropertyChangeCapacity(int valueLength, ServerEntityComponent component = null)
+        public void ValidateDirtyPropertyCapacity(ulong propertyId, int valueLength, ServerEntityComponent component = null)
         {
             if (IsPropertyChangeTrackingEnabled)
             {
-                if (component != null)
-                {
-                    GetComponentPropertyHash(component);
-                }
-                DirtyProperties.EnsureCapacity(valueLength, component == null ? 1 : 2);
+                DirtyProperties.EnsureCapacity(GetDirtyPropertyKey(propertyId, component), valueLength);
             }
         }
 
@@ -61,16 +57,18 @@ namespace DE.Server.Entities
             }
         }
 
-        public void RecordPropertyChange(
-            ulong propertyId, byte typeCode, EntitySerializationProfileMask profiles, byte[] value, ServerEntityComponent component = null)
+        public void MarkPropertyDirty(
+            ulong propertyId, EntitySerializationProfileMask profiles, int valueLength, ServerEntityComponent component = null)
         {
-            if (!IsPropertyChangeTrackingEnabled)
+            if (IsPropertyChangeTrackingEnabled)
             {
-                return;
+                DirtyProperties.Mark(GetDirtyPropertyKey(propertyId, component), component, profiles, valueLength);
             }
-            var path = component == null ? new[] { propertyId }
-                : new[] { GetComponentPropertyHash(component), propertyId };
-            DirtyProperties.Append(path, typeCode, profiles, value);
+        }
+
+        private (ulong? ComponentHash, ulong PropertyId) GetDirtyPropertyKey(ulong propertyId, ServerEntityComponent component)
+        {
+            return (component == null ? (ulong?)null : GetComponentPropertyHash(component), propertyId);
         }
 
         private ulong GetComponentPropertyHash(ServerEntityComponent component)
@@ -84,18 +82,18 @@ namespace DE.Server.Entities
 
         private void ResetAutoSyncProperties()
         {
-            _propertyChanges = null;
+            _dirtyProperties = null;
             _propertyWritesFrozen = false;
         }
 
-        internal IReadOnlyList<EntityPropertyChange> PendingPropertyChanges => _propertyChanges?.Changes ?? Array.Empty<EntityPropertyChange>();
+        internal IReadOnlyCollection<DirtyProperty> PendingDirtyProperties => _dirtyProperties?.Properties ?? Array.Empty<DirtyProperty>();
 
-        internal void ClearPropertyChanges()
+        internal void ClearDirtyProperties()
         {
-            _propertyChanges?.ClearPending();
+            _dirtyProperties?.ClearPending();
         }
 
-        internal ulong PropertySequence => _propertyChanges?.Sequence ?? 0;
+        internal ulong PropertySequence => _dirtyProperties?.Sequence ?? 0;
 
         internal void RebasePropertySequence(ulong sequence)
         {
@@ -116,16 +114,16 @@ namespace DE.Server.Entities
                 || avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.Failed;
         }
 
-        internal bool SynchronizeProperties(GameServerRuntimeState runtime, bool ownerOnly = false)
+        internal void SynchronizeProperties(GameServerRuntimeState runtime, bool ownerOnly = false)
         {
             if (!AutoSyncProperty)
             {
-                return true;
+                return;
             }
-            var changes = PendingPropertyChanges;
+            var changes = PendingDirtyProperties;
             if (changes.Count == 0)
             {
-                return true;
+                return;
             }
             var targets = new Dictionary<ServerAvatarEntity, EntitySerializationProfile>();
             if (this is ServerAvatarEntity avatar)
@@ -147,18 +145,7 @@ namespace DE.Server.Entities
                     }
                 }
             }
-            else if (this is ServerSpaceEntity space)
-            {
-                foreach (var recipient in space.AvatarManageCmpt.Avatars.Values)
-                {
-                    if (CanSynchronizeAvatar(recipient) && runtime.AvatarClientSessionIds.ContainsKey(recipient.Guid))
-                    {
-                        targets[recipient] = EntitySerializationProfile.Observer;
-                    }
-                }
-            }
 
-            bool sent = true;
             foreach (var target in targets)
             {
                 var mask = (EntitySerializationProfileMask)(1 << ((int)target.Value - 1));
@@ -167,135 +154,96 @@ namespace DE.Server.Entities
                     continue;
                 }
                 byte[] patch = EntitySerializer.SerializePatch(this, target.Value);
-                if (!target.Key.CallClient("OnEntityPropertyPatch", Guid, (int)target.Value, patch))
-                {
-                    sent = false;
-                }
+                target.Key.CallClient("OnEntityPropertyPatch", Guid, (int)target.Value, patch);
             }
-            if (sent)
-            {
-                ClearPropertyChanges();
-            }
-            return sent;
+            ClearDirtyProperties();
         }
 
-        /// <summary>维护每个 Game 的自动同步定时器；运行时只负责启动和停止。</summary>
-        internal sealed class AutoSyncPropertySynchronizer
+        /// <summary>一个脏属性的标记与容量信息；不保存属性值或修改历史，发送时由 SG 读取字段。</summary>
+        internal readonly struct DirtyProperty
         {
-            private readonly GameServerRuntimeState _runtime;
-            private ulong _timer;
-
-            internal AutoSyncPropertySynchronizer(GameServerRuntimeState runtime)
+            internal DirtyProperty(
+                ulong propertyId, ulong? componentHash, ServerEntityComponent component,
+                EntitySerializationProfileMask profiles, int valueLength, ulong sequence)
             {
-                _runtime = runtime;
+                PropertyId = propertyId;
+                ComponentHash = componentHash;
+                Component = component;
+                Profiles = profiles;
+                ValueLength = valueLength;
+                Sequence = sequence;
             }
 
-            internal void Start()
-            {
-                if (_timer == 0)
-                {
-                    _timer = DETimer.AddTimer(50, Flush, true);
-                }
-            }
-
-            internal void Stop()
-            {
-                if (_timer != 0)
-                {
-                    DETimer.CancelTimer(_timer);
-                    _timer = 0;
-                }
-            }
-
-            private void Flush()
-            {
-                _runtime.RetryPendingSpaceEntries();
-                // Timers run on the Game thread; snapshots and later patches share Gate FIFO order.
-                foreach (var entity in _runtime.Entities.Values.ToArray())
-                {
-                    if (!entity.AutoSyncProperty || !entity.IsInitialized
-                        || entity is ServerAvatarEntity avatar && !CanSynchronizeAvatar(avatar))
-                    {
-                        continue;
-                    }
-                    entity.SynchronizeProperties(_runtime);
-                }
-            }
+            internal ulong PropertyId { get; }
+            internal ulong? ComponentHash { get; }
+            internal ServerEntityComponent Component { get; }
+            internal EntitySerializationProfileMask Profiles { get; }
+            internal int ValueLength { get; }
+            internal ulong Sequence { get; }
         }
 
-        /// <summary>实体统一变化日志，跨组件保序；同步时发送全部待发送变化，成功后清空，不合并重复赋值。</summary>
-        private sealed class EntityPropertyChangeJournal
+        /// <summary>按完整属性路径去重；每个属性只保留一个脏标记，重复修改仅更新容量和诊断序号。</summary>
+        private sealed class EntityDirtyPropertySet
         {
-            private const int ChangeOverheadBytes = 64;
-            // All pending changes must fit one packet, excluding its 24-byte header and 4-byte record count.
-            private const int MaximumPendingChangeBytes = EntitySerializationLimits.MaximumPacketBytes - 28;
-            private const int MaximumPendingChanges = EntitySerializationLimits.MaximumEntries;
-            private readonly List<EntityPropertyChange> _changes = new List<EntityPropertyChange>();
+            private const int PropertyOverheadBytes = 64;
+            private const int MaximumPendingBytes = EntitySerializationLimits.MaximumPacketBytes - 28;
+            private const int MaximumPendingProperties = EntitySerializationLimits.MaximumEntries;
+            private readonly Dictionary<(ulong? ComponentHash, ulong PropertyId), DirtyProperty> _properties =
+                new Dictionary<(ulong? ComponentHash, ulong PropertyId), DirtyProperty>();
             private int _pendingBytes;
 
             internal ulong Sequence { get; private set; }
-            internal IReadOnlyList<EntityPropertyChange> Changes => _changes;
+            internal IReadOnlyCollection<DirtyProperty> Properties => _properties.Values;
 
-            internal void EnsureCapacity(int valueLength, int pathLength)
+            internal void EnsureCapacity((ulong? ComponentHash, ulong PropertyId) key, int valueLength)
             {
                 if (valueLength < 0 || valueLength > EntitySerializationLimits.MaximumValueBytes)
                 {
                     throw new ArgumentOutOfRangeException(nameof(valueLength), "An encoded property value must not exceed 1 MiB.");
                 }
-                if (pathLength <= 0 || pathLength > EntitySerializationLimits.MaximumDepth)
+                bool existing = _properties.TryGetValue(key, out var previous);
+                int oldSize = existing ? GetPropertySize(previous.ValueLength, key.ComponentHash.HasValue) : 0;
+                int newSize = GetPropertySize(valueLength, key.ComponentHash.HasValue);
+                if ((!existing && _properties.Count >= MaximumPendingProperties)
+                    || newSize > MaximumPendingBytes - (_pendingBytes - oldSize))
                 {
-                    throw new ArgumentOutOfRangeException(nameof(pathLength));
-                }
-                int size = GetChangeSize(valueLength, pathLength);
-                if (_changes.Count >= MaximumPendingChanges
-                    || size > MaximumPendingChangeBytes - _pendingBytes)
-                {
-                    throw new InvalidOperationException("The pending entity property journal is full; synchronize changes before writing more properties.");
+                    throw new InvalidOperationException("The dirty property set is full; synchronize properties before writing more values.");
                 }
             }
 
-            internal void Append(IReadOnlyList<ulong> path, byte typeCode, EntitySerializationProfileMask profiles, byte[] value)
+            internal void Mark(
+                (ulong? ComponentHash, ulong PropertyId) key, ServerEntityComponent component,
+                EntitySerializationProfileMask profiles, int valueLength)
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
-                if (path == null)
-                {
-                    throw new ArgumentNullException(nameof(path));
-                }
-                EnsureCapacity(value.Length, path.Count);
+                EnsureCapacity(key, valueLength);
                 ulong sequence = checked(Sequence + 1);
-                var change = new EntityPropertyChange(sequence, path, typeCode, value, profiles);
-                _changes.Add(change);
-                _pendingBytes += GetChangeSize(value.Length, path.Count);
+                if (_properties.TryGetValue(key, out var previous))
+                {
+                    _pendingBytes -= GetPropertySize(previous.ValueLength, key.ComponentHash.HasValue);
+                }
+                _properties[key] = new DirtyProperty(key.PropertyId, key.ComponentHash, component, profiles, valueLength, sequence);
+                _pendingBytes += GetPropertySize(valueLength, key.ComponentHash.HasValue);
                 Sequence = sequence;
             }
 
             internal void Rebase(ulong sequence)
             {
-                if (_changes.Count != 0)
+                if (_properties.Count != 0)
                 {
-                    throw new InvalidOperationException("Cannot rebase an entity with pending local property changes.");
+                    throw new InvalidOperationException("Cannot rebase an entity with pending dirty properties.");
                 }
                 Sequence = sequence;
             }
 
             internal void ClearPending()
             {
-                _changes.Clear();
+                _properties.Clear();
                 _pendingBytes = 0;
             }
 
-            internal void Clear()
+            private static int GetPropertySize(int valueLength, bool component)
             {
-                ClearPending();
-                Sequence = 0;
-            }
-
-            private static int GetChangeSize(int valueLength, int pathLength)
-            {
-                return checked(ChangeOverheadBytes + pathLength * sizeof(ulong) + valueLength);
+                return checked(PropertyOverheadBytes + (component ? 2 : 1) * sizeof(ulong) + valueLength);
             }
         }
     }

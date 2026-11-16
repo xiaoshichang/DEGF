@@ -202,10 +202,10 @@ Gate 创建迁移队列后返回 `RouteFrozen`。同一个 `MigrationId` 的重�
 
 因为 Gate 到同一源 Game 使用同一有序内网连接，在 `FreezeRoute` 之前已被 Gate 接受并转发的 RPC 会先于 `RouteFrozen` 到达源 Game。源 Game 只在收到确认后生成快照。
 
-源 Game 收到 `RouteFrozen` 后先排空已有属性日志，按全实体序号发送给 Owner 和当前观察者，再让 Avatar 退出旧 Space 并调用 `OnAfterLeaveSpace`。
-退出后冻结源实体的属性写入，向 Owner 排空退出阶段的变化，再生成迁移快照；旧观察者的观察期已结束，不再接收退出后的变化。
+源 Game 收到 `RouteFrozen` 后先同步脏属性的最终状态给 Owner 和当前观察者，再让 Avatar 退出旧 Space 并调用 `OnAfterLeaveSpace`。
+退出后冻结源实体的属性写入，向 Owner 同步退出阶段的最终状态，再生成迁移快照；旧观察者的观察期已结束，不再接收退出后的变化。
 这些源端 RPC 仍可进入冻结 Gate 的 FIFO，提交或回滚时先于后续入场快照到达 Owner。目标从快照的 ThroughSequence 继续产生变化。
-若迁移回滚，源 Avatar 解冻；重新入场前仍先发送保留的 Owner 日志，避免新快照覆盖未同步的历史变化。
+若迁移回滚，源 Avatar 解冻；重新入场前先同步 Owner 的脏属性状态；不保存或回放每次赋值的中间值。
 
 ### 2. 生成快照并准备目标 Avatar
 
@@ -285,7 +285,7 @@ OwnerGate 在冻结期间使用一个统一 FIFO 队列记录以下消息：
 当前版本不维护迁移重试定时器，也不会按状态自动重发控制命令。
 首次 `FreezeRoute` 发送失败时，源迁移进入 `Failed` 并向 Teleport 调用方返回错误码，由调用方决定日志与提示。
 PrepareTarget、ActivateTarget、CommitRoute 初次发送失败会进入已有回滚流程；回滚控制命令发送失败仍保留上下文并报告错误。
-RouteRolledBack 后若 Owner 待发送变化尚未成功入队，保持源属性冻结，由属性同步定时器一次性重试全部变化，成功后清空日志并恢复入场；不分 batch，也不重发迁移控制命令。
+属性同步暂不处理发送失败；RouteRolledBack 后向 Owner 发送脏属性当前值并清空标记，随后恢复源属性写入和入场，不等待属性重试。
 
 接收端仍使用 `MigrationId` 处理重复消息。Gate 额外记录最近一次提交或回滚结果，以便活动上下文已经删除后仍可回答重复请求。目标 Game 只在迁移编号、协议字段和当前状态一致时接受重复的 Prepare、Activate、Complete 或 Abort；不一致的重入请求记录 `Error` 并返回失败。
 

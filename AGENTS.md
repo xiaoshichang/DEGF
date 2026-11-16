@@ -25,24 +25,28 @@
   组件通过 `AddComponent(component)` 装配；SG 根据 `[EntityComponent]` 持有属性生成组件实例到属性名哈希的引用路由，继承类继续调用基类路由。
   继承链中的属性平铺在当前节点，组件类名不参与协议标识，组件不保存持有属性名称。
   节点及叶属性均以属性名的 UTF-8 FNV-1a 64 位哈希定位，不分配递增 ID；不同组件允许同名属性，SG 检查同节点继承链内的哈希冲突。
-  业务通过 partial 类型内私有 `__` 字段声明属性；生命周期和回调保留在手写文件，SG 在 `.g.cs` 中生成强类型访问、编解码和日志记录代码。
+  业务通过 partial 类型内私有 `__` 字段声明属性；生命周期和回调保留在手写文件，SG 在 `.g.cs` 中生成强类型访问、编解码和脏标记代码。
   不使用运行时 metadata、反射或读写委托；手写属性及自动属性上的 `[EntityProperty]` 会产生编译错误。
   暂不支持数组、List、Dictionary 等容器 EntityProperty；不支持的字段类型在编译期报错。
-  服务器以 `AutoSyncProperty` 控制是否记录脏属性并自动同步，默认关闭；ServerAvatarEntity、ServerSpaceEntity 开启。
-  自动同步标记、追踪、有序日志、写入检查、发送目标和定时同步流程封装在 `ServerEntity.AutoSyncProperties.cs`；日志按需创建。
+  服务器以 `AutoSyncProperty` 控制是否记录脏属性并自动同步，默认关闭；ServerAvatarEntity 开启，ServerSpaceEntity 关闭。
+  自动同步标记、脏属性集合、写入检查和发送目标封装在 `ServerEntity.AutoSyncProperties.cs`；脏集合按需创建。
+  `ServerSpaceEntity.AutoSyncProperties.cs` 维护每个空间的 50 ms 定时器，只驱动本空间成员 Avatar 的自动同步。
+  定时器在空间 PostInitialize 启动、PreUnInitialize 停止；未入空间的实体不参与周期同步，Space 自身仍可生成快照。
   服务端编解码哈希、读写器、上下文、协议入口及应用通知位于 `DE.Server/Entities/Serialization`，保持 `DE.Server.Entities` 命名空间。
   共享标记不绑定双端运行时；SG 根据声明类型的继承关系选择对应运行时生成代码。
-  GameRuntimeState 仅接线同步器的启动、停止；组件通过生成代码直接通知 OwnerEntity。
-  客户端不维护脏属性日志或生成 Patch，setter 仅负责赋值及业务回调。
+  GameRuntimeState 不维护全局属性同步定时器；组件通过生成代码直接通知 OwnerEntity。
+  客户端不维护脏属性集合或生成 Patch，setter 仅负责赋值及业务回调。
 - 属性树协议采用 v4，Profile（Owner、Observer、Migration）与 Mode（Snapshot、Patch）独立。
   Owner 包含 ClientServer 和 AllClients，Observer 包含 AllClients；Migration 包含服务端状态，拒绝未知或缺失的已选属性。
   Snapshot 使用递归 TLV；Owner / Observer 可跳过未知节点，缺失可选属性保留当前值，`Guid` 必须存在。
-  Patch 由服务器生成并同步到客户端，保留实体及各组件每次实际赋值的全局序号、属性路径和当时的编码值，不合并、不按组件重排。
+  Patch 由服务器生成并同步到客户端；setter 只标脏，按完整属性路径去重，发送时由 SG 读取当前字段，每个属性仅发送最终值。
+  本地属性回调仍按实际赋值执行；网络不记录中间值，不保证跨属性变化顺序，序号仅用于诊断和迁移延续。
   接收端完整验证后直接写后备字段，不触发 `OnBeforeXChange` / `OnAfterXChange`，随后通过 `OnPropertiesApplied` 通知业务。
   客户端依赖有序传输按接收顺序应用 Patch，不维护同步基线，不去重或检查序号缺口；服务器没有接收 Patch 的入口。
-  自动同步仅遍历已注册实体，不遍历 Stub；处理 `AutoSyncProperty` 开启的实体，Avatar 发给 Owner 及 AOI 观察者，Space 发给当前成员。
-  每次同步一次性发送实体的全部待发送变化，成功后统一清空日志，不分 batch 或确认前缀；属性写入和编解码按单线程顺序调用。
-  迁移快照前发送待同步变化并冻结源实体属性写入，目标从快照序号继续；回滚后恢复写入。单值上限 1 MiB、包上限 4 MiB、待发送日志按单个 4 MiB 包预算约束，最多 65535 条。
+  空间周期同步处理 `AutoSyncProperty` 开启且迁移状态允许同步的成员 Avatar，发给 Owner 及 AOI 观察者；不扫描全局实体或 Stub。
+  每次同步一次性发送全部脏属性当前值，发送后清空脏标记，暂不处理发送失败或重试；不分 batch，属性写入和编解码按单线程顺序调用。
+  RPC 与属性同步不保证相互顺序，不增加强制刷新或跨通道排序机制。
+  迁移快照前同步脏属性并冻结源实体属性写入，目标从快照序号继续；回滚后恢复写入。单值上限 1 MiB、包上限 4 MiB、脏属性按单个 4 MiB 包预算约束，最多 65535 个路径。
   组件类重命名不影响标识，继承逻辑由生成方法调用基类生成方法串接。
 - `ServerAvatarEntity` 支持跨 Game 迁移；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
 - 初始化职责：`PreInitialize` 初始化实体属性和字段，构造组件并准备组件属性和字段，随后恢复身份及属性快照；`Initialize` 处理组件依赖初始化；`PostInitialize` 处理收尾逻辑。

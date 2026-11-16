@@ -13,8 +13,6 @@ namespace DE.Server.Entities
     
     public partial class ServerSpaceEntity : ServerEntity
     {
-        public override bool AutoSyncProperty => true;
-
         public ServerSpaceEntity(SpaceInitializer initializer)
         {
             _initializer = initializer;
@@ -43,6 +41,20 @@ namespace DE.Server.Entities
         {
             _dataRow = DataRuntime.GetTable<SpaceDataTable>().GetRow(DataTableKey.FromInt32(SpaceNo));
             base.Initialize();
+        }
+
+        /// <summary>组件依赖准备完成后，启动本空间成员的周期属性同步。</summary>
+        protected override void PostInitialize()
+        {
+            base.PostInitialize();
+            StartPropertySynchronization();
+        }
+
+        /// <summary>在成员和组件开始清理前停止周期属性同步。</summary>
+        protected override void PreUnInitialize()
+        {
+            StopPropertySynchronization();
+            base.PreUnInitialize();
         }
 
         /// <summary>组件清理完成后释放空间配置引用。</summary>

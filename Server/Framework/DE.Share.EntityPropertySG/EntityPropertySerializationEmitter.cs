@@ -153,23 +153,21 @@ namespace DE.Share.EntityPropertySG
             AppendSetterWriteValidation(builder, server, identity, target, id, ownerArgument, indent);
             if (server && mask != 0)
             {
-                Line(builder, indent, "byte[] encodedChange = null;");
+                Line(builder, indent, "int dirtyValueLength = -1;");
                 Line(builder, indent, "if (" + trackingCondition + ")");
                 Line(builder, indent, "{");
-                Line(builder, indent + 1, "var changeWriter = new " + module + ".EntityPropertyWriter();");
-                AppendWriteValue(builder, field.Codec, "value", "changeWriter", indent + 1);
-                Line(builder, indent + 1, "encodedChange = changeWriter.ToArray();");
-                Line(builder, indent + 1, target + "ValidatePropertyChangeCapacity(encodedChange.Length" + ownerArgument + ");");
+                Line(builder, indent + 1, "dirtyValueLength = " + GetWireSizeExpression(field, module, "value") + ";");
+                Line(builder, indent + 1, target + "ValidateDirtyPropertyCapacity(" + id + ", dirtyValueLength" + ownerArgument + ");");
                 Line(builder, indent, "}");
             }
             Line(builder, indent, field.FieldSymbol.Name + " = value;");
             if (server && mask != 0)
             {
-                Line(builder, indent, "if (encodedChange != null)");
+                Line(builder, indent, "if (dirtyValueLength >= 0)");
                 Line(builder, indent, "{");
-                Line(builder, indent + 1, target + "RecordPropertyChange(" + id + ", " + field.Codec.CodeLiteral + ",");
+                Line(builder, indent + 1, target + "MarkPropertyDirty(" + id + ",");
                 Line(builder, indent + 2, "(" + module + ".EntitySerializationProfileMask)" + mask.ToString(CultureInfo.InvariantCulture)
-                    + ", encodedChange" + ownerArgument + ");");
+                    + ", dirtyValueLength" + ownerArgument + ");");
                 Line(builder, indent, "}");
             }
             Line(builder, indent, "OnAfter" + field.PropertyName + "Change(value);");

@@ -407,7 +407,7 @@ namespace DE.Share.EntityPropertySG
 
         private static bool HasConflictingMember(INamedTypeSymbol typeSymbol, string propertyName)
         {
-            if (propertyName == "WriteSnapshot" || propertyName == "ReadProperty" || propertyName == "ValidateSnapshot"
+            if (propertyName == "WriteSnapshot" || propertyName == "WriteProperty" || propertyName == "ReadProperty" || propertyName == "ValidateSnapshot"
                 || propertyName == "HasSnapshotProperties"
                 || propertyName == "ValidatePropertyTree" || propertyName == "TryGetComponentPropertyHash")
             {

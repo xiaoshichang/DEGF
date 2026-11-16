@@ -58,7 +58,7 @@ namespace DE.Server.Entities
         }
     }
 
-    /// <summary>属性包完整应用后的通知；Changes 保留已识别记录的全实体顺序，不按组件重新分组。</summary>
+    /// <summary>属性包完整应用后的状态通知；Changes 携带本次涉及属性的最新值，不表示赋值历史或跨属性顺序。</summary>
     public sealed class EntityPropertyApplyContext
     {
         public EntityPropertyApplyContext(

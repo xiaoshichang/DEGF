@@ -159,7 +159,7 @@ Migration includes server state, including Persistent fields, and excludes Clien
 | Snapshot body / object payload | ChildCount, followed by entries | uint16, entries |
 | Entry | PropertyNameHash, WireTag, PayloadLength, Payload | uint64, uint8, uint32, bytes |
 | Patch body | ChangeCount, followed by change records | uint32, records |
-| Patch change | Sequence, exactly one sparse root entry | uint64, entry |
+| Dirty property | Last modification sequence, exactly one sparse root entry | uint64, entry |
 
 WireTag 0 represents an object node. Each object on a Patch record's path has exactly one child.
 A root leaf such as Guid has a one-element path; Position in TransformCmpt has the path
@@ -168,7 +168,8 @@ Names are case-sensitive UTF-8 FNV-1a 64-bit hashes, with offset 146959810393466
 using unchecked arithmetic. The SG emits hash constants. Inheritance and declaration order do not affect existing paths.
 Renaming a holding property or leaf creates a new protocol identity; renaming a component class does not.
 
-A Snapshot has equal BaseSequence and ThroughSequence. Sequences describe server changes and migration continuity; receivers store no baseline.
+A Snapshot has equal BaseSequence and ThroughSequence. Sequence fields remain for diagnostics and migration continuity;
+they do not describe a complete modification history, define application order, or establish a receive baseline.
 Owner / Observer readers skip unknown nodes by length, preserve missing optional fields, and require Guid.
 Migration readers reject unknown fields and require every selected field. Known type/profile mismatches, duplicate siblings,
 bad lengths, invalid values and trailing bytes reject the complete packet. Live snapshots also enforce entity identity; snapshots are applied in receive order without sequence-age checks.
@@ -181,41 +182,44 @@ Business declares EntityProperty on private __ fields in partial classes; handwr
 Arrays, List, Dictionary and other container EntityProperty values are rejected at compilation; RPC argument arrays remain supported.
 
 ServerEntity.AutoSyncProperty controls dirty tracking and automatic synchronization, and defaults to false.
-ServerAvatarEntity and ServerSpaceEntity override it to true. Dirty tracking, pending-log limits, recipient selection and the 50 ms synchronizer live in ServerEntity.AutoSyncProperties.cs.
-The ordered journal is created lazily; GameRuntimeState only starts/stops the synchronizer and handles pending Space-entry notifications.
-Generated server component setters pass their component instance to OwnerEntity; the generated route supplies the component path hash.
-Entities with the flag disabled do not record changes. Paths still use holding-property names, and assignment records retain their original order.
-Clients have no dirty log or Patch encoder; their setters only assign fields and invoke business callbacks.
-EntityPropertyChange remains an immutable record also used transiently while applying received changes.
-Each initialized server entity with AutoSyncProperty enabled owns one sequence across itself and its components. A successful local setter encodes the assigned value,
-writes the backing field, appends an immutable record, and then invokes OnAfterXChange. OnBeforeXChange precedes this sequence.
-Every actual assignment is retained, including repeated writes to one path; changes are never coalesced or grouped by component.
-Setter reentry therefore follows actual assignment order. Unchanged assignments create no record.
-Writes, captures and codecs use a simple single-threaded calling model without runtime thread binding or journal lifecycle guards.
+ServerAvatarEntity overrides it to true; ServerSpaceEntity leaves it disabled. The dirty set, capacity limits and recipient selection
+live in ServerEntity.AutoSyncProperties.cs. ServerSpaceEntity.AutoSyncProperties.cs owns each Space's 50 ms member synchronization timer,
+started in PostInitialize and stopped in PreUnInitialize. GameRuntimeState has no global property synchronization timer.
+Generated component setters pass their component instance to OwnerEntity; the generated reference route supplies the component path hash.
+Entities with the flag disabled do not mark properties dirty. Clients have no dirty set or Patch encoder.
 
-Each synchronization sends all pending changes for one entity in one Patch per selected Profile, preserving assignment order.
-There is no batch capture, prefix acknowledgement, or repeated draining loop. BaseSequence describes the first pending change's predecessor;
-ThroughSequence is the entity's current sequence. The Game skips sends when a recipient's profile has no selected changes.
-Patch flows from the server to clients only; the server has no Patch application entry point.
-The client validates the complete packet and then applies all recognized records in wire order, relying on ordered transport.
-It does not store a receive baseline, deduplicate retries, reject sequence gaps, or sort by sequence; a repeated Patch is applied again.
-After every intended send succeeds, the entity clears its pending log without resetting its sequence; a failed send retains the log.
-Remote application bypasses setters and callbacks; OnPropertiesApplied runs after commit with the ordered recognized records.
-On an auto-synchronized server entity this hook may create tracked local changes; client hooks do not maintain dirty logs.
+A server setter validates the latest value's wire size, writes the backing field, marks that property dirty, and invokes OnAfterXChange.
+OnBeforeXChange precedes assignment. Local callbacks still run for each actual value change, but setters do not serialize or retain values.
+The dirty set is keyed by the complete path (optional component hash, property hash); repeated changes overwrite the same marker's size and revision.
+At send time the SG-generated WriteProperty switch reads the current backing field and uses its statically selected codec.
+For A → B → C only C is sent; A → B → A still leaves one dirty marker and may send A because no per-client baseline is compared.
+Different components may have identically named properties and still have independent markers.
+Writes and codecs use a simple single-threaded calling model without runtime thread binding or journal lifecycle guards.
+
+Each synchronization sends all selected dirty properties once per Profile in one Patch. There is no batching or prefix acknowledgement.
+BaseSequence is the minimum retained last-modification sequence minus one; ThroughSequence is the current entity revision.
+Property enumeration order is an implementation detail. Sequences are not used for receiver deduplication, gap checks or cross-property event ordering.
+The Game skips profiles with no selected dirty properties. After attempting the sends the dirty set is cleared without resetting its revision.
+Property synchronization currently ignores send failures and does not retain markers for retry.
+The client validates the complete packet and applies its current values directly to backing fields, bypassing local setters.
+OnPropertiesApplied runs after commit with this packet's recognized state values, without intermediate assignments; repeated state notifications remain possible.
 Snapshots report an empty change list. Locally serialized client snapshots have sequence zero.
+RPCs and property synchronization do not guarantee mutual ordering; ordinary RPC sends do not flush pending properties.
 
-Game scans registered entities every 50 ms and flushes only entities with AutoSyncProperty enabled; Stubs are not scanned.
-Avatar changes go to the Owner and actual AOI observers; Space changes go to its current Avatar members.
-Npc entities keep the flag disabled by default; Stubs never participate in automatic synchronization.
-Before sending a new Owner entry snapshot, all pending changes are sent first.
-Entry notification failures retain an Avatar/Space-bound retry item; retries never repeat the business OnAfterEnterSpace callback.
-Migration drains changes before leaving, then freezes source writes and drains remaining Owner changes before taking its snapshot.
-The target continues the source sequence. During rollback, retained changes precede the restored Owner snapshot.
-The guarantee covers each entity's assignment sequence and an active ordered session; there is no cross-entity global order or reconnect replay log.
+Each Space scans its current Avatar members every 50 ms, synchronizing only members with AutoSyncProperty enabled and eligible migration state.
+Avatar changes go to the Owner and actual AOI observers. Avatars outside a Space have no periodic synchronization.
+Space properties are delivered through snapshots, without dirty tracking or automatic Patch sends.
+Npc entities keep the flag disabled by default; global entities and Stubs are not scanned.
+Explicit entry and migration snapshot preparation flushes pending state before creating a refreshed snapshot.
+Entry notification failures retain an Avatar/Space-bound retry item; the associated Space's timer drives retries without repeating OnAfterEnterSpace.
+Migration synchronizes dirty state before leaving, then freezes source writes and synchronizes remaining Owner state before taking its snapshot.
+The target continues the source sequence. During rollback, pending state is synchronized before the restored Owner snapshot.
+The model synchronizes current state; it does not preserve every intermediate transition, cross-property event order, or a reconnect replay history.
 
 A scalar payload is limited to 1 MiB, an entity packet to 4 MiB, and depth to 16.
-The pending log uses a conservative one-packet budget (4 MiB minus header/count), with at most 65535 records.
-Capacity and encoded value checks occur before assignment; oversized pending data is rejected instead of split into batches.
+The dirty set uses a conservative one-packet budget (4 MiB minus header/count), with at most 65535 distinct property paths.
+Wire-size checks occur before assignment and replace the previous dirty size for that path; repeated writes do not accumulate budget.
+Oversized pending state is rejected instead of split into batches.
 Both KCP endpoints enqueue each application frame as an uninterrupted sequence of MSS-sized chunks; existing length framing reassembles it.
 A partial enqueue failure closes the session so later frames cannot be parsed as a truncated predecessor.
 The native engine and NativeBridge transport property packets as opaque byte arrays without ABI changes.

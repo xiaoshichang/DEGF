@@ -65,11 +65,8 @@ namespace DE.Server.Entities
         internal bool TryNotifySpaceEntry(ServerSpaceEntity space)
         {
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
-            // A refreshed Owner snapshot must never skip its still-pending assignment history.
-            if (!Avatar.SynchronizeProperties(runtime, false))
-            {
-                return false;
-            }
+            // Flush pending Owner state before preparing the refreshed entry snapshot.
+            Avatar.SynchronizeProperties(runtime, false);
             var visible = space.AOISpace.GetVisibleAgents(Guid).Select(agent => runtime.Entities[agent.Id]).ToArray();
             var entityTypes = visible.Select(entity => entity.GetType().Name).ToArray();
             var entityData = visible.Select(entity => EntitySerializer.SerializeSnapshot(entity, EntitySerializationProfile.Observer)).ToArray();

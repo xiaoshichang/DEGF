@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DE.Server.Entities
 {
-    /// <summary>属性树 v4 编解码入口；Snapshot 保存状态，Patch 保留逐次赋值的全实体顺序。</summary>
+    /// <summary>属性树 v4 编解码入口；Snapshot 保存完整状态，Patch 仅携带各脏属性的最新值。</summary>
     public static class EntitySerializer
     {
         private const ushort CurrentVersion = 4;
@@ -32,8 +33,8 @@ namespace DE.Server.Entities
                 throw new ArgumentException("Migration requires a complete snapshot.", nameof(profile));
             }
             ValidateTree(entity);
-            var changes = entity.PendingPropertyChanges;
-            var selected = new List<EntityPropertyChange>();
+            var changes = entity.PendingDirtyProperties;
+            var selected = new List<ServerEntity.DirtyProperty>();
             var mask = ProfileMask(profile);
             foreach (var change in changes)
             {
@@ -48,10 +49,10 @@ namespace DE.Server.Entities
             foreach (var change in selected)
             {
                 body.WriteUInt64(change.Sequence);
-                body.WriteBytes(EncodeChangeEntry(change));
+                body.WriteBytes(EncodeDirtyPropertyEntry(entity, profile, change));
             }
             ulong throughSequence = entity.PropertySequence;
-            ulong baseSequence = changes.Count == 0 ? throughSequence : changes[0].Sequence - 1;
+            ulong baseSequence = changes.Count == 0 ? throughSequence : changes.Min(property => property.Sequence) - 1;
             return WritePacket(profile, EntitySerializationMode.Patch, baseSequence, throughSequence, body.ToArray());
         }
 
@@ -270,25 +271,25 @@ namespace DE.Server.Entities
                 && reader.TrySlice(size, out value);
         }
 
-        private static byte[] EncodeChangeEntry(EntityPropertyChange change)
+        private static byte[] EncodeDirtyPropertyEntry(
+            ServerEntity entity, EntitySerializationProfile profile, ServerEntity.DirtyProperty property)
         {
-            if (change.Path.Count == 0 || change.Path.Count > EntitySerializationLimits.MaximumDepth || change.TypeCode == ObjectTag)
+            var writer = new EntityPropertyWriter();
+            IEntityPropertyNode node = property.Component == null ? (IEntityPropertyNode)entity : property.Component;
+            if (!node.WriteProperty(property.PropertyId, writer, profile))
             {
-                throw new InvalidOperationException("A property change must contain one scalar leaf path.");
+                throw new InvalidOperationException("The generated property writer does not recognize a marked dirty property.");
             }
-            var leaf = new EntityPropertyWriter();
-            leaf.WritePropertyHeader(change.Path[change.Path.Count - 1], change.TypeCode, change.EncodedValue.Length);
-            leaf.WriteBytes(change.EncodedValue);
-            byte[] entry = leaf.ToArray();
-            for (int index = change.Path.Count - 2; index >= 0; index--)
+            byte[] entry = writer.ToArray();
+            if (!property.ComponentHash.HasValue)
             {
-                var parent = new EntityPropertyWriter();
-                parent.WritePropertyHeader(change.Path[index], ObjectTag, checked(sizeof(ushort) + entry.Length));
-                parent.WriteUInt16(1);
-                parent.WriteBytes(entry);
-                entry = parent.ToArray();
+                return entry;
             }
-            return entry;
+            var parent = new EntityPropertyWriter();
+            parent.WritePropertyHeader(property.ComponentHash.Value, ObjectTag, checked(sizeof(ushort) + entry.Length));
+            parent.WriteUInt16(1);
+            parent.WriteBytes(entry);
+            return parent.ToArray();
         }
 
         private static IEntityPropertyNode ValidateTree(ServerEntity entity)

@@ -94,7 +94,6 @@ namespace DE.Server.NativeBridge
         }
 
         private readonly Dictionary<Guid, SourceAvatarMigrationContext> _sourceAvatarMigrations = new();
-        private readonly Dictionary<Guid, SourceAvatarMigrationContext> _pendingSourceRollbackEntries = new();
         private readonly Dictionary<Guid, TargetAvatarMigrationContext> _targetAvatarMigrations = new();
         private readonly Dictionary<Guid, Guid> _lastAbortedTargetAvatarMigrations = new();
         private readonly Dictionary<Guid, Guid> _lastCompletedTargetAvatarMigrations = new();
@@ -237,7 +236,6 @@ namespace DE.Server.NativeBridge
                 {
                     Avatars.Remove(entity.Guid);
                     AvatarClientSessionIds.Remove(entity.Guid);
-                    RemovePendingSourceRollback(avatar);
                     removed = true;
                 }
             }
@@ -253,7 +251,6 @@ namespace DE.Server.NativeBridge
         internal void ClearAvatarImmigrations()
         {
             _sourceAvatarMigrations.Clear();
-            _pendingSourceRollbackEntries.Clear();
             _targetAvatarMigrations.Clear();
             _lastAbortedTargetAvatarMigrations.Clear();
             _lastCompletedTargetAvatarMigrations.Clear();
@@ -316,11 +313,7 @@ namespace DE.Server.NativeBridge
                     response.TargetGameServerId
                 );
                 // Frozen Gate queues these before route commit; old observers still hold the source node here.
-                if (!avatar.SynchronizeProperties(this, false))
-                {
-                    BeginAvatarMigrationRollback(context);
-                    return true;
-                }
+                avatar.SynchronizeProperties(this, false);
                 if (context.SourceSpaceId != Guid.Empty)
                 {
                     if (!Entities.TryGetValue(context.SourceSpaceId, out var frozenSourceEntity))
@@ -348,11 +341,7 @@ namespace DE.Server.NativeBridge
                     // Leaving the source Space may still write framework properties; seal only its completed snapshot state.
                     avatar.FreezePropertyWrites();
                     // Observation ended with AOI departure. Send its final Owner changes before the migration snapshot.
-                    if (!avatar.SynchronizeProperties(this, true))
-                    {
-                        BeginAvatarMigrationRollback(context);
-                        return true;
-                    }
+                    avatar.SynchronizeProperties(this, true);
                     context.AvatarData = EntitySerializer.SerializeSnapshot(avatar, EntitySerializationProfile.Migration);
                 }
                 catch (Exception exception)
@@ -520,7 +509,7 @@ namespace DE.Server.NativeBridge
                     return true;
                 }
 
-                TryResumeSourceRollback(context);
+                ResumeSourceRollback(context);
                 return true;
 
             default:
@@ -972,42 +961,11 @@ namespace DE.Server.NativeBridge
             return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, true);
         }
 
-        private void RetrySourceRollbackEntries()
-        {
-            foreach (var context in _pendingSourceRollbackEntries.Values.ToArray())
-            {
-                if (context.Avatar == null || !context.Avatar.IsInitialized)
-                {
-                    _pendingSourceRollbackEntries.Remove(context.Message.MigrationId);
-                    continue;
-                }
-                TryResumeSourceRollback(context);
-            }
-        }
-
-        private void RemovePendingSourceRollback(ServerAvatarEntity avatar)
-        {
-            foreach (var migrationId in _pendingSourceRollbackEntries
-                .Where(pair => ReferenceEquals(pair.Value.Avatar, avatar)).Select(pair => pair.Key).ToArray())
-            {
-                _pendingSourceRollbackEntries.Remove(migrationId);
-            }
-        }
-
-        private void TryResumeSourceRollback(SourceAvatarMigrationContext context)
+        private void ResumeSourceRollback(SourceAvatarMigrationContext context)
         {
             var avatar = context.Avatar;
             avatar.FreezePropertyWrites();
-            if (!avatar.SynchronizeProperties(this, true))
-            {
-                if (_pendingSourceRollbackEntries.TryAdd(context.Message.MigrationId, context))
-                {
-                    DELogger.Warn(nameof(GameServerRuntimeState),
-                        $"Deferred Avatar rollback entry until Owner changes are queued, avatarId={avatar.Guid}.");
-                }
-                return;
-            }
-            _pendingSourceRollbackEntries.Remove(context.Message.MigrationId);
+            avatar.SynchronizeProperties(this, true);
             avatar.UnfreezePropertyWrites();
             if (context.SourceSpaceId != Guid.Empty)
             {

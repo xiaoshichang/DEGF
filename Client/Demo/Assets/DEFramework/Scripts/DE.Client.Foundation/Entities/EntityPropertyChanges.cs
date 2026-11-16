@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace DE.Client.Entities
 {
-    /// <summary>一次实际赋值的不可变编码副本；属性路径和字节不会引用调用方的可变数组。</summary>
+    /// <summary>一次属性状态更新的不可变编码副本；不表示逐次赋值历史，路径和字节不会引用调用方的可变数组。</summary>
     public sealed class EntityPropertyChange
     {
         private readonly byte[] _value;

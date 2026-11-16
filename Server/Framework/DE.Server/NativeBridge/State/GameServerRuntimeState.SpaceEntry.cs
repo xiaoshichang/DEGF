@@ -9,12 +9,6 @@ namespace DE.Server.NativeBridge
     {
         private readonly Dictionary<Guid, (ServerAvatarEntity Avatar, ServerSpaceEntity Space)> _pendingSpaceEntryNotifications = new();
 
-        internal void RetryPendingSpaceEntries()
-        {
-            RetrySourceRollbackEntries();
-            RetrySpaceEntryNotifications();
-        }
-
         internal void NotifySpaceEntry(ServerAvatarEntity avatar, ServerSpaceEntity space)
         {
             if (!IsSpaceEntryNotificationCurrent(avatar, space))
@@ -67,9 +61,9 @@ namespace DE.Server.NativeBridge
                 && AvatarClientSessionIds.TryGetValue(avatar.Guid, out var sessionId) && sessionId != 0;
         }
 
-        private void RetrySpaceEntryNotifications()
+        internal void RetryPendingSpaceEntries(ServerSpaceEntity space)
         {
-            foreach (var pending in _pendingSpaceEntryNotifications.Values.ToArray())
+            foreach (var pending in _pendingSpaceEntryNotifications.Values.Where(pending => ReferenceEquals(pending.Space, space)).ToArray())
             {
                 if (!IsSpaceEntryNotificationCurrent(pending.Avatar, pending.Space))
                 {

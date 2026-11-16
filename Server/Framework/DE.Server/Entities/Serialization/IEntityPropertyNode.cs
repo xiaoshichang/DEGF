@@ -6,6 +6,7 @@ namespace DE.Server.Entities
     public interface IEntityPropertyNode
     {
         void WriteSnapshot(EntityPropertyWriter writer, EntitySerializationProfile profile);
+        bool WriteProperty(ulong propertyId, EntityPropertyWriter writer, EntitySerializationProfile profile);
         bool ReadProperty(ulong propertyId, byte wireTag, ref EntityPropertyReader reader, EntityPropertyReadContext context);
         bool ValidateSnapshot(IReadOnlyCollection<ulong> seen, EntitySerializationProfile profile);
         bool HasSnapshotProperties(EntitySerializationProfile profile);

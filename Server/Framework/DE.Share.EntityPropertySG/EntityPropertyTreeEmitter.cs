@@ -16,6 +16,7 @@ namespace DE.Share.EntityPropertySG
             bool root = EntityPropertySymbols.IsRoot(type);
             string modifier = root ? "virtual" : "override";
             AppendWriteSnapshot(builder, fields, nodes, module, root, modifier, indent);
+            AppendWriteProperty(builder, fields, module, root, modifier, indent);
             AppendReadProperty(builder, type, fields, nodes, module, root, modifier, indent);
             AppendValidateSnapshot(builder, type, fields, nodes, module, root, modifier, indent);
             AppendHasProperties(builder, fields, nodes, module, root, modifier, indent);
@@ -45,17 +46,7 @@ namespace DE.Share.EntityPropertySG
 
                 Line(builder, indent + 1, "if (" + ProfilePredicate(mask, module) + ")");
                 Line(builder, indent + 1, "{");
-                Line(builder, indent + 2, "var value = " + field.FieldSymbol.Name + ";");
-                string size = field.Codec.FixedSize < 0 ? module + ".EntityPropertyWriter.GetStringWireSize(value)"
-                    : field.Codec.FixedSize.ToString(CultureInfo.InvariantCulture);
-                if (field.Codec.IsNullable)
-                {
-                    size = "value.HasValue ? " + (field.Codec.FixedSize + 1).ToString(CultureInfo.InvariantCulture) + " : 1";
-                }
-
-                Line(builder, indent + 2, "writer.WritePropertyHeader(" + IdLiteral(field.PropertyName)
-                    + ", " + field.Codec.CodeLiteral + ", " + size + ");");
-                AppendWriteValue(builder, field.Codec, "value", "writer", indent + 2);
+                AppendWriteCurrentField(builder, field, module, indent + 2);
                 Line(builder, indent + 1, "}");
             }
 
@@ -67,6 +58,58 @@ namespace DE.Share.EntityPropertySG
 
             Line(builder, indent, "}");
             builder.AppendLine();
+        }
+
+        private static void AppendWriteProperty(
+            StringBuilder builder, IReadOnlyList<FieldGenerationInfo> fields, string module, bool root, string modifier, int indent)
+        {
+            Line(builder, indent, "public " + modifier + " bool WriteProperty(");
+            Line(builder, indent + 1, "ulong propertyId, " + module + ".EntityPropertyWriter writer, " + module
+                + ".EntitySerializationProfile profile)");
+            Line(builder, indent, "{");
+            Line(builder, indent + 1, "switch (propertyId)");
+            Line(builder, indent + 1, "{");
+            foreach (var field in fields)
+            {
+                Line(builder, indent + 1, "case " + IdLiteral(field.PropertyName) + ":");
+                Line(builder, indent + 1, "{");
+                byte mask = GetProfileMask(field.Flags);
+                if (mask != 0)
+                {
+                    Line(builder, indent + 2, "if (!(" + ProfilePredicate(mask, module) + "))");
+                    ReturnFalse(builder, indent + 2);
+                    AppendWriteCurrentField(builder, field, module, indent + 2);
+                    Line(builder, indent + 2, "return true;");
+                }
+                else
+                {
+                    Line(builder, indent + 2, "return false;");
+                }
+                Line(builder, indent + 1, "}");
+            }
+            Line(builder, indent + 1, "default:");
+            Line(builder, indent + 2, root ? "return false;" : "return base.WriteProperty(propertyId, writer, profile);");
+            Line(builder, indent + 1, "}");
+            Line(builder, indent, "}");
+            builder.AppendLine();
+        }
+
+        private static void AppendWriteCurrentField(StringBuilder builder, FieldGenerationInfo field, string module, int indent)
+        {
+            Line(builder, indent, "var value = " + field.FieldSymbol.Name + ";");
+            Line(builder, indent, "writer.WritePropertyHeader(" + IdLiteral(field.PropertyName)
+                + ", " + field.Codec.CodeLiteral + ", " + GetWireSizeExpression(field, module, "value") + ");");
+            AppendWriteValue(builder, field.Codec, "value", "writer", indent);
+        }
+
+        private static string GetWireSizeExpression(FieldGenerationInfo field, string module, string value)
+        {
+            if (field.Codec.IsNullable)
+            {
+                return value + ".HasValue ? " + (field.Codec.FixedSize + 1).ToString(CultureInfo.InvariantCulture) + " : 1";
+            }
+            return field.Codec.FixedSize < 0 ? module + ".EntityPropertyWriter.GetStringWireSize(" + value + ")"
+                : field.Codec.FixedSize.ToString(CultureInfo.InvariantCulture);
         }
 
         private static void AppendReadProperty(

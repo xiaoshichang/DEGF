@@ -11,12 +11,10 @@ namespace DE.Server.NativeBridge
     public sealed partial class GameServerRuntimeState
     {
         private readonly ManagedRuntimeState _managedRuntimeState;
-        private readonly ServerEntity.AutoSyncPropertySynchronizer _autoSyncProperties;
 
         public GameServerRuntimeState(ManagedRuntimeState managedRuntimeState)
         {
             _managedRuntimeState = managedRuntimeState ?? throw new ArgumentNullException(nameof(managedRuntimeState));
-            _autoSyncProperties = new ServerEntity.AutoSyncPropertySynchronizer(this);
             SearchImportEntityTypeFromGameplayDll();
         }
 
@@ -32,7 +30,6 @@ namespace DE.Server.NativeBridge
 
         public void HandleAllNodeReady()
         {
-            _autoSyncProperties.Start();
             var assignedStubTypeKeys = _managedRuntimeState.StubDistributeTable
                 .GetAssignedStubTypeKeys(_managedRuntimeState.ServerId)
                 .Where(stubTypeKey => !string.IsNullOrWhiteSpace(stubTypeKey))
@@ -80,7 +77,6 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
-            _autoSyncProperties.Stop();
             _pendingSpaceEntryNotifications.Clear();
             var entities = StubInstances.Values.Cast<ServerEntity>()
                 .Concat(Entities.Values)

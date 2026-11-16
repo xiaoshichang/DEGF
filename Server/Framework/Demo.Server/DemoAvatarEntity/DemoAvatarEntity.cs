@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using DE.Server.Entities;
 
 namespace Demo;
@@ -7,9 +8,10 @@ public partial class DemoAvatarEntity : ServerAvatarEntity
     protected override void PreInitialize()
     {
         base.PreInitialize();
-        BasicInfo = AddComponent(new ServerAvatarBasicInfoComponent(), nameof(BasicInfo));
+        BasicInfo = AddComponent(new ServerAvatarBasicInfoComponent());
     }
 
+    [EntityComponent]
     public ServerAvatarBasicInfoComponent BasicInfo { get; private set; } = null!;
 
 

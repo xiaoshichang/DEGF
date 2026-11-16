@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using DE.Server.Entities;
 using DE.Share.Rpc;
 
@@ -93,6 +94,7 @@ namespace DE.Server.NativeBridge
         }
 
         private readonly Dictionary<Guid, SourceAvatarMigrationContext> _sourceAvatarMigrations = new();
+        private readonly Dictionary<Guid, SourceAvatarMigrationContext> _pendingSourceRollbackEntries = new();
         private readonly Dictionary<Guid, TargetAvatarMigrationContext> _targetAvatarMigrations = new();
         private readonly Dictionary<Guid, Guid> _lastAbortedTargetAvatarMigrations = new();
         private readonly Dictionary<Guid, Guid> _lastCompletedTargetAvatarMigrations = new();
@@ -235,12 +237,14 @@ namespace DE.Server.NativeBridge
                 {
                     Avatars.Remove(entity.Guid);
                     AvatarClientSessionIds.Remove(entity.Guid);
+                    RemovePendingSourceRollback(avatar);
                     removed = true;
                 }
             }
 
             if (removed)
             {
+                CancelSpaceEntryNotification(entity);
                 entity.UnInitializeEntity();
             }
             return removed;
@@ -249,6 +253,7 @@ namespace DE.Server.NativeBridge
         internal void ClearAvatarImmigrations()
         {
             _sourceAvatarMigrations.Clear();
+            _pendingSourceRollbackEntries.Clear();
             _targetAvatarMigrations.Clear();
             _lastAbortedTargetAvatarMigrations.Clear();
             _lastCompletedTargetAvatarMigrations.Clear();
@@ -310,25 +315,45 @@ namespace DE.Server.NativeBridge
                     response.SourceGameServerId,
                     response.TargetGameServerId
                 );
+                // Frozen Gate queues these before route commit; old observers still hold the source node here.
+                if (!avatar.SynchronizeProperties(this, false))
+                {
+                    BeginAvatarMigrationRollback(context);
+                    return true;
+                }
                 if (context.SourceSpaceId != Guid.Empty)
                 {
                     if (!Entities.TryGetValue(context.SourceSpaceId, out var frozenSourceEntity))
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization because the Space does not exist, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
+                        BeginAvatarMigrationRollback(context);
+                        return true;
                     }
                     else if (frozenSourceEntity is not ServerSpaceEntity frozenSourceSpace)
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization because the Entity is not a Space, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}, sourceEntityType={frozenSourceEntity?.GetType().FullName ?? "<null>"}.");
+                        BeginAvatarMigrationRollback(context);
+                        return true;
                     }
                     else if (!frozenSourceSpace.AvatarManageCmpt.Leave(avatar))
                     {
                         DELogger.Error(nameof(GameServerRuntimeState), $"Failed to leave source Space before Avatar serialization, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
+                        BeginAvatarMigrationRollback(context);
+                        return true;
                     }
                 }
 
                 try
                 {
-                    context.AvatarData = EntitySerializer.Serialize(avatar, EntitySerializeReason.Migrate);
+                    // Leaving the source Space may still write framework properties; seal only its completed snapshot state.
+                    avatar.FreezePropertyWrites();
+                    // Observation ended with AOI departure. Send its final Owner changes before the migration snapshot.
+                    if (!avatar.SynchronizeProperties(this, true))
+                    {
+                        BeginAvatarMigrationRollback(context);
+                        return true;
+                    }
+                    context.AvatarData = EntitySerializer.SerializeSnapshot(avatar, EntitySerializationProfile.Migration);
                 }
                 catch (Exception exception)
                 {
@@ -344,7 +369,10 @@ namespace DE.Server.NativeBridge
                     response.SourceGameServerId,
                     response.TargetGameServerId
                 );
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.PrepareTarget, true);
+                if (!SendTargetMigrationMessage(context, AvatarMigrationCommand.PrepareTarget, true))
+                {
+                    BeginAvatarMigrationRollback(context);
+                }
                 return true;
 
             case AvatarMigrationCommand.TargetPrepared:
@@ -377,7 +405,10 @@ namespace DE.Server.NativeBridge
                     response.SourceGameServerId,
                     response.TargetGameServerId
                 );
-                SendTargetMigrationMessage(context, AvatarMigrationCommand.ActivateTarget, false);
+                if (!SendTargetMigrationMessage(context, AvatarMigrationCommand.ActivateTarget, false))
+                {
+                    BeginAvatarMigrationRollback(context);
+                }
                 return true;
 
             case AvatarMigrationCommand.TargetActivated:
@@ -408,7 +439,10 @@ namespace DE.Server.NativeBridge
                     response.SourceGameServerId,
                     response.TargetGameServerId
                 );
-                SendGateMigrationMessage(context, AvatarMigrationCommand.CommitRoute);
+                if (!SendGateMigrationMessage(context, AvatarMigrationCommand.CommitRoute))
+                {
+                    BeginAvatarMigrationRollback(context);
+                }
                 return true;
 
             case AvatarMigrationCommand.RouteCommitted:
@@ -483,25 +517,10 @@ namespace DE.Server.NativeBridge
                 if (!response.Success)
                 {
                     DELogger.Error(nameof(GameServerRuntimeState), $"Gate failed to roll back Avatar route, avatarId={avatar.Guid}, migrationId={response.MigrationId}, error={response.Error}.");
+                    return true;
                 }
 
-                if (context.SourceSpaceId != Guid.Empty)
-                {
-                    if (!Entities.TryGetValue(context.SourceSpaceId, out var rollbackSourceEntity))
-                    {
-                        DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar after immigration rollback because source Space does not exist, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
-                    }
-                    else if (rollbackSourceEntity is not ServerSpaceEntity rollbackSourceSpace)
-                    {
-                        DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar after immigration rollback because source Entity is not a Space, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}, sourceEntityType={rollbackSourceEntity?.GetType().FullName ?? "<null>"}.");
-                    }
-                    else if (!rollbackSourceSpace.AvatarManageCmpt.Enter(avatar))
-                    {
-                        DELogger.Error(nameof(GameServerRuntimeState), $"Failed to restore Avatar to source Space after immigration rollback, avatarId={avatar.Guid}, migrationId={response.MigrationId}, sourceSpaceId={context.SourceSpaceId}.");
-                    }
-                }
-
-                FinishSourceMigration(context, AvatarImmigrationState.Failed);
+                TryResumeSourceRollback(context);
                 return true;
 
             default:
@@ -608,7 +627,7 @@ namespace DE.Server.NativeBridge
                     return SendTargetResponse(request, AvatarMigrationCommand.TargetPrepared, false, "failed to construct target Avatar");
                 }
 
-                candidate.InitializeEntity(request.AvatarData, EntitySerializeReason.Migrate);
+                candidate.InitializeEntity(request.AvatarData, EntitySerializationProfile.Migration, request.AvatarId);
 
                 if (candidate.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Idle)
                 {
@@ -953,8 +972,63 @@ namespace DE.Server.NativeBridge
             return SendTargetResponse(request, AvatarMigrationCommand.TargetAborted, true);
         }
 
+        private void RetrySourceRollbackEntries()
+        {
+            foreach (var context in _pendingSourceRollbackEntries.Values.ToArray())
+            {
+                if (context.Avatar == null || !context.Avatar.IsInitialized)
+                {
+                    _pendingSourceRollbackEntries.Remove(context.Message.MigrationId);
+                    continue;
+                }
+                TryResumeSourceRollback(context);
+            }
+        }
+
+        private void RemovePendingSourceRollback(ServerAvatarEntity avatar)
+        {
+            foreach (var migrationId in _pendingSourceRollbackEntries
+                .Where(pair => ReferenceEquals(pair.Value.Avatar, avatar)).Select(pair => pair.Key).ToArray())
+            {
+                _pendingSourceRollbackEntries.Remove(migrationId);
+            }
+        }
+
+        private void TryResumeSourceRollback(SourceAvatarMigrationContext context)
+        {
+            var avatar = context.Avatar;
+            avatar.FreezePropertyWrites();
+            if (!avatar.SynchronizeProperties(this, true))
+            {
+                if (_pendingSourceRollbackEntries.TryAdd(context.Message.MigrationId, context))
+                {
+                    DELogger.Warn(nameof(GameServerRuntimeState),
+                        $"Deferred Avatar rollback entry until Owner changes are queued, avatarId={avatar.Guid}.");
+                }
+                return;
+            }
+            _pendingSourceRollbackEntries.Remove(context.Message.MigrationId);
+            avatar.UnfreezePropertyWrites();
+            if (context.SourceSpaceId != Guid.Empty)
+            {
+                if (!Entities.TryGetValue(context.SourceSpaceId, out var sourceEntity) || sourceEntity is not ServerSpaceEntity sourceSpace)
+                {
+                    DELogger.Error(nameof(GameServerRuntimeState),
+                        $"Cannot restore Avatar after rollback because source Space is unavailable, avatarId={avatar.Guid}, spaceId={context.SourceSpaceId}.");
+                }
+                else if (!ReferenceEquals(avatar.SpaceCmpt.CurrentSpace, sourceSpace) && !sourceSpace.AvatarManageCmpt.Enter(avatar))
+                {
+                    DELogger.Error(nameof(GameServerRuntimeState),
+                        $"Failed to restore Avatar to source Space after rollback, avatarId={avatar.Guid}, spaceId={context.SourceSpaceId}.");
+                }
+            }
+            FinishSourceMigration(context, AvatarImmigrationState.Failed);
+        }
+
         private void BeginAvatarMigrationRollback(SourceAvatarMigrationContext context)
         {
+            // Any rollback keeps the source authoritative; unseal before rollback callbacks can restore its properties.
+            context.Avatar.UnfreezePropertyWrites();
             context.Avatar.ImmigateCmpt.SetImmigrationState(
                 AvatarImmigrationState.RollingBack,
                 context.Message.MigrationId,
@@ -1034,6 +1108,11 @@ namespace DE.Server.NativeBridge
 
         private void FinishSourceMigration(SourceAvatarMigrationContext context, AvatarImmigrationState state)
         {
+            if (state == AvatarImmigrationState.Failed)
+            {
+                // Also covers a rejected route freeze, before the serialization/sealing phase was reached.
+                context.Avatar.UnfreezePropertyWrites();
+            }
             context.Avatar.ImmigateCmpt.SetImmigrationState(
                 state,
                 context.Message.MigrationId,

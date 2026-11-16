@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using DE.Client.Entities;
 using DE.Share.Rpc;
 

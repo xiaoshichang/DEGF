@@ -1,11 +1,11 @@
-using DE.Share.Components;
+using DE.Share.Entities;
 using System;
 using DE.Share.Rpc;
 using DE.Share.Foundation.Mathematics;
 
 namespace DE.Client.Entities
 {
-    public partial class ClientAvatarTransformComponent : ClientEntityComponent, IEntityTransform
+    public partial class ClientAvatarTransformComponent : ClientEntityComponent
     {
         [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
         private Vector3 __Position;
@@ -13,29 +13,20 @@ namespace DE.Client.Entities
         [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
         private Quaternion __Rotation;
 
-        public EntityTransform Transform { get; private set; }
-
-        /// <summary>初始化变换默认属性和本地字段，不依赖其他组件；默认属性随后可由快照覆盖。</summary>
+        /// <summary>初始化位置、旋转默认值及空间加载管理器，不依赖其他组件；默认属性随后可由快照覆盖。</summary>
         protected override void PreInitialize()
         {
             base.PreInitialize();
             __Position = default;
             __Rotation = Quaternion.Identity;
-            Transform = new EntityTransform(this);
             Spaces = new ClientSpaceManager((ClientAvatarEntity)OwnerEntity);
         }
 
-        /// <summary>组件依赖清理完成后释放变换字段引用。</summary>
+        /// <summary>组件依赖清理完成后释放空间加载管理器引用。</summary>
         protected override void PostUnInitialize()
         {
-            Transform = null;
             Spaces = null;
             base.PostUnInitialize();
-        }
-
-        public void SetTransform(Vector3 position, Quaternion rotation)
-        {
-            Transform.SetTransform(position, rotation);
         }
 
         public ClientSpaceManager Spaces { get; private set; }

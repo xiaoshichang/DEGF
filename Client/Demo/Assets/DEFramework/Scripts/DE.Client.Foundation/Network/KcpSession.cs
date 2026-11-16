@@ -301,12 +301,19 @@ namespace Assets.Scripts.DE.Client.Network
                 }
 
                 didWork = true;
-                var sendResult = _Kcp.Send(payload, 0, payload.Length);
-                if (sendResult < 0)
+                // Only this worker queues KCP sends. Queue all chunks of a frame before taking the next frame.
+                // Single-segment KCP messages avoid its fragment-count limit; AuthSystem restores application frames.
+                for (int offset = 0; offset < payload.Length;)
                 {
-                    DELogger.Error(
-                        LogTag,
-                        "Kcp send failed, remoteEndPoint=" + _RemoteEndPoint + ", conv=" + _Conv + ", error=" + sendResult + ", length=" + payload.Length + ".");
+                    int count = Math.Min((int)_Kcp.mss, payload.Length - offset);
+                    var sendResult = _Kcp.Send(payload, offset, count);
+                    if (sendResult < 0)
+                    {
+                        DELogger.Error(LogTag, "Kcp send failed; disconnecting after partial frame, error=" + sendResult + ".");
+                        _DisconnectFromWorker();
+                        return false;
+                    }
+                    offset += count;
                 }
             }
 

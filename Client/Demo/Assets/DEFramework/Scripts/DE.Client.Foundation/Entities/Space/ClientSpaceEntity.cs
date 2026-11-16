@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using System;
 using System.Collections.Generic;
 
@@ -99,7 +100,7 @@ namespace DE.Client.Entities
                 throw new InvalidOperationException("Unregistered client entity type: " + typeName);
             }
             var entity = (ClientEntity)Activator.CreateInstance(entityType);
-            entity.InitializeEntity(data, EntitySerializeReason.Broadcase);
+            entity.InitializeEntity(data, EntitySerializationProfile.Observer);
             return entity;
         }
     }

@@ -235,6 +235,7 @@ namespace DE.Server.Entities
             }
 
             avatar.SpaceCmpt.CurrentSpace = null;
+            runtime.CancelSpaceEntryNotification(avatar);
             Space.AOISpace.RemoveAOIAgent(avatar);
             avatar.SpaceCmpt.OnAfterLeaveSpace(Space);
 

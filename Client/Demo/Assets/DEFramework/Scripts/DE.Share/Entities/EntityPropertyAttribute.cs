@@ -1,6 +1,6 @@
 using System;
 
-namespace DE.Client.Entities
+namespace DE.Share.Entities
 {
     [Flags]
     public enum EntityPropertyFlag : byte
@@ -13,6 +13,10 @@ namespace DE.Client.Entities
         Persistent = 1 << 4,
     }
 
+    /// <summary>
+    /// 业务仅在 partial 类型的私有 __ 前缀字段上声明同步属性，不允许标记手写属性或自动属性。
+    /// 公开属性上的标记由 SG 生成，保留供跨程序集属性分析使用。
+    /// </summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false, Inherited = false)]
     public sealed class EntityPropertyAttribute : Attribute
     {

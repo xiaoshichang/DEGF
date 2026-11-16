@@ -111,24 +111,28 @@ Space allocation and reporting do not use SystemCommand, and GameServerRuntimeSt
 
 ServerAvatarEntity and ClientAvatarEntity are separate types, as are ServerNpcEntity and ClientNpcEntity.
 ServerEntity and ClientEntity manage their respective ServerEntityComponent and ClientEntityComponent collections.
-ServerEntity and ClientEntity are independent inheritance roots, each owning its lifecycle, component collection,
-property attributes and EntitySerializer. Shared component functionality lives in DE.Share.Components;
-Transform components compose EntityTransform.
-EntityPropertySG generates per-class metadata and direct field access delegates. Each property is identified by
+ServerEntity and ClientEntity are independent inheritance roots, each owning its lifecycle, component collection and EntitySerializer.
+Entity property markers are shared through DE.Share.Entities.
+Transform components directly access their generated Position and Rotation properties using shared mathematics types.
+EntityPropertySG generates specialized, strongly typed serialization and deserialization methods for each class. Each property is identified by
 the pair of component-holding property-name hash and synchronized property-name hash, using UTF-8 FNV-1a 64-bit hashes with no incremental IDs.
-Entity properties and each component's properties form separate groups, so different components may reuse property names.
+The entity is the tree root; Guid is a direct leaf and [EntityComponent] holding properties are structural child nodes.
+Inherited properties are flattened into their current node; different components may reuse leaf property names.
 Components match by the entity property holding them, such as TransformCmpt; component class names and attachment order may differ across peers.
-AddComponent(component, nameof(TransformCmpt)) binds the name during attachment. Empty or duplicate property names are rejected.
+AddComponent(component) attaches a component without a protocol-name argument.
+The SG emits TryGetComponentPropertyHash reference comparisons for [EntityComponent] properties, returning their unchanged property-name hash constants.
+Derived routes fall back to base routes; components store only their owner entity, without a property-name string.
 There is no cross-component property-name analyzer. Inheritance and property order may differ across peers;
 matching component names, property names, compatible types and synchronization flags define the shared contract.
-Local metadata rejects property-hash collisions and duplicate component hashes instead of choosing an ambiguous target.
-Entity snapshot version 3 rejects older snapshots; deploy matching protocol versions together.
+The generator checks sibling hash collisions across the inheritance chain, including component slots and leaves.
+Business declarations, lifecycle and callbacks stay in handwritten files; typed accessors and codecs live in generated .g.cs files.
+Entity property-tree version 4 rejects older snapshots; deploy matching protocol versions together.
 
 After entry or migration commit, ServerAvatarEntity.OnAfterEnterSpace invokes ClientAvatarEntity.OnEnterSpace through an entity RPC.
 Space membership changes are bracketed by OnBeforeEnterSpace/OnAfterEnterSpace and OnBeforeLeaveSpace/OnAfterLeaveSpace.
 Migration activation runs only the before-entry phase; the after-entry phase follows the Gate route commit and AOI registration.
 AOISpaceComponent.AddAOIAgent/RemoveAOIAgent manage agents without an Avatar-entry completion concept.
-The arguments are the Space type name, serialized Space state, serialized OwnerSync state, visible type names and visible entity states.
+The arguments are the Space type name, serialized Space state, serialized Owner state, visible type names and visible entity states.
 All entity states use EntitySerializer; string[] and byte[][] use the existing RPC binary reader, writer and generated dispatch.
 Visibility deltas use the entity type name and serialized state directly. There is no separate Space snapshot codec.
 Game sends the creation response before OnAvatarClientAttached starts entry, without a client-ready RPC.
@@ -137,35 +141,84 @@ Reconnection and old in-flight RPCs are outside the current scope; there is no l
 AuthSystem constructs the Avatar and completes login callbacks while processing LoginRsp before dispatching later RPCs.
 An RPC before Avatar creation is a protocol-order error. ClientSpaceManager retains pending entities when no loader is installed.
 Installing the loader starts the pending context once; AOI deltas continue updating it while waiting or loading.
-ClientSpaceManager applies OwnerSync state when loading completes.
+ClientSpaceManager applies Owner state immediately when beginning the pending context, before subsequent patches arrive.
 
-## Entity snapshot encoding
+## Entity property-tree encoding
 
-The v3 snapshot uses big-endian integers and the existing value codecs:
+EntityPropertyAttribute, EntityComponentAttribute and EntityPropertyFlag are shared contracts in DE.Share/Entities (namespace DE.Share.Entities).
+The SG identifies these shared markers and selects the server/client runtime from the declaring type's inheritance.
+Server hash utilities, codecs, contexts and the entry point live in DE.Server/Entities/Serialization.
+Their namespace remains DE.Server.Entities, and generated code continues to reference the same types.
+All integer fields use big-endian encoding. Guid retains the existing .NET byte representation.
+Profile selects the audience independently of Mode: Owner includes ClientServer and AllClients; Observer includes AllClients;
+Migration includes server state, including Persistent fields, and excludes ClientOnly. Migration only supports Snapshot.
 
-| Level | Field | Encoding |
+| Level | Fields | Encoding |
 | --- | --- | --- |
-| Snapshot | Version, reason, component group count | uint16, uint8, uint16 |
-| Component group | Component name hash, group payload byte length | uint64, uint32 |
-| Group payload | Property count, followed by property entries | uint16, entries |
-| Property entry | Property name hash, type code, value byte length, value | uint64, uint8, uint32, bytes |
+| Packet header (24 bytes) | Version=4, Profile, Mode, BodyLength, BaseSequence, ThroughSequence | uint16, uint8, uint8, uint32, uint64, uint64 |
+| Snapshot body / object payload | ChildCount, followed by entries | uint16, entries |
+| Entry | PropertyNameHash, WireTag, PayloadLength, Payload | uint64, uint8, uint32, bytes |
+| Patch body | ChangeCount, followed by change records | uint32, records |
+| Patch change | Sequence, exactly one sparse root entry | uint64, entry |
 
-The group length includes its property count and all property entries, excluding the group header.
-The value length covers exactly the encoded value, including any nullable marker or string length prefix.
-The effective property key is `(componentNameHash, propertyNameHash)`; the component hash is stored once per group.
-For entity-owned properties the component name is empty. For components it is the entity's holding property name, such as TransformCmpt.
-The component class name is never hashed; the key for Position in that slot is (hash("TransformCmpt"), hash("Position")).
-Names are case-sensitive; both hashes use UTF-8 FNV-1a with offset 14695981039346656037 and prime 1099511628211,
-using unchecked 64-bit arithmetic. The generator emits property hashes as constants; runtime component hashes use the same algorithm.
+WireTag 0 represents an object node. Each object on a Patch record's path has exactly one child.
+A root leaf such as Guid has a one-element path; Position in TransformCmpt has the path
+(hash("TransformCmpt"), hash("Position")). No empty component group or class-name key is used.
+Names are case-sensitive UTF-8 FNV-1a 64-bit hashes, with offset 14695981039346656037 and prime 1099511628211,
+using unchecked arithmetic. The SG emits hash constants. Inheritance and declaration order do not affect existing paths.
+Renaming a holding property or leaf creates a new protocol identity; renaming a component class does not.
 
-Adding, removing or reordering another property does not change an existing key, including changes in a base class.
-Renaming a component-holding property or synchronized property creates a new key; renaming a component class does not.
-Unknown component groups and unknown properties are skipped by length;
-properties absent from a snapshot retain their current values, which are initialization defaults during entity creation.
-Known properties must have compatible type codes and synchronization flags. Invalid lengths, duplicate group hashes,
-duplicate property hashes in a known group, invalid known values and trailing bytes reject the snapshot.
-The reader validates and collects all known values before applying generated field setters, preventing partial writes from malformed data.
-The native engine and NativeBridge continue to transport these snapshots as opaque byte arrays without ABI changes.
+A Snapshot has equal BaseSequence and ThroughSequence. Sequences describe server changes and migration continuity; receivers store no baseline.
+Owner / Observer readers skip unknown nodes by length, preserve missing optional fields, and require Guid.
+Migration readers reject unknown fields and require every selected field. Known type/profile mismatches, duplicate siblings,
+bad lengths, invalid values and trailing bytes reject the complete packet. Live snapshots also enforce entity identity; snapshots are applied in receive order without sequence-age checks.
+The reader owns a copy of the input, validates the entire tree first, and then runs the generated typed reader again to assign backing fields.
+
+Generated hash switches call statically selected codecs. Enums use their underlying primitive codecs;
+nullable value types use a presence byte. Strings encode presence 0 for null or 1 plus the remaining UTF-8 bytes, distinguishing null and empty.
+There are no runtime property descriptors, reflection, boxed values or getter/setter delegates.
+Business declares EntityProperty on private __ fields in partial classes; handwritten properties and auto-properties produce a compiler diagnostic.
+Arrays, List, Dictionary and other container EntityProperty values are rejected at compilation; RPC argument arrays remain supported.
+
+ServerEntity.AutoSyncProperty controls dirty tracking and automatic synchronization, and defaults to false.
+ServerAvatarEntity and ServerSpaceEntity override it to true. Dirty tracking, pending-log limits, recipient selection and the 50 ms synchronizer live in ServerEntity.AutoSyncProperties.cs.
+The ordered journal is created lazily; GameRuntimeState only starts/stops the synchronizer and handles pending Space-entry notifications.
+Generated server component setters pass their component instance to OwnerEntity; the generated route supplies the component path hash.
+Entities with the flag disabled do not record changes. Paths still use holding-property names, and assignment records retain their original order.
+Clients have no dirty log or Patch encoder; their setters only assign fields and invoke business callbacks.
+EntityPropertyChange remains an immutable record also used transiently while applying received changes.
+Each initialized server entity with AutoSyncProperty enabled owns one sequence across itself and its components. A successful local setter encodes the assigned value,
+writes the backing field, appends an immutable record, and then invokes OnAfterXChange. OnBeforeXChange precedes this sequence.
+Every actual assignment is retained, including repeated writes to one path; changes are never coalesced or grouped by component.
+Setter reentry therefore follows actual assignment order. Unchanged assignments create no record.
+Writes, captures and codecs use a simple single-threaded calling model without runtime thread binding or journal lifecycle guards.
+
+Each synchronization sends all pending changes for one entity in one Patch per selected Profile, preserving assignment order.
+There is no batch capture, prefix acknowledgement, or repeated draining loop. BaseSequence describes the first pending change's predecessor;
+ThroughSequence is the entity's current sequence. The Game skips sends when a recipient's profile has no selected changes.
+Patch flows from the server to clients only; the server has no Patch application entry point.
+The client validates the complete packet and then applies all recognized records in wire order, relying on ordered transport.
+It does not store a receive baseline, deduplicate retries, reject sequence gaps, or sort by sequence; a repeated Patch is applied again.
+After every intended send succeeds, the entity clears its pending log without resetting its sequence; a failed send retains the log.
+Remote application bypasses setters and callbacks; OnPropertiesApplied runs after commit with the ordered recognized records.
+On an auto-synchronized server entity this hook may create tracked local changes; client hooks do not maintain dirty logs.
+Snapshots report an empty change list. Locally serialized client snapshots have sequence zero.
+
+Game scans registered entities every 50 ms and flushes only entities with AutoSyncProperty enabled; Stubs are not scanned.
+Avatar changes go to the Owner and actual AOI observers; Space changes go to its current Avatar members.
+Npc entities keep the flag disabled by default; Stubs never participate in automatic synchronization.
+Before sending a new Owner entry snapshot, all pending changes are sent first.
+Entry notification failures retain an Avatar/Space-bound retry item; retries never repeat the business OnAfterEnterSpace callback.
+Migration drains changes before leaving, then freezes source writes and drains remaining Owner changes before taking its snapshot.
+The target continues the source sequence. During rollback, retained changes precede the restored Owner snapshot.
+The guarantee covers each entity's assignment sequence and an active ordered session; there is no cross-entity global order or reconnect replay log.
+
+A scalar payload is limited to 1 MiB, an entity packet to 4 MiB, and depth to 16.
+The pending log uses a conservative one-packet budget (4 MiB minus header/count), with at most 65535 records.
+Capacity and encoded value checks occur before assignment; oversized pending data is rejected instead of split into batches.
+Both KCP endpoints enqueue each application frame as an uninterrupted sequence of MSS-sized chunks; existing length framing reassembles it.
+A partial enqueue failure closes the session so later frames cannot be parsed as a truncated predecessor.
+The native engine and NativeBridge transport property packets as opaque byte arrays without ABI changes.
 
 ## Verification
 

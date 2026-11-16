@@ -11,10 +11,12 @@ namespace DE.Server.NativeBridge
     public sealed partial class GameServerRuntimeState
     {
         private readonly ManagedRuntimeState _managedRuntimeState;
+        private readonly ServerEntity.AutoSyncPropertySynchronizer _autoSyncProperties;
 
         public GameServerRuntimeState(ManagedRuntimeState managedRuntimeState)
         {
             _managedRuntimeState = managedRuntimeState ?? throw new ArgumentNullException(nameof(managedRuntimeState));
+            _autoSyncProperties = new ServerEntity.AutoSyncPropertySynchronizer(this);
             SearchImportEntityTypeFromGameplayDll();
         }
 
@@ -30,6 +32,7 @@ namespace DE.Server.NativeBridge
 
         public void HandleAllNodeReady()
         {
+            _autoSyncProperties.Start();
             var assignedStubTypeKeys = _managedRuntimeState.StubDistributeTable
                 .GetAssignedStubTypeKeys(_managedRuntimeState.ServerId)
                 .Where(stubTypeKey => !string.IsNullOrWhiteSpace(stubTypeKey))
@@ -77,6 +80,8 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
+            _autoSyncProperties.Stop();
+            _pendingSpaceEntryNotifications.Clear();
             var entities = StubInstances.Values.Cast<ServerEntity>()
                 .Concat(Entities.Values)
                 .Concat(Avatars.Values)
@@ -383,7 +388,7 @@ namespace DE.Server.NativeBridge
                     true,
                     200,
                     string.Empty,
-                    EntitySerializer.Serialize(existedAvatar, EntitySerializeReason.OwnerSync)
+                    EntitySerializer.SerializeSnapshot(existedAvatar, EntitySerializationProfile.Owner)
                 );
             }
 
@@ -419,7 +424,7 @@ namespace DE.Server.NativeBridge
                 true,
                 200,
                 string.Empty,
-                EntitySerializer.Serialize(avatar, EntitySerializeReason.OwnerSync)
+                EntitySerializer.SerializeSnapshot(avatar, EntitySerializationProfile.Owner)
             );
         }
 
@@ -444,6 +449,15 @@ namespace DE.Server.NativeBridge
             avatar.SpaceCmpt.CancelSpaceRequest();
             avatar.SessionCmpt.OnAvatarClientAttached(clientSessionId);
             return true;
+        }
+
+        internal void DetachAvatarClientSession(ServerAvatarEntity avatar, ulong clientSessionId)
+        {
+            if (AvatarClientSessionIds.TryGetValue(avatar.Guid, out var currentSessionId) && currentSessionId == clientSessionId)
+            {
+                AvatarClientSessionIds.Remove(avatar.Guid);
+                CancelSpaceEntryNotification(avatar);
+            }
         }
 
         private static bool InvokeGeneratedServerRpc(ServerEntity entity, uint methodId, byte[] argsPayload)

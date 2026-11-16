@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -67,6 +66,42 @@ namespace DE.Share.EntityPropertySG
             isEnabledByDefault: true
         );
 
+        private static readonly DiagnosticDescriptor UnsupportedTypeDescriptor = new DiagnosticDescriptor(
+            id: "DEEP007",
+            title: "EntityProperty field type is unsupported",
+            messageFormat: "Field '{0}' has unsupported entity property type '{1}'",
+            category: "EntityProperty",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true
+        );
+
+        private static readonly DiagnosticDescriptor InvalidFlagsDescriptor = new DiagnosticDescriptor(
+            id: "DEEP009",
+            title: "ClientOnly cannot be combined with server or public entity property flags",
+            messageFormat: "Field '{0}' combines ClientOnly with ServerOnly, ClientServer, or AllClients",
+            category: "EntityProperty",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true
+        );
+
+        private static readonly DiagnosticDescriptor InvalidComponentDescriptor = new DiagnosticDescriptor(
+            id: "DEEP010",
+            title: "Entity component declaration is invalid",
+            messageFormat: "Property '{0}' must be a readable instance component property on an entity from the same module",
+            category: "EntityProperty",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true
+        );
+
+        private static readonly DiagnosticDescriptor HandwrittenPropertyDescriptor = new DiagnosticDescriptor(
+            id: "DEEP011",
+            title: "EntityProperty declarations must use backing fields",
+            messageFormat: "Property '{0}' cannot use [EntityProperty]; annotate a private field with a '__' prefix instead",
+            category: "EntityProperty",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true
+        );
+
         public void Initialize(GeneratorInitializationContext context)
         {
             context.RegisterForSyntaxNotifications(static () => new SyntaxReceiver());
@@ -94,8 +129,22 @@ namespace DE.Share.EntityPropertySG
                     continue;
                 }
 
-                if (!TryValidateField(context, fieldSymbol, attributeData, out var propertyName))
+                if (!TryValidateField(context, fieldSymbol, out var propertyName))
                 {
+                    continue;
+                }
+
+                if (!EntityPropertySerializationEmitter.TryGetCodec(fieldSymbol.Type, out var codec))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        UnsupportedTypeDescriptor, fieldSymbol.Locations.FirstOrDefault(), fieldSymbol.Name, fieldSymbol.Type.ToDisplayString()));
+                    continue;
+                }
+
+                byte flags = EntityPropertySerializationEmitter.GetFlags(attributeData);
+                if ((flags & 2) != 0 && (flags & (1 | 4 | 8)) != 0)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidFlagsDescriptor, fieldSymbol.Locations.FirstOrDefault(), fieldSymbol.Name));
                     continue;
                 }
 
@@ -112,11 +161,14 @@ namespace DE.Share.EntityPropertySG
                         propertyName,
                         fieldSymbol.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                         attributeData.AttributeClass!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                        BuildSerializationTraitExpressions(attributeData)
+                        BuildSerializationTraitExpressions(attributeData),
+                        flags,
+                        codec
                     )
                 );
             }
 
+            var nodesByType = CollectComponentNodes(context, syntaxReceiver.CandidateProperties, fieldsByType);
             AddRootTypes(context, syntaxReceiver.CandidateTypes, fieldsByType);
             var allTypes = fieldsByType.Keys
                 .OrderBy(type => type.ToDisplayString(), StringComparer.Ordinal)
@@ -124,12 +176,76 @@ namespace DE.Share.EntityPropertySG
 
             foreach (var typeSymbol in allTypes)
             {
-                var source = GenerateSource(typeSymbol, fieldsByType[typeSymbol]);
+                IReadOnlyList<IPropertySymbol> nodes = nodesByType.TryGetValue(typeSymbol, out var declaredNodes)
+                    ? declaredNodes.OrderBy(node => node.Name, StringComparer.Ordinal).ToList() : Array.Empty<IPropertySymbol>();
+                EntityPropertySerializationEmitter.ReportHashCollisions(context, typeSymbol, fieldsByType[typeSymbol], nodes);
+                var source = GenerateSource(typeSymbol, fieldsByType[typeSymbol], nodes);
                 context.AddSource(
                     SanitizeHintName(typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) + ".EntityProperty.g.cs",
                     SourceText.From(source, Encoding.UTF8)
                 );
             }
+        }
+
+        private static Dictionary<INamedTypeSymbol, List<IPropertySymbol>> CollectComponentNodes(
+            GeneratorExecutionContext context,
+            IEnumerable<BasePropertyDeclarationSyntax> properties,
+            Dictionary<INamedTypeSymbol, List<FieldGenerationInfo>> fieldsByType)
+        {
+            var nodes = new Dictionary<INamedTypeSymbol, List<IPropertySymbol>>(SymbolEqualityComparer.Default);
+            foreach (var declaration in properties)
+            {
+                var model = context.Compilation.GetSemanticModel(declaration.SyntaxTree);
+                if (!(model.GetDeclaredSymbol(declaration) is IPropertySymbol property))
+                {
+                    continue;
+                }
+
+                bool handwrittenLeaf = declaration.AttributeLists.SelectMany(list => list.Attributes).Any(attribute =>
+                    model.GetSymbolInfo(attribute).Symbol is IMethodSymbol constructor
+                    && EntityPropertySymbols.IsPropertyAttribute(constructor.ContainingType));
+                if (handwrittenLeaf)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(HandwrittenPropertyDescriptor, property.Locations.FirstOrDefault(), property.Name));
+                    continue;
+                }
+
+                var attribute = EntityPropertySymbols.GetComponentAttribute(property);
+                if (attribute == null)
+                {
+                    continue;
+                }
+
+                var module = EntityPropertySymbols.GetRuntimeModule(property.ContainingType);
+                if (property.IsStatic || property.IsIndexer || property.GetMethod == null
+                    || !EntityPropertySymbols.IsEntity(property.ContainingType, module)
+                    || !(property.Type is INamedTypeSymbol component) || !EntityPropertySymbols.IsComponent(component, module))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidComponentDescriptor, property.Locations.FirstOrDefault(), property.Name));
+                    continue;
+                }
+
+                if (!AllContainingTypesArePartial(property.ContainingType))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        TypeMustBePartialDescriptor, property.Locations.FirstOrDefault(), property.ContainingType.ToDisplayString()));
+                    continue;
+                }
+
+                if (!nodes.TryGetValue(property.ContainingType, out var declaredNodes))
+                {
+                    declaredNodes = new List<IPropertySymbol>();
+                    nodes.Add(property.ContainingType, declaredNodes);
+                }
+
+                declaredNodes.Add(property);
+                if (!fieldsByType.ContainsKey(property.ContainingType))
+                {
+                    fieldsByType.Add(property.ContainingType, new List<FieldGenerationInfo>());
+                }
+            }
+
+            return nodes;
         }
 
         private static void AddRootTypes(
@@ -202,14 +318,13 @@ namespace DE.Share.EntityPropertySG
         private static bool TryValidateField(
             GeneratorExecutionContext context,
             IFieldSymbol fieldSymbol,
-            AttributeData attributeData,
             out string propertyName
         )
         {
             propertyName = string.Empty;
             var location = fieldSymbol.Locations.FirstOrDefault();
 
-            var module = EntityPropertySymbols.GetModule(attributeData.AttributeClass);
+            var module = EntityPropertySymbols.GetRuntimeModule(fieldSymbol.ContainingType);
             if (!EntityPropertySymbols.IsEntityOrComponent(fieldSymbol.ContainingType, module))
             {
                 context.ReportDiagnostic(Diagnostic.Create(InvalidTargetTypeDescriptor, location, fieldSymbol.Name));
@@ -292,7 +407,9 @@ namespace DE.Share.EntityPropertySG
 
         private static bool HasConflictingMember(INamedTypeSymbol typeSymbol, string propertyName)
         {
-            if (propertyName == "ClassMetadata" || propertyName == "PropertyMetadata")
+            if (propertyName == "WriteSnapshot" || propertyName == "ReadProperty" || propertyName == "ValidateSnapshot"
+                || propertyName == "HasSnapshotProperties"
+                || propertyName == "ValidatePropertyTree" || propertyName == "TryGetComponentPropertyHash")
             {
                 return true;
             }
@@ -317,7 +434,8 @@ namespace DE.Share.EntityPropertySG
 
         private static string GenerateSource(
             INamedTypeSymbol typeSymbol,
-            IReadOnlyCollection<FieldGenerationInfo> fieldInfos
+            IReadOnlyCollection<FieldGenerationInfo> fieldInfos,
+            IReadOnlyList<IPropertySymbol> nodes
         )
         {
             var builder = new StringBuilder();
@@ -350,6 +468,11 @@ namespace DE.Share.EntityPropertySG
                 {
                     builder.Append('<').Append(string.Join(", ", currentType.TypeParameters.Select(parameter => parameter.Name))).Append('>');
                 }
+
+                if (SymbolEqualityComparer.Default.Equals(currentType, typeSymbol) && EntityPropertySymbols.IsRoot(typeSymbol))
+                {
+                    builder.Append(" : global::").Append(EntityPropertySymbols.GetRuntimeModule(typeSymbol)).Append(".IEntityPropertyNode");
+                }
                 builder.AppendLine();
                 builder.Append(new string(' ', indentLevel * 4));
                 builder.AppendLine("{");
@@ -357,7 +480,7 @@ namespace DE.Share.EntityPropertySG
             }
 
             var sortedFields = fieldInfos.OrderBy(info => info.PropertyName, StringComparer.Ordinal).ToList();
-            AppendClassMetadata(builder, typeSymbol, sortedFields, indentLevel);
+            EntityPropertySerializationEmitter.Append(builder, typeSymbol, sortedFields, nodes, indentLevel);
             foreach (var fieldInfo in sortedFields)
             {
                 builder.Append(new string(' ', indentLevel * 4));
@@ -389,29 +512,7 @@ namespace DE.Share.EntityPropertySG
                 builder.AppendLine("set");
                 builder.Append(new string(' ', (indentLevel + 1) * 4));
                 builder.AppendLine("{");
-                builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.Append("if (global::System.Collections.Generic.EqualityComparer<");
-                builder.Append(fieldInfo.TypeName);
-                builder.Append(">.Default.Equals(");
-                builder.Append(fieldInfo.FieldSymbol.Name);
-                builder.AppendLine(", value))");
-                builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.AppendLine("{");
-                builder.Append(new string(' ', (indentLevel + 3) * 4));
-                builder.AppendLine("return;");
-                builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.AppendLine("}");
-                builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.Append("OnBefore");
-                builder.Append(fieldInfo.PropertyName);
-                builder.AppendLine("Change(value);");
-                builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.Append(fieldInfo.FieldSymbol.Name);
-                builder.AppendLine(" = value;");
-                builder.Append(new string(' ', (indentLevel + 2) * 4));
-                builder.Append("OnAfter");
-                builder.Append(fieldInfo.PropertyName);
-                builder.AppendLine("Change(value);");
+                EntityPropertySerializationEmitter.AppendSetter(builder, typeSymbol, fieldInfo, indentLevel + 2);
                 builder.Append(new string(' ', (indentLevel + 1) * 4));
                 builder.AppendLine("}");
 
@@ -442,60 +543,6 @@ namespace DE.Share.EntityPropertySG
             }
 
             return builder.ToString();
-        }
-
-        private static void AppendClassMetadata(
-            StringBuilder builder,
-            INamedTypeSymbol type,
-            IReadOnlyList<FieldGenerationInfo> fields,
-            int indentLevel)
-        {
-            string indent = new string(' ', indentLevel * 4);
-            string module = "global::" + EntityPropertySymbols.GetRuntimeModule(type);
-            string typeName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            bool isRoot = EntityPropertySymbols.IsRoot(type);
-            string baseName = isRoot ? string.Empty : type.BaseType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            string hiding = isRoot ? string.Empty : "new ";
-
-            builder.Append(indent).Append("public ").Append(hiding).Append("static ").Append(module)
-                .AppendLine(".EntityClassMetadata ClassMetadata { get; } =");
-            builder.Append(indent).Append("    new ").Append(module).AppendLine(".EntityClassMetadata(");
-            builder.Append(indent).Append("        typeof(").Append(typeName).AppendLine("),");
-            builder.Append(indent).Append("        ").Append(isRoot ? "null" : baseName + ".ClassMetadata");
-            foreach (var field in fields)
-            {
-                string flags = field.SerializationTraitExpressions.FirstOrDefault() ?? "(" + module + ".EntityPropertyFlag)0";
-                builder.AppendLine(",");
-                builder.Append(indent).Append("        new ").Append(module).AppendLine(".EntityPropertyMetadata(");
-                builder.Append(indent).Append("            ").Append(BuildPropertyIdLiteral(field.PropertyName)).AppendLine(",");
-                builder.Append(indent).Append("            ").Append(SymbolDisplay.FormatLiteral(field.PropertyName, quote: true)).AppendLine(",");
-                builder.Append(indent).Append("            typeof(").Append(field.TypeName).AppendLine("),");
-                builder.Append(indent).Append("            ").Append(flags).AppendLine(",");
-                builder.Append(indent).Append("            static target => ((").Append(typeName).Append(")target).")
-                    .Append(field.FieldSymbol.Name).AppendLine(",");
-                builder.Append(indent).Append("            static (target, value) => ((").Append(typeName).Append(")target).")
-                    .Append(field.FieldSymbol.Name).Append(" = (").Append(field.TypeName).Append(")value)");
-            }
-
-            builder.AppendLine(");");
-            builder.AppendLine();
-            builder.Append(indent).Append("public ").Append(isRoot ? "virtual " : "override ").Append(module)
-                .AppendLine(".EntityClassMetadata PropertyMetadata => ClassMetadata;");
-            builder.AppendLine();
-        }
-
-        private static string BuildPropertyIdLiteral(string propertyName)
-        {
-            ulong hash = 14695981039346656037UL;
-            unchecked
-            {
-                foreach (byte value in Encoding.UTF8.GetBytes(propertyName))
-                {
-                    hash = (hash ^ value) * 1099511628211UL;
-                }
-            }
-
-            return "0x" + hash.ToString("X16", CultureInfo.InvariantCulture) + "UL";
         }
 
         private static string GetAccessibilityKeyword(Accessibility accessibility)
@@ -530,14 +577,16 @@ namespace DE.Share.EntityPropertySG
             return builder.ToString();
         }
 
-        private readonly struct FieldGenerationInfo
+        internal readonly struct FieldGenerationInfo
         {
             public FieldGenerationInfo(
                 IFieldSymbol fieldSymbol,
                 string propertyName,
                 string typeName,
                 string attributeTypeName,
-                IReadOnlyList<string> serializationTraitExpressions
+                IReadOnlyList<string> serializationTraitExpressions,
+                byte flags,
+                EntityPropertySerializationEmitter.PropertyCodec codec
             )
             {
                 FieldSymbol = fieldSymbol;
@@ -545,6 +594,8 @@ namespace DE.Share.EntityPropertySG
                 TypeName = typeName;
                 AttributeTypeName = attributeTypeName;
                 SerializationTraitExpressions = serializationTraitExpressions;
+                Flags = flags;
+                Codec = codec;
             }
 
             public IFieldSymbol FieldSymbol { get; }
@@ -552,18 +603,26 @@ namespace DE.Share.EntityPropertySG
             public string TypeName { get; }
             public string AttributeTypeName { get; }
             public IReadOnlyList<string> SerializationTraitExpressions { get; }
+            public byte Flags { get; }
+            public EntityPropertySerializationEmitter.PropertyCodec Codec { get; }
         }
 
         private sealed class SyntaxReceiver : ISyntaxReceiver
         {
             public List<VariableDeclaratorSyntax> CandidateFields { get; } = new List<VariableDeclaratorSyntax>();
             public List<TypeDeclarationSyntax> CandidateTypes { get; } = new List<TypeDeclarationSyntax>();
+            public List<BasePropertyDeclarationSyntax> CandidateProperties { get; } = new List<BasePropertyDeclarationSyntax>();
 
             public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
             {
                 if (syntaxNode is TypeDeclarationSyntax declaration)
                 {
                     CandidateTypes.Add(declaration);
+                }
+
+                if (syntaxNode is BasePropertyDeclarationSyntax property && property.AttributeLists.Count > 0)
+                {
+                    CandidateProperties.Add(property);
                 }
 
                 if (!(syntaxNode is FieldDeclarationSyntax fieldDeclaration) || fieldDeclaration.AttributeLists.Count == 0)

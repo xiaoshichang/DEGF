@@ -366,6 +366,7 @@ namespace de::server::engine::network
 
 	void ClientNetwork::HandleKcpReceive(ClientNetworkSession& session)
 	{
+		const auto sessionId = session.GetSessionId();
 		auto* kcp = session.GetKcp();
 		if (kcp == nullptr)
 		{
@@ -393,7 +394,7 @@ namespace de::server::engine::network
 			sessionBuffer.resize(originalSize + static_cast<std::size_t>(receivedSize));
 			std::memcpy(sessionBuffer.data() + originalSize, buffer.data(), static_cast<std::size_t>(receivedSize));
 			HandleDecodedFrames(session);
-			if (FindSession(session.GetSessionId()) == nullptr)
+			if (FindSession(sessionId) == nullptr)
 			{
 				return;
 			}
@@ -414,7 +415,7 @@ namespace de::server::engine::network
 				return;
 			}
 
-			const auto frameLength = static_cast<std::size_t>(header.GetFrameLength());
+			const auto frameLength = static_cast<std::size_t>(header.headerLength) + header.length;
 			if (buffer.size() < frameLength)
 			{
 				return;
@@ -482,10 +483,11 @@ namespace de::server::engine::network
 			return;
 		}
 
+		const auto sessionId = session.GetSessionId();
 		if (!SendFrame(session, static_cast<std::uint32_t>(MessageID::CS::HandShakeRsp), data, false))
 		{
 			Logger::Warn("ClientNetwork", "Failed to send client handshake response.");
-			DestroySession(session.GetSessionId());
+			DestroySession(sessionId);
 			return;
 		}
 
@@ -520,6 +522,11 @@ namespace de::server::engine::network
 			return false;
 		}
 
+		if (data.size() > std::numeric_limits<std::uint32_t>::max() - Header::kWireSize)
+		{
+			Logger::Warn("ClientNetwork", "Client frame exceeds the application length field.");
+			return false;
+		}
 		auto frame = BuildClientFrame(messageId, data);
 		auto* kcp = session.GetKcp();
 		if (kcp == nullptr)
@@ -528,11 +535,20 @@ namespace de::server::engine::network
 			return false;
 		}
 
-		const int result = ikcp_send(kcp, reinterpret_cast<const char*>(frame.data()), static_cast<int>(frame.size()));
-		if (result < 0)
+		// One owner-thread call queues the entire frame without interleaving. Each KCP message has frg=0;
+		// the existing length-prefixed application parser restores frames from these ordered chunks.
+		for (std::size_t offset = 0; offset < frame.size();)
 		{
-			Logger::Warn("ClientNetwork", "ikcp_send failed for session " + std::to_string(session.GetSessionId()) + ".");
-			return false;
+			const auto chunkSize = std::min(static_cast<std::size_t>(kcp->mss), frame.size() - offset);
+			const int result = ikcp_send(kcp, reinterpret_cast<const char*>(frame.data() + offset), static_cast<int>(chunkSize));
+			if (result < 0)
+			{
+				const auto sessionId = session.GetSessionId();
+				Logger::Warn("ClientNetwork", "ikcp_send failed; discarding partial client frame, session=" + std::to_string(sessionId) + ".");
+				DestroySession(sessionId);
+				return false;
+			}
+			offset += chunkSize;
 		}
 
 		ikcp_update(kcp, GetCurrentMs());

@@ -21,14 +21,29 @@
 - 实体统一通过 `UnInitializeEntity()` 结束生命周期，依次执行 `PreUnInitialize()`、`UnInitialize()`、`PostUnInitialize()`；组件清理由对应的 base 阶段逐阶段逆序执行，重复或重入清理无效。
 - Avatar 分为 `ServerAvatarEntity`、`ClientAvatarEntity`，Npc 分为 `ServerNpcEntity`、`ClientNpcEntity`。同一角色的双端 Avatar 通过属性同步和 RPC 通信。
 - `ServerAvatarImmigateComponent` 封装 Avatar 迁移状态；`ServerAvatarSpaceComponent` 封装空间出入、请求及 `SpaceId` / `SpaceNo`；Transform 组件封装位置和旋转；
-- 双端各自定义 `[EntityProperty]` 及属性标记，可用于实体或组件；SG 生成每层类的属性元数据和直接字段读写委托。
-  属性通过“实体上持有组件的属性名哈希 + 组件内同步属性名哈希”定位，均采用 UTF-8 FNV-1a 64 位算法；SG 输出同步属性名哈希常量，不分配递增 ID。
-  不同组件允许同名属性，不做跨组件重名 analyzer 检查；继承合并后的属性哈希及实体内组件哈希冲突由运行时明确拒绝。
-  属性回调采用 `OnBeforeXChange` / `OnAfterXChange`；快照恢复通过生成的委托直接写字段，不触发回调。
-- 实体快照采用 v3：组件以实体上的持有属性名计算哈希，如 `TransformCmpt`；装配时通过 `AddComponent(component, nameof(TransformCmpt))` 显式绑定。
-  组件类名不参与协议标识，双端持有属性名须一致；同一实体中组件持有属性名不得为空或重复。实体本身使用空组件名的哈希。
-  组件组和属性值分别携带长度，未知组件及未知属性可跳过，缺失属性保留当前值；已知属性的类型或同步标记不兼容则拒绝快照。
-  反序列化在整包结构及已知属性校验通过后才写入字段；组件持有属性名或同步属性名变更视为新的协议标识，组件类重命名不影响标识。
+- `EntityPropertyAttribute`、`EntityComponentAttribute` 和 `EntityPropertyFlag` 统一由 `DE.Share/Entities` 定义，命名空间为 `DE.Share.Entities`；实体是属性树根，`Guid` 是根属性，标注 `[EntityComponent]` 的组件持有属性构成子节点。
+  组件通过 `AddComponent(component)` 装配；SG 根据 `[EntityComponent]` 持有属性生成组件实例到属性名哈希的引用路由，继承类继续调用基类路由。
+  继承链中的属性平铺在当前节点，组件类名不参与协议标识，组件不保存持有属性名称。
+  节点及叶属性均以属性名的 UTF-8 FNV-1a 64 位哈希定位，不分配递增 ID；不同组件允许同名属性，SG 检查同节点继承链内的哈希冲突。
+  业务通过 partial 类型内私有 `__` 字段声明属性；生命周期和回调保留在手写文件，SG 在 `.g.cs` 中生成强类型访问、编解码和日志记录代码。
+  不使用运行时 metadata、反射或读写委托；手写属性及自动属性上的 `[EntityProperty]` 会产生编译错误。
+  暂不支持数组、List、Dictionary 等容器 EntityProperty；不支持的字段类型在编译期报错。
+  服务器以 `AutoSyncProperty` 控制是否记录脏属性并自动同步，默认关闭；ServerAvatarEntity、ServerSpaceEntity 开启。
+  自动同步标记、追踪、有序日志、写入检查、发送目标和定时同步流程封装在 `ServerEntity.AutoSyncProperties.cs`；日志按需创建。
+  服务端编解码哈希、读写器、上下文、协议入口及应用通知位于 `DE.Server/Entities/Serialization`，保持 `DE.Server.Entities` 命名空间。
+  共享标记不绑定双端运行时；SG 根据声明类型的继承关系选择对应运行时生成代码。
+  GameRuntimeState 仅接线同步器的启动、停止；组件通过生成代码直接通知 OwnerEntity。
+  客户端不维护脏属性日志或生成 Patch，setter 仅负责赋值及业务回调。
+- 属性树协议采用 v4，Profile（Owner、Observer、Migration）与 Mode（Snapshot、Patch）独立。
+  Owner 包含 ClientServer 和 AllClients，Observer 包含 AllClients；Migration 包含服务端状态，拒绝未知或缺失的已选属性。
+  Snapshot 使用递归 TLV；Owner / Observer 可跳过未知节点，缺失可选属性保留当前值，`Guid` 必须存在。
+  Patch 由服务器生成并同步到客户端，保留实体及各组件每次实际赋值的全局序号、属性路径和当时的编码值，不合并、不按组件重排。
+  接收端完整验证后直接写后备字段，不触发 `OnBeforeXChange` / `OnAfterXChange`，随后通过 `OnPropertiesApplied` 通知业务。
+  客户端依赖有序传输按接收顺序应用 Patch，不维护同步基线，不去重或检查序号缺口；服务器没有接收 Patch 的入口。
+  自动同步仅遍历已注册实体，不遍历 Stub；处理 `AutoSyncProperty` 开启的实体，Avatar 发给 Owner 及 AOI 观察者，Space 发给当前成员。
+  每次同步一次性发送实体的全部待发送变化，成功后统一清空日志，不分 batch 或确认前缀；属性写入和编解码按单线程顺序调用。
+  迁移快照前发送待同步变化并冻结源实体属性写入，目标从快照序号继续；回滚后恢复写入。单值上限 1 MiB、包上限 4 MiB、待发送日志按单个 4 MiB 包预算约束，最多 65535 条。
+  组件类重命名不影响标识，继承逻辑由生成方法调用基类生成方法串接。
 - `ServerAvatarEntity` 支持跨 Game 迁移；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
 - 初始化职责：`PreInitialize` 初始化实体属性和字段，构造组件并准备组件属性和字段，随后恢复身份及属性快照；`Initialize` 处理组件依赖初始化；`PostInitialize` 处理收尾逻辑。
 - 清理职责：`PreUnInitialize` 逆序撤销收尾逻辑并停止活动；`UnInitialize` 逆序解除组件依赖；`PostUnInitialize` 逆序清理属性、字段及组件挂载。实体清理入口顺序执行三个阶段，不捕获异常；任一阶段异常直接向外传播并中断后续阶段。
@@ -36,7 +51,7 @@
 - 所有生命周期函数需有明确职责注释；派生类调用对应 base 方法，清理需容忍部分初始化状态。
 - 组件只允许在实体 `PreInitialize` 中添加，添加时立即执行组件 `PreInitialize`。组件后续五个阶段由 `ServerEntity` / `ClientEntity` 对应生命周期函数逐阶段调用；派生类调用对应的 base 方法。
 - `ServerEntity`、`ClientEntity` 分别管理 `ServerEntityComponent`、`ClientEntityComponent`，组件集合分别在双方模块内实现。
-- 共享组件功能位于 `DE.Share/Components`，通过组合使用；`ServerAvatarTransformComponent`、`ClientAvatarTransformComponent` 使用其中的 `EntityTransform`。
+- `ServerAvatarTransformComponent`、`ClientAvatarTransformComponent` 直接操作 `Position` 和 `Rotation` 属性，使用共享数学类型。
 - 普通远端实体通过 `EntityMailBox` 固定寻址；Avatar 通过绑定 OwnerGate 的 `EntityProxy` 动态寻址。
 - 实体 RPC 由 `[ServerRpc]`、`[ClientRpc]` 显式暴露，调用和分发代码由 `DE.Share.EntityRpcSG` 生成。
 - `SystemCommand` 用于迁移、远程实体创建等框架操作，与实体 RPC 使用独立的消息和分发入口。
@@ -66,7 +81,7 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 | `DE.Client.Features` | 可复用的游戏功能扩展层，当前保留程序集说明 |
 | `DE.Client.Editor/Editor` | 仅在 Unity Editor 编译的框架编辑器工具 |
 | `DE.Share.Foundation` | 双端共享的基础类型、定点数和纯 C# 数学类型 |
-| `DE.Share` | 双端共享的组件功能对象、消息和 RPC 定义 |
+| `DE.Share` | 双端共享的属性标记、消息和 RPC 定义 |
 | `DE.Share.DataFramework` | 配置表描述、加载、缓存、Provider 和 DataRuntime |
 | `DE.Share.Data` | 框架配置行定义，如 Space、Npc |
 
@@ -93,7 +108,7 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 - `DE.Share.Foundation`、`DE.Share`、`DE.Share.DataFramework`、`DE.Share.Data` 链接 Unity 框架目录中的共享源码。
 - `Demo.Share.Data` 链接 Unity Demo 目录中的共享数据源码。修改共享类型时直接修改这些源文件，不维护服务端副本。
 - `DE.Share.EntityPropertySG`、`DE.Share.EntityRpcSG`、`DE.Share.DataTableSG` 分别生成实体属性访问及回调、RPC 和配置表代码。
-  属性生成器同时生成双端各类的同步属性元数据，不进行跨组件属性重名检查。
+  属性生成器同时生成双端各类的强类型序列化和反序列化方法，不进行跨组件属性重名检查。
 - `DE.Share.Tests` 保留共享层测试工程；当前阶段仅做编译验证，不新增或运行测试。
 
 ### 数据、配置与启动脚本

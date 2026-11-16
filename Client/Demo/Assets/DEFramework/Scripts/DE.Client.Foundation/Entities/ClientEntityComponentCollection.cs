@@ -8,11 +8,9 @@ namespace DE.Client.Entities
         private readonly List<TComponent> _components = new List<TComponent>();
         private readonly Dictionary<Type, TComponent> _componentsByType = new Dictionary<Type, TComponent>();
 
-        private readonly Dictionary<string, TComponent> _componentsByPropertyName = new Dictionary<string, TComponent>(StringComparer.Ordinal);
-
         public IReadOnlyList<TComponent> Items => _components;
 
-        public T Add<T>(ClientEntity owner, T component, string ownerPropertyName) where T : TComponent
+        public T Add<T>(ClientEntity owner, T component) where T : TComponent
         {
             if (!owner.IsPreInitializing || owner.LifecycleState != EntityLifecycleState.Initializing)
             {
@@ -22,23 +20,14 @@ namespace DE.Client.Entities
             {
                 throw new ArgumentNullException(nameof(component));
             }
-            if (string.IsNullOrEmpty(ownerPropertyName))
-            {
-                throw new ArgumentException("The owning component property name is required.", nameof(ownerPropertyName));
-            }
-            if (_componentsByPropertyName.ContainsKey(ownerPropertyName))
-            {
-                throw new InvalidOperationException("Entity component property already exists: " + ownerPropertyName);
-            }
             var type = component.GetType();
             if (_componentsByType.ContainsKey(type))
             {
                 throw new InvalidOperationException("ClientEntity component already exists: " + type.FullName);
             }
-            component.Attach(owner, ownerPropertyName);
+            component.Attach(owner);
             _components.Add(component);
             _componentsByType.Add(type, component);
-            _componentsByPropertyName.Add(ownerPropertyName, component);
             component.PreInitializeComponent();
             return component;
         }
@@ -95,7 +84,6 @@ namespace DE.Client.Entities
             {
                 _components.Clear();
                 _componentsByType.Clear();
-                _componentsByPropertyName.Clear();
             }
         }
 

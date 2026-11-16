@@ -22,10 +22,19 @@ Demo 通过 `ApplicationRoot.RegisterGameplay` 注册业务程序集和 `GameIns
 启动注册的回归验证位于 Unity Test Runner 的 EditMode 测试 `Demo.Client.Tests.GameplayRegistrationTests`。
 
 实体框架从 `DE.Client.Foundation/Entities/ClientEntity` 开始派生，组件从 `ClientEntityComponent` 派生。
-客户端独立维护生命周期、组件集合、EntityPropertyAttribute / EntityPropertyFlag 和 EntitySerializer。
-服务器在 DE.Server.Entities 内实现对应类型，双端使用版本 3 的实体快照。
-EntityPropertySG 生成双方属性、逐类元数据和直接字段读写委托；通过组件名哈希与属性名哈希定位属性，不分配递增 ID。
-名称哈希均为 UTF-8 FNV-1a 64 位；组件标识使用实体持有它的属性名，如 `TransformCmpt`，装配时通过 `nameof` 绑定；实体本身使用空组件名。
-组件类名、装配顺序、继承层次和单端属性数量可以不同；对应属性保留相同组件持有属性名、同步属性名、兼容的值类型及同步标记即可。
-长度字段支持跳过未知组件和属性，缺失属性保留当前值；已知属性不兼容或报文结构错误时整包拒绝，不写入任何属性。
-共享组件功能对象位于 `DE.Share/Components`，如 EntityTransform，通过组合用于双端具体组件。
+客户端独立维护生命周期、组件集合和 EntitySerializer。
+EntityPropertyAttribute、EntityComponentAttribute 和 EntityPropertyFlag 统一定义在 `DE.Share/Entities`，双端通过 `DE.Share.Entities` 使用。
+服务器在 DE.Server.Entities 内实现对应类型，双端使用版本 4 的属性树协议。
+实体是根节点，`Guid` 是根叶属性；`[EntityComponent]` 标记实体持有组件的属性，如 `TransformCmpt`，组件内再声明 `[EntityProperty]`。
+节点路径使用各级属性名的 UTF-8 FNV-1a 64 位哈希；组件类名、装配顺序和继承层级不参与协议标识，继承属性平铺在所在节点。
+组件通过 `AddComponent(component)` 装配；SG 生成组件引用到持有属性名哈希的路由，并串接基类路由，不在组件保存名称。
+业务在 partial 类内的私有 `__` 字段上声明 `[EntityProperty]`，生命周期和回调保留在手写文件；SG 在 `.g.cs` 中生成访问器、强类型编解码和变化记录。
+客户端不维护脏属性日志或生成 Patch，setter 只负责赋值和业务回调。
+服务器由 `AutoSyncProperty` 控制追踪及自动同步，默认关闭，ServerAvatarEntity、ServerSpaceEntity 开启；日志由 `ServerEntity.AutoSyncProperties.cs` 按需创建。
+不创建运行时属性 metadata、反射或读写委托；暂不支持数组、List、Dictionary 等容器属性，不支持的字段类型在编译期报错。
+Profile 区分 Owner、Observer、Migration；Mode 区分 Snapshot、Patch。Owner 同时接收 ClientServer 和 AllClients，Observer 接收 AllClients。
+Snapshot 恢复状态；服务器对开启自动同步的实体每次一次性同步全部待发送变化，成功后清空日志，不分 batch；保留跨组件顺序和同属性重复变化。服务器没有接收 Patch 的入口。
+客户端依赖有序传输按包和记录的接收顺序应用，不维护同步基线，不去重或检查序号缺口；Owner 快照在开始加载空间时应用。
+接收端先完整校验，再重新解析并直接赋值后备字段，不触发属性回调；业务通过 `OnPropertiesApplied` 读取有序变化记录。
+Owner / Observer 跳过未知节点；`Guid` 必须存在，Migration 严格要求完整且兼容的服务端状态。
+双端 Transform 组件直接操作 `Position` 和 `Rotation` 属性，使用共享数学类型，属性访问器由 SG 生成。

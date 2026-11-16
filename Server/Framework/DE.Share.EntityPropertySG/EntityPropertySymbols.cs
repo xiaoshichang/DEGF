@@ -4,6 +4,7 @@ namespace DE.Share.EntityPropertySG
 {
     internal static class EntityPropertySymbols
     {
+        internal const string SharedModule = "DE.Share.Entities";
         internal const string ServerModule = "DE.Server.Entities";
         internal const string ClientModule = "DE.Client.Entities";
 
@@ -11,7 +12,7 @@ namespace DE.Share.EntityPropertySG
         {
             foreach (var attribute in symbol.GetAttributes())
             {
-                if (GetModule(attribute.AttributeClass) != null)
+                if (IsPropertyAttribute(attribute.AttributeClass))
                 {
                     return attribute;
                 }
@@ -20,15 +21,29 @@ namespace DE.Share.EntityPropertySG
             return null;
         }
 
-        internal static string? GetModule(INamedTypeSymbol? attributeType)
+        internal static AttributeData? GetComponentAttribute(ISymbol symbol)
         {
-            if (attributeType?.Name != "EntityPropertyAttribute")
+            foreach (var attribute in symbol.GetAttributes())
             {
-                return null;
+                if (IsComponentAttribute(attribute.AttributeClass))
+                {
+                    return attribute;
+                }
             }
 
-            var module = attributeType.ContainingNamespace.ToDisplayString();
-            return module == ServerModule || module == ClientModule ? module : null;
+            return null;
+        }
+
+        internal static bool IsComponentAttribute(INamedTypeSymbol? attributeType)
+        {
+            return attributeType != null && attributeType.Name == "EntityComponentAttribute"
+                && attributeType.ContainingNamespace.ToDisplayString() == SharedModule;
+        }
+
+        internal static bool IsPropertyAttribute(INamedTypeSymbol? attributeType)
+        {
+            return attributeType != null && attributeType.Name == "EntityPropertyAttribute"
+                && attributeType.ContainingNamespace.ToDisplayString() == SharedModule;
         }
 
         internal static bool IsEntityOrComponent(INamedTypeSymbol type, string? module)

@@ -7,18 +7,20 @@
 `ServerAvatarEntity` 负责组件装配、MailBox / Proxy 和 RPC 发送。`ServerAvatarImmigateComponent` 保存迁移状态、迁移编号和目标空间；`ServerAvatarSpaceComponent` 保存 `SpaceId`、`SpaceNo` 及当前空间，处理空间请求和进出回调；`ServerAvatarTransformComponent` 保存位置和旋转；`ServerAvatarSessionComponent` 处理会话通知。
 
 客户端由 `ClientAvatarSpaceComponent` 接收空间标识属性，`ClientAvatarTransformComponent` 处理变换、空间加载和 AOI 通知。
-双端 Transform 组件通过组合复用 `DE.Share.Components.EntityTransform`，不依赖 Unity 类型。
+双端 Transform 组件直接操作 Position 和 Rotation 属性，使用共享数学类型，不依赖 Unity 类型。
 实体、组件基类、集合及序列化分别由 DE.Server.Entities / DE.Client.Entities 实现。
 
-双端各自的实体和组件均可声明本模块的 `[EntityProperty]`。SG 生成逐类属性元数据和直接字段读写委托，属性以组件名哈希和属性名哈希定位，
+双端实体和组件统一使用 `DE.Share.Entities` 中的 EntityPropertyAttribute、EntityComponentAttribute 及 EntityPropertyFlag。
+共享定义位于 `DE.Share/Entities`，SG 根据实体或组件的继承关系选择双端运行时。SG 为各类生成强类型序列化和反序列化方法，属性以组件名哈希和属性名哈希定位，
 均使用 UTF-8 FNV-1a 64 位算法，不依赖声明顺序或基类属性数量。允许不同组件声明同名属性，不做跨组件重名 analyzer 检查。
-双端组件按实体持有属性名对应，如 `TransformCmpt`，装配时用 `AddComponent(component, nameof(TransformCmpt))` 绑定，组件类名及装配顺序可以不同。
+双端组件按实体持有属性名对应，如 `TransformCmpt`，使用 `AddComponent(component)` 装配，由 SG 生成组件引用到持有属性名哈希的路由，组件类名及装配顺序可以不同。
 组件在实体 PreInitialize 中构造并准备默认值，随后恢复数据直接写入字段，
 不触发 `OnBeforeXChange` / `OnAfterXChange`。组件默认值在组件 PreInitialize 中设置；Initialize 只处理依赖，避免覆盖恢复数据。
 
-实体快照版本为 3，客户端和服务器需同步更新协议；双方拒绝版本 1、2 的实体快照。
-组件组和属性值均带长度，接收端跳过未知组件和属性，缺失属性保留当前值；已知属性的类型和同步标记必须兼容。
-接收端先校验整包，再通过生成委托恢复属性，不因坏包产生部分字段更新。
+实体属性树协议版本为 4，客户端和服务器需同步更新；双方拒绝旧版本。实体为根，Guid 为直接叶属性，`[EntityComponent]` 标记组件持有属性节点。
+Profile 区分 Owner、Observer、Migration，Mode 区分 Snapshot 和 Patch。Migration 必须是完整快照，拒绝未知、缺失及不兼容的服务端属性。
+Owner / Observer 按长度跳过未知节点，缺失可选属性保留当前值；Guid 必须存在。暂不支持 List、Dictionary 或数组等容器属性。
+接收端先完整解析校验，再重新解析并由生成代码直接恢复后备字段，不因坏包产生部分字段更新，不触发属性回调。
 
 ## 设计结论
 
@@ -38,7 +40,7 @@
 
 第一版覆盖：
 
-- Avatar 的 `EntitySerializeReason.Migrate` 序列化和反序列化。
+- Avatar 的 `EntitySerializationProfile.Migration` 完整属性树快照恢复及序号继承。
 - Avatar 当前 OwnerGate、客户端会话关联和动态 Proxy 路由的保持。
 - Client 到 Avatar 的 RPC 在迁移期间不丢失。
 - 其他服务器通过 Avatar Proxy 发往 Avatar 的 RPC 在迁移期间不丢失。
@@ -200,12 +202,15 @@ Gate 创建迁移队列后返回 `RouteFrozen`。同一个 `MigrationId` 的重�
 
 因为 Gate 到同一源 Game 使用同一有序内网连接，在 `FreezeRoute` 之前已被 Gate 接受并转发的 RPC 会先于 `RouteFrozen` 到达源 Game。源 Game 只在收到确认后生成快照。
 
-源 Game 收到 `RouteFrozen` 后先让 Avatar 退出旧 Space并调用 `OnAfterLeaveSpace`，再生成迁移快照。退出回调产生的 Client RPC 会被已冻结的 OwnerGate 缓存，因此顺序早于目标端的进入回调。若迁移回滚，源 Avatar 会重新进入旧 Space并调用 `OnAfterEnterSpace`。
+源 Game 收到 `RouteFrozen` 后先排空已有属性日志，按全实体序号发送给 Owner 和当前观察者，再让 Avatar 退出旧 Space 并调用 `OnAfterLeaveSpace`。
+退出后冻结源实体的属性写入，向 Owner 排空退出阶段的变化，再生成迁移快照；旧观察者的观察期已结束，不再接收退出后的变化。
+这些源端 RPC 仍可进入冻结 Gate 的 FIFO，提交或回滚时先于后续入场快照到达 Owner。目标从快照的 ThroughSequence 继续产生变化。
+若迁移回滚，源 Avatar 解冻；重新入场前仍先发送保留的 Owner 日志，避免新快照覆盖未同步的历史变化。
 
 ### 2. 生成快照并准备目标 Avatar
 
-源 Game 使用 `EntitySerializer.Serialize(avatar, EntitySerializeReason.Migrate)` 生成快照。`Migrate` 包含 Entity 上的
-`ServerOnly`、`ClientServer` 和 `AllClients` 属性，组件不声明 EntityProperty。
+源 Game 使用 `EntitySerializer.SerializeSnapshot(avatar, EntitySerializationProfile.Migration)` 生成快照。
+Migration 包含实体及组件的 ServerOnly、ClientServer、AllClients 和 Persistent 状态，排除 ClientOnly；业务字段和生命周期与 SG 生成代码分开。
 此时 `CurrentSpace` 已清空，目标场景由迁移请求中的 `TargetSpaceId` 指定。
 
 所有 `ServerEntity` 构造函数都不执行注册。目标 Game 先构造候选 Avatar，再反序列化迁移快照；准备阶段的候选 Avatar 不注册到 `Entities` / `Avatars`，因此任何 RPC 都无法提前寻址到它。
@@ -279,7 +284,8 @@ OwnerGate 在冻结期间使用一个统一 FIFO 队列记录以下消息：
 
 当前版本不维护迁移重试定时器，也不会按状态自动重发控制命令。
 首次 `FreezeRoute` 发送失败时，源迁移进入 `Failed` 并向 Teleport 调用方返回错误码，由调用方决定日志与提示。
-后续异步阶段发送失败时记录 `Error`，保留当前状态和迁移上下文，交由外部监控与恢复流程处理。
+PrepareTarget、ActivateTarget、CommitRoute 初次发送失败会进入已有回滚流程；回滚控制命令发送失败仍保留上下文并报告错误。
+RouteRolledBack 后若 Owner 待发送变化尚未成功入队，保持源属性冻结，由属性同步定时器一次性重试全部变化，成功后清空日志并恢复入场；不分 batch，也不重发迁移控制命令。
 
 接收端仍使用 `MigrationId` 处理重复消息。Gate 额外记录最近一次提交或回滚结果，以便活动上下文已经删除后仍可回答重复请求。目标 Game 只在迁移编号、协议字段和当前状态一致时接受重复的 Prepare、Activate、Complete 或 Abort；不一致的重入请求记录 `Error` 并返回失败。
 
@@ -296,8 +302,8 @@ Gate 处理创建响应时发送 LoginRsp，后续 Avatar RPC 直接转发；当
 客户端按有序连接处理 LoginRsp，完成 Avatar 创建及登录回调后才处理后续 RPC；若在 Avatar 创建前收到 RPC，则记录协议顺序错误，不缓存。
 ClientSpaceManager 在资源加载器尚未设置时保留 Pending 场景，期间继续应用 AOI 增减；设置加载器后自动开始加载，每个上下文只启动一次。
 场景分配结果指向当前场景，或迁移已 Completed 却再次请求跨 Game 入场时，记录错误、通知入场失败并返回，不重发场景或重置迁移状态。
-RPC 携带空间类型名及其 `Broadcase` 序列化数据、OwnerSync 数据，以及可见实体的类型名和序列化数据数组。
-客户端用 `ClientEntityFactory` 创建对应类型并通过 `EntitySerializer` 恢复状态，资源加载完成后应用 OwnerSync 数据。
+RPC 携带空间类型名及其 Observer 快照、Owner 快照，以及可见实体的类型名和 Observer 快照数组。
+客户端用 `ClientEntityFactory` 创建对应类型并通过 `EntitySerializer` 恢复状态；开始 Pending 场景时立即应用 Owner 快照，加载过程中按接收顺序应用服务器 Patch，不维护同步基线或去重状态。
 不使用 `EntitySnapshot`、`SpaceEnterSnapshot` 或场景专用编解码器。
 `ServerSpaceEntity` 使用 `IReadOnlyDictionary<Guid, ServerAvatarEntity> Avatars` 暴露本地成员，不序列化集合。
 

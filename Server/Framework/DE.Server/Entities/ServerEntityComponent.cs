@@ -3,13 +3,10 @@ namespace DE.Server.Entities
     public abstract partial class ServerEntityComponent
     {
         public ServerEntity OwnerEntity { get; private set; }
-        /// <summary>实体上持有本组件的属性名，也是组件组的协议标识。</summary>
-        public string OwnerPropertyName { get; private set; }
 
-        internal void Attach(ServerEntity entity, string ownerPropertyName)
+        internal void Attach(ServerEntity entity)
         {
             OwnerEntity = entity;
-            OwnerPropertyName = ownerPropertyName;
         }
 
         /// <summary>由实体 PreInitialize 中的 AddComponent 调用，挂载后立即准备组件默认属性与字段。</summary>
@@ -47,7 +44,6 @@ namespace DE.Server.Entities
         {
             PostUnInitialize();
             OwnerEntity = null;
-            OwnerPropertyName = null;
         }
 
         /// <summary>在实体 PreInitialize 中初始化组件的属性与字段，不使用其他组件的依赖；默认值随后可由快照覆盖。</summary>

@@ -381,15 +381,21 @@ namespace Assets.Scripts.DE.Client.Framework
         {
             while (_ReceiveBuffer.Count >= MessageDef.Header.WireSize)
             {
-                byte[] buffer = _ReceiveBuffer.ToArray();
+                _ReceiveBuffer.CopyTo(0, _ReceiveHeaderBuffer, 0, _ReceiveHeaderBuffer.Length);
                 MessageDef.Header header;
-                if (!MessageDef.Header.TryDeserialize(buffer, 0, buffer.Length, out header))
+                if (!MessageDef.Header.TryDeserialize(_ReceiveHeaderBuffer, 0, _ReceiveHeaderBuffer.Length, out header))
                 {
                     _FailAuth("Received invalid client frame header during auth handshake.");
                     return;
                 }
 
-                var frameLength = (int)header.GetFrameLength();
+                ulong wireFrameLength = (ulong)header.HeaderLength + header.Length;
+                if (wireFrameLength > int.MaxValue)
+                {
+                    _FailAuth("Received client frame exceeds the supported buffer length.");
+                    return;
+                }
+                var frameLength = (int)wireFrameLength;
                 if (_ReceiveBuffer.Count < frameLength)
                 {
                     return;
@@ -399,7 +405,7 @@ namespace Assets.Scripts.DE.Client.Framework
                 if (header.Length > 0)
                 {
                     payload = new byte[(int)header.Length];
-                    Buffer.BlockCopy(buffer, header.HeaderLength, payload, 0, (int)header.Length);
+                    _ReceiveBuffer.CopyTo(header.HeaderLength, payload, 0, payload.Length);
                 }
 
                 _ReceiveBuffer.RemoveRange(0, frameLength);
@@ -558,7 +564,7 @@ namespace Assets.Scripts.DE.Client.Framework
             var avatar = _CreateAvatar();
             try
             {
-                avatar.InitializeEntity(loginRsp.AvatarData, EntitySerializeReason.OwnerSync);
+                avatar.InitializeEntity(loginRsp.AvatarData, EntitySerializationProfile.Owner, loginRsp.AvatarId);
             }
             catch (Exception error)
             {
@@ -862,5 +868,6 @@ namespace Assets.Scripts.DE.Client.Framework
         private Action<string> _PendingFailedCallback;
         private Type _AvatarType = typeof(ClientAvatarEntity);
         private readonly List<byte> _ReceiveBuffer = new List<byte>();
+        private readonly byte[] _ReceiveHeaderBuffer = new byte[MessageDef.Header.WireSize];
     }
 }

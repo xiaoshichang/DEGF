@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using System;
 using DE.Share.Data;
 using DE.Share.DataFramework;
@@ -12,13 +13,18 @@ namespace DE.Server.Entities
     
     public partial class ServerSpaceEntity : ServerEntity
     {
+        public override bool AutoSyncProperty => true;
+
         public ServerSpaceEntity(SpaceInitializer initializer)
         {
             _initializer = initializer;
         }
 
+        [EntityComponent]
         public ServerSpaceAOIComponent AOISpace { get; private set; }
+        [EntityComponent]
         public ServerSpaceAvatarManageComponent AvatarManageCmpt { get; private set; }
+        [EntityComponent]
         public ServerSpaceStatisticsComponent StatisticsCmpt { get; private set; }
 
         /// <summary>设置空间编号和默认字段，构造空间组件并准备组件默认属性。</summary>
@@ -27,9 +33,9 @@ namespace DE.Server.Entities
             base.PreInitialize();
             SpaceNo = _initializer.SpaceNo;
             _dataRow = null;
-            AOISpace = AddComponent(_initializer.ServerSpaceAOIComponent ?? new ServerSpaceAOIComponent(), nameof(AOISpace));
-            AvatarManageCmpt = AddComponent(new ServerSpaceAvatarManageComponent(), nameof(AvatarManageCmpt));
-            StatisticsCmpt = AddComponent(new ServerSpaceStatisticsComponent(), nameof(StatisticsCmpt));
+            AOISpace = AddComponent(_initializer.ServerSpaceAOIComponent ?? new ServerSpaceAOIComponent());
+            AvatarManageCmpt = AddComponent(new ServerSpaceAvatarManageComponent());
+            StatisticsCmpt = AddComponent(new ServerSpaceStatisticsComponent());
         }
 
         /// <summary>组件和默认字段准备完成、属性恢复后，加载空间配置并初始化组件依赖。</summary>

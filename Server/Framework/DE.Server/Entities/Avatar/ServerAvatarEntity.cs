@@ -1,9 +1,12 @@
+using DE.Share.Entities;
 using DE.Share.Rpc;
 
 namespace DE.Server.Entities
 {
     public partial class ServerAvatarEntity : ServerEntity
     {
+        public override bool AutoSyncProperty => true;
+
         public ServerAvatarEntity()
         {
         }
@@ -16,17 +19,22 @@ namespace DE.Server.Entities
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            ImmigateCmpt = AddComponent(new ServerAvatarImmigateComponent(), nameof(ImmigateCmpt));
-            TransformCmpt = AddComponent(new ServerAvatarTransformComponent(), nameof(TransformCmpt));
-            SpaceCmpt = AddComponent(new ServerAvatarSpaceComponent(), nameof(SpaceCmpt));
-            SessionCmpt = AddComponent(new ServerAvatarSessionComponent(), nameof(SessionCmpt));
-            AOIAgentCmpt = AddComponent(new ServerAvatarAOIAgentComponent(), nameof(AOIAgentCmpt));
+            ImmigateCmpt = AddComponent(new ServerAvatarImmigateComponent());
+            TransformCmpt = AddComponent(new ServerAvatarTransformComponent());
+            SpaceCmpt = AddComponent(new ServerAvatarSpaceComponent());
+            SessionCmpt = AddComponent(new ServerAvatarSessionComponent());
+            AOIAgentCmpt = AddComponent(new ServerAvatarAOIAgentComponent());
         }
 
+        [EntityComponent]
         public ServerAvatarSessionComponent SessionCmpt { get; private set; }
+        [EntityComponent]
         public ServerAvatarImmigateComponent ImmigateCmpt { get; private set; }
+        [EntityComponent]
         public ServerAvatarTransformComponent TransformCmpt { get; private set; }
+        [EntityComponent]
         public ServerAvatarSpaceComponent SpaceCmpt { get; private set; }
+        [EntityComponent]
         public ServerAvatarAOIAgentComponent AOIAgentCmpt { get; private set; }
         
         public override bool IsAllowImmigrate() => true;

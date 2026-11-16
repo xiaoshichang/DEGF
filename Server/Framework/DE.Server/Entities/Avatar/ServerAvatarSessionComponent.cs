@@ -33,6 +33,7 @@ namespace DE.Server.Entities
         [ServerRpc]
         public virtual void OnAvatarClientDetached(ulong clientSessionId, AvatarClientDetachReason reason)
         {
+            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().DetachAvatarClientSession(Avatar, clientSessionId);
 #if DEBUG
             DELogger.Info(nameof(ServerAvatarEntity), $"Avatar client detached, avatarId={Avatar.Guid}, clientSessionId={clientSessionId}, reason={reason}.");
 #endif

@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using System;
 using Assets.Scripts.DE.Share;
 using DE.Server.Entities;
@@ -8,17 +9,17 @@ namespace DE.Share.Tests
     public sealed partial class EntitySerializerTests
     {
         [Fact]
-        public void OwnerSync_SerializesOnlyClientServerProperties()
+        public void OwnerSync_SerializesClientServerAndAllClientsProperties()
         {
             TestEntity source = CreateSource();
-            TestEntity target = CreateEntity<TestEntity>();
+            TestEntity target = CreateEntity<TestEntity>(source.Guid);
 
-            byte[] data = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
-            EntitySerializer.Deserialize(target, EntitySerializeReason.OwnerSync, data);
+            byte[] data = EntitySerializer.SerializeSnapshot(source, EntitySerializationProfile.Owner);
+            EntitySerializer.ApplySnapshot(target, EntitySerializationProfile.Owner, data);
 
             Assert.Equal(source.Guid, target.Guid);
             Assert.Equal(source.ClientServerValue, target.ClientServerValue);
-            Assert.Equal(default(int), target.AllClientsValue);
+            Assert.Equal(source.AllClientsValue, target.AllClientsValue);
             Assert.Equal(default(int), target.ServerOnlyValue);
             Assert.Equal(default(int), target.ClientOnlyValue);
             Assert.Equal(0, target.ClientServerValueChangedCount);
@@ -28,10 +29,10 @@ namespace DE.Share.Tests
         public void Broadcase_SerializesOnlyAllClientsProperties()
         {
             TestEntity source = CreateSource();
-            TestEntity target = CreateEntity<TestEntity>();
+            TestEntity target = CreateEntity<TestEntity>(source.Guid);
 
-            byte[] data = EntitySerializer.Serialize(source, EntitySerializeReason.Broadcase);
-            EntitySerializer.Deserialize(target, EntitySerializeReason.Broadcase, data);
+            byte[] data = EntitySerializer.SerializeSnapshot(source, EntitySerializationProfile.Observer);
+            EntitySerializer.ApplySnapshot(target, EntitySerializationProfile.Observer, data);
 
             Assert.Equal(source.Guid, target.Guid);
             Assert.Equal(default(int), target.ClientServerValue);
@@ -44,10 +45,10 @@ namespace DE.Share.Tests
         public void Migrate_SerializesServerOnlyClientServerAndAllClientsProperties()
         {
             TestEntity source = CreateSource();
-            TestEntity target = CreateEntity<TestEntity>();
+            TestEntity target = CreateEntity<TestEntity>(source.Guid);
 
-            byte[] data = EntitySerializer.Serialize(source, EntitySerializeReason.Migrate);
-            EntitySerializer.Deserialize(target, EntitySerializeReason.Migrate, data);
+            byte[] data = EntitySerializer.SerializeSnapshot(source, EntitySerializationProfile.Migration);
+            EntitySerializer.ApplySnapshot(target, EntitySerializationProfile.Migration, data);
 
             Assert.Equal(source.Guid, target.Guid);
             Assert.Equal(source.ClientServerValue, target.ClientServerValue);
@@ -60,10 +61,10 @@ namespace DE.Share.Tests
         public void TryDeserialize_ReturnsFalseWhenReasonDoesNotMatchPayload()
         {
             TestEntity source = CreateSource();
-            TestEntity target = CreateEntity<TestEntity>();
+            TestEntity target = CreateEntity<TestEntity>(source.Guid);
 
-            byte[] data = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
-            bool result = EntitySerializer.TryDeserialize(target, EntitySerializeReason.Migrate, data);
+            byte[] data = EntitySerializer.SerializeSnapshot(source, EntitySerializationProfile.Owner);
+            bool result = EntitySerializer.TryDeserialize(target, EntitySerializationProfile.Migration, data);
 
             Assert.False(result);
         }
@@ -72,7 +73,7 @@ namespace DE.Share.Tests
         public void LoginRsp_SerializesAvatarData()
         {
             TestEntity source = CreateSource();
-            byte[] avatarData = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
+            byte[] avatarData = EntitySerializer.SerializeSnapshot(source, EntitySerializationProfile.Owner);
             MessageDef.LoginRsp sourceMessage = new MessageDef.LoginRsp
             {
                 Version = MessageDef.LoginRsp.CurrentVersion,
@@ -90,8 +91,8 @@ namespace DE.Share.Tests
             Assert.Equal(source.Guid, parsedMessage.AvatarId);
             Assert.Equal(avatarData, parsedMessage.AvatarData);
 
-            TestEntity target = CreateEntity<TestEntity>();
-            Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializeReason.OwnerSync, parsedMessage.AvatarData));
+            TestEntity target = CreateEntity<TestEntity>(source.Guid);
+            Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializationProfile.Owner, parsedMessage.AvatarData));
             Assert.Equal(source.Guid, target.Guid);
             Assert.Equal(source.ClientServerValue, target.ClientServerValue);
         }
@@ -99,14 +100,13 @@ namespace DE.Share.Tests
         [Fact]
         public void OwnerSync_SerializesAvatarDisplayProperties()
         {
-            TestAvatarEntity source = CreateEntity<TestAvatarEntity>();
-            source.Guid = new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+            TestAvatarEntity source = CreateEntity<TestAvatarEntity>(new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
             source.HeadIcon = "HeadIcon_03";
             source.Score = 6400;
-            TestAvatarEntity target = CreateEntity<TestAvatarEntity>();
+            TestAvatarEntity target = CreateEntity<TestAvatarEntity>(source.Guid);
 
-            byte[] avatarData = EntitySerializer.Serialize(source, EntitySerializeReason.OwnerSync);
-            Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializeReason.OwnerSync, avatarData));
+            byte[] avatarData = EntitySerializer.SerializeSnapshot(source, EntitySerializationProfile.Owner);
+            Assert.True(EntitySerializer.TryDeserialize(target, EntitySerializationProfile.Owner, avatarData));
 
             Assert.Equal(source.Guid, target.Guid);
             Assert.Equal(source.HeadIcon, target.HeadIcon);
@@ -115,8 +115,7 @@ namespace DE.Share.Tests
 
         private static TestEntity CreateSource()
         {
-            TestEntity entity = CreateEntity<TestEntity>();
-            entity.Guid = new Guid("11111111-2222-3333-4444-555555555555");
+            TestEntity entity = CreateEntity<TestEntity>(new Guid("11111111-2222-3333-4444-555555555555"));
             entity.ClientServerValue = 10;
             entity.AllClientsValue = 20;
             entity.ServerOnlyValue = 30;
@@ -124,10 +123,10 @@ namespace DE.Share.Tests
             return entity;
         }
 
-        private static TEntity CreateEntity<TEntity>() where TEntity : ServerEntity, new()
+        private static TEntity CreateEntity<TEntity>(Guid? entityId = null) where TEntity : ServerEntity, new()
         {
             var entity = new TEntity();
-            entity.InitializeEntity();
+            entity.InitializeEntity(entityId: entityId);
             return entity;
         }
 

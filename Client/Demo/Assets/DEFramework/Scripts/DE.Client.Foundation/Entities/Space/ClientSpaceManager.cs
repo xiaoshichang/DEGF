@@ -6,19 +6,17 @@ namespace DE.Client.Entities
     {
         private readonly ClientSpaceManager _manager;
 
-        internal SpaceLoadingContext(ClientSpaceManager manager, long sequence, ClientSpaceEntity space, byte[] ownerData)
+        internal SpaceLoadingContext(ClientSpaceManager manager, long sequence, ClientSpaceEntity space)
         {
             _manager = manager;
             Sequence = sequence;
             Space = space;
-            OwnerData = ownerData;
         }
 
         public long Sequence { get; }
         public ClientSpaceEntity Space { get; }
         public int SpaceNo => Space.SpaceNo;
         public bool IsCurrent => ReferenceEquals(_manager.Pending, this);
-        internal byte[] OwnerData { get; }
         internal bool HasStartedLoading { get; set; }
 
         public bool Complete()
@@ -71,13 +69,15 @@ namespace DE.Client.Entities
 
         public void BeginLoading(string spaceType, byte[] spaceData, byte[] ownerData, string[] entityTypes, byte[][] entityData)
         {
+            // Apply the Owner snapshot before later Gate-ordered patches arrive during loading.
+            EntitySerializer.ApplySnapshot(_owner, EntitySerializationProfile.Owner, ownerData);
             var staged = (ClientSpaceEntity)ClientEntityFactory.Create(spaceType, spaceData);
             for (int index = 0; index < entityTypes.Length; index++)
             {
                 staged.Add(ClientEntityFactory.Create(entityTypes[index], entityData[index]));
             }
             var previous = Pending;
-            Pending = new SpaceLoadingContext(this, ++_sequence, staged, ownerData);
+            Pending = new SpaceLoadingContext(this, ++_sequence, staged);
             previous?.Space.UnInitializeEntity();
             var context = Pending;
             ClientSpaceEntity.InvokeSafely(LoadingStarted, context);
@@ -114,7 +114,6 @@ namespace DE.Client.Entities
             {
                 return false;
             }
-            EntitySerializer.Deserialize(_owner, EntitySerializeReason.OwnerSync, context.OwnerData);
             var previous = Current;
             Current = context.Space;
             Pending = null;
@@ -136,6 +135,24 @@ namespace DE.Client.Entities
         public void EntityDisappeared(Guid spaceId, Guid entityId)
         {
             FindContext(spaceId)?.Remove(entityId);
+        }
+
+        internal ClientEntity FindPropertyTarget(Guid entityId)
+        {
+            return FindPropertyTarget(Pending?.Space, entityId) ?? FindPropertyTarget(Current, entityId);
+        }
+
+        private static ClientEntity FindPropertyTarget(ClientSpaceEntity space, Guid entityId)
+        {
+            if (space == null)
+            {
+                return null;
+            }
+            if (space.Guid == entityId)
+            {
+                return space;
+            }
+            return space.Entities.TryGetValue(entityId, out var entity) ? entity : null;
         }
 
         private ClientSpaceEntity FindContext(Guid spaceId)

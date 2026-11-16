@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using System;
 using System.Collections.Generic;
 
@@ -29,10 +30,10 @@ namespace DE.Client.Entities
 
         public IReadOnlyList<ClientEntityComponent> Components => _components.Items;
 
-        /// <summary>装配组件，并以 nameof(所属属性) 绑定其序列化标识。</summary>
-        protected TComponent AddComponent<TComponent>(TComponent component, string ownerPropertyName) where TComponent : ClientEntityComponent
+        /// <summary>装配组件；持有属性的协议标识由 SG 生成的组件引用路由确定。</summary>
+        protected TComponent AddComponent<TComponent>(TComponent component) where TComponent : ClientEntityComponent
         {
-            return _components.Add(this, component, ownerPropertyName);
+            return _components.Add(this, component);
         }
 
         /// <summary>获取指定类型的组件；未装配该组件时返回 null。</summary>
@@ -52,7 +53,7 @@ namespace DE.Client.Entities
         /// </summary>
         public void InitializeEntity(
             byte[] propertyData = null,
-            EntitySerializeReason reason = EntitySerializeReason.OwnerSync,
+            EntitySerializationProfile profile = EntitySerializationProfile.Owner,
             Guid? entityId = null)
         {
             if (LifecycleState != EntityLifecycleState.Created)
@@ -76,7 +77,7 @@ namespace DE.Client.Entities
             }
             if (propertyData != null)
             {
-                EntitySerializer.Deserialize(this, reason, propertyData);
+                EntitySerializer.RestoreSnapshot(this, profile, propertyData, entityId);
             }
             Initialize();
             PostInitialize();

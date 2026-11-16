@@ -147,7 +147,7 @@ namespace DE.Server.Entities
                 return;
             }
             avatar.CallClient("NotifySpaceEntityAppeared", OwnerEntity.Guid, targetEntity.GetType().Name,
-                EntitySerializer.Serialize(targetEntity, EntitySerializeReason.Broadcase));
+                EntitySerializer.SerializeSnapshot(targetEntity, EntitySerializationProfile.Observer));
         }
 
         private void OnAgentEventLeave(AOIAgent observer, AOIAgent target)

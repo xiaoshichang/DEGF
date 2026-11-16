@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using DE.Client.Entities;
 
 namespace Assets.Scripts.Demo.Client.Entities
@@ -8,7 +9,7 @@ namespace Assets.Scripts.Demo.Client.Entities
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            BasicInfo = AddComponent(new ClientAvatarBasicInfoComponent(), nameof(BasicInfo));
+            BasicInfo = AddComponent(new ClientAvatarBasicInfoComponent());
         }
 
 
@@ -25,6 +26,7 @@ namespace Assets.Scripts.Demo.Client.Entities
             };
         }
 
+        [EntityComponent]
         public ClientAvatarBasicInfoComponent BasicInfo { get; private set; }
     }
 }

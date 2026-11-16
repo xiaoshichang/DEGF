@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using System;
 using System.Linq;
 using DE.Server.NativeBridge;
@@ -9,6 +10,21 @@ namespace DE.Server.Entities
 {
     public partial class ServerAvatarSpaceComponent : ServerEntityComponent
     {
+
+        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
+        private Guid __SpaceId;
+
+        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
+        private int __SpaceNo;
+
+        private ServerAvatarEntity Avatar => (ServerAvatarEntity)OwnerEntity;
+        private System.Guid Guid => Avatar.Guid;
+        private EntityProxy Proxy => Avatar.Proxy;
+        private EntityMailBox MailBox => Avatar.MailBox;
+
+        /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
+        public ServerSpaceEntity CurrentSpace { get; internal set; }
+
         /// <summary>初始化空间标识与本地字段，默认属性随后可由快照覆盖。</summary>
         protected override void PreInitialize()
         {
@@ -17,22 +33,11 @@ namespace DE.Server.Entities
             __SpaceNo = 0;
         }
 
-        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
-        private Guid __SpaceId;
-
-        [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.AllClients | EntityPropertyFlag.Persistent)]
-        private int __SpaceNo;
-
         public void SetSpace(Guid spaceId, int spaceNo)
         {
             SpaceId = spaceId;
             SpaceNo = spaceNo;
         }
-
-        private ServerAvatarEntity Avatar => (ServerAvatarEntity)OwnerEntity;
-        private System.Guid Guid => Avatar.Guid;
-        private EntityProxy Proxy => Avatar.Proxy;
-        private EntityMailBox MailBox => Avatar.MailBox;
 
         /// <summary>停止未完成的空间请求，保留当前空间关系供后续依赖清理。</summary>
         protected override void PreUnInitialize()
@@ -48,25 +53,29 @@ namespace DE.Server.Entities
             base.UnInitialize();
         }
 
-        /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
-        public ServerSpaceEntity CurrentSpace { get; internal set; }
-
         public virtual void OnBeforeEnterSpace(ServerSpaceEntity space)
         {
         }
 
         public virtual void OnAfterEnterSpace(ServerSpaceEntity space)
         {
+            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().NotifySpaceEntry(Avatar, space);
+        }
+
+        internal bool TryNotifySpaceEntry(ServerSpaceEntity space)
+        {
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
+            // A refreshed Owner snapshot must never skip its still-pending assignment history.
+            if (!Avatar.SynchronizeProperties(runtime, false))
+            {
+                return false;
+            }
             var visible = space.AOISpace.GetVisibleAgents(Guid).Select(agent => runtime.Entities[agent.Id]).ToArray();
             var entityTypes = visible.Select(entity => entity.GetType().Name).ToArray();
-            var entityData = visible.Select(entity => EntitySerializer.Serialize(entity, EntitySerializeReason.Broadcase)).ToArray();
-            if (!Avatar.CallClient("OnEnterSpace", space.GetType().Name,
-                EntitySerializer.Serialize(space, EntitySerializeReason.Broadcase),
-                EntitySerializer.Serialize(Avatar, EntitySerializeReason.OwnerSync), entityTypes, entityData))
-            {
-                DELogger.Error(nameof(ServerAvatarEntity), $"Failed to notify Space entry, avatarId={Guid}, spaceId={space.Guid}.");
-            }
+            var entityData = visible.Select(entity => EntitySerializer.SerializeSnapshot(entity, EntitySerializationProfile.Observer)).ToArray();
+            return Avatar.CallClient("OnEnterSpace", space.GetType().Name,
+                EntitySerializer.SerializeSnapshot(space, EntitySerializationProfile.Observer),
+                EntitySerializer.SerializeSnapshot(Avatar, EntitySerializationProfile.Owner), entityTypes, entityData);
         }
 
         public virtual void OnBeforeLeaveSpace(ServerSpaceEntity space)
@@ -75,6 +84,13 @@ namespace DE.Server.Entities
 
         public virtual void OnAfterLeaveSpace(ServerSpaceEntity space)
         {
+        }
+
+        private sealed class SpaceRequest
+        {
+            public Guid RequestId;
+            public Guid SpaceId;
+            public int SpaceNo;
         }
 
         private SpaceRequest _spaceRequest;
@@ -214,11 +230,5 @@ namespace DE.Server.Entities
             Avatar.CallClient("NotifySpaceEnterFailed", error ?? "Space entry failed");
         }
 
-        private sealed class SpaceRequest
-        {
-            public Guid RequestId;
-            public Guid SpaceId;
-            public int SpaceNo;
-        }
     }
 }

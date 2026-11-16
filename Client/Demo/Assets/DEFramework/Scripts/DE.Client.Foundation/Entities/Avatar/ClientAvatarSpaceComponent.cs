@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using System;
 
 namespace DE.Client.Entities

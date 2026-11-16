@@ -1,3 +1,4 @@
+using DE.Share.Entities;
 using Assets.Scripts.DE.Client.Framework;
 using DE.Share.Rpc;
 
@@ -17,11 +18,13 @@ namespace DE.Client.Entities
         protected override void PreInitialize()
         {
             base.PreInitialize();
-            SpaceCmpt = AddComponent(new ClientAvatarSpaceComponent(), nameof(SpaceCmpt));
-            TransformCmpt = AddComponent(new ClientAvatarTransformComponent(), nameof(TransformCmpt));
+            SpaceCmpt = AddComponent(new ClientAvatarSpaceComponent());
+            TransformCmpt = AddComponent(new ClientAvatarTransformComponent());
         }
 
+        [EntityComponent]
         public ClientAvatarSpaceComponent SpaceCmpt { get; private set; }
+        [EntityComponent]
         public ClientAvatarTransformComponent TransformCmpt { get; private set; }
 
         public override void OnRemovedFromSpace()

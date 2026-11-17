@@ -57,22 +57,29 @@ namespace DE.Server.Entities
         {
         }
 
+        /// <summary>确认没有待同步的脏属性后，准备快照并向本人发送完整入场状态。</summary>
         public virtual void OnAfterEnterSpace(ServerSpaceEntity space)
         {
-            ManagedRuntimeState.RequireCurrentGameServerRuntimeState().NotifySpaceEntry(Avatar, space);
-        }
+            // 入场快照要求没有待同步修改；违反前提时立即报错，不隐式同步或清空脏属性。
+            int dirtyPropertyCount = Avatar.PendingDirtyProperties.Count;
+            if (dirtyPropertyCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot create the space entry snapshot with pending dirty properties, avatarId={Guid}, count={dirtyPropertyCount}.");
+            }
 
-        internal bool TryNotifySpaceEntry(ServerSpaceEntity space)
-        {
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
-            // Flush pending Owner state before preparing the refreshed entry snapshot.
-            Avatar.SynchronizeProperties(runtime, false);
+
+            // 按 AOI 收集本人可见的实体，使用 Observer 范围生成类型和快照一一对应的数组。
             var visible = space.AOISpace.GetVisibleAgents(Guid).Select(agent => runtime.Entities[agent.Id]).ToArray();
             var entityTypes = visible.Select(entity => entity.GetType().Name).ToArray();
             var entityData = visible.Select(entity => EntitySerializer.SerializeSnapshot(entity, EntitySerializationProfile.Observer)).ToArray();
-            return Avatar.CallClient("OnEnterSpace", space.GetType().Name,
-                EntitySerializer.SerializeSnapshot(space, EntitySerializationProfile.Observer),
-                EntitySerializer.SerializeSnapshot(Avatar, EntitySerializationProfile.Owner), entityTypes, entityData);
+
+            // 空间使用 Observer 快照，本人使用 Owner 快照，将完整入场状态一次性发送给本人。
+            // 其他观察者已在加入 AOI 时收到 NotifySpaceEntityAppeared，此处无需再次广播。
+            var spaceData = EntitySerializer.SerializeSnapshot(space, EntitySerializationProfile.Observer);
+            var ownerData = EntitySerializer.SerializeSnapshot(Avatar, EntitySerializationProfile.Owner);
+            Avatar.CallClient("OnEnterSpace", space.GetType().Name, spaceData, ownerData, entityTypes, entityData);
         }
 
         public virtual void OnBeforeLeaveSpace(ServerSpaceEntity space)

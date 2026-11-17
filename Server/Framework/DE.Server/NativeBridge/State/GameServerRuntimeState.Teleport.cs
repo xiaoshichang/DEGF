@@ -242,7 +242,6 @@ namespace DE.Server.NativeBridge
 
             if (removed)
             {
-                CancelSpaceEntryNotification(entity);
                 entity.UnInitializeEntity();
             }
             return removed;

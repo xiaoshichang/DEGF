@@ -68,7 +68,9 @@
 - Game 发出创建响应后才执行会话绑定回调并主动入场；Gate 按连接顺序发送 LoginRsp 和后续 Avatar RPC，确保客户端先创建 Avatar。
 - 当前不处理重连和在途旧 RPC；Gate 不增加登录阶段的 RPC 缓存，服务器不通过重新绑定重发当前场景状态。
 - 不等待客户端就绪 RPC；客户端仅在加载器设置前保留待加载场景和 AOI 变化，不缓存 Avatar 创建前的 RPC。
-- 服务器 Avatar 使用 `OnBeforeEnterSpace` / `OnAfterEnterSpace`、`OnBeforeLeaveSpace` / `OnAfterLeaveSpace` 回调；入场通知由 `OnAfterEnterSpace` 发起。
+- 服务器 Avatar 使用 `OnBeforeEnterSpace` / `OnAfterEnterSpace`、`OnBeforeLeaveSpace` / `OnAfterLeaveSpace` 回调。
+  `OnAfterEnterSpace` 检查没有待同步的脏属性，非空时抛出异常；检查通过后生成快照并发送一次入场通知，不额外同步或清空脏属性。
+  暂不处理入场通知发送失败，不维护待通知队列或重试。
 - 迁移目标激活时只预留成员关系，Gate 提交路由后才注册 AOIAgent 并执行 `OnAfterEnterSpace`；AOI 不维护 Avatar 入场完成状态。
 - `Teleport` 返回 `TeleportErrorCode`，由调用方记录错误或提示玩家；跨 Game 的 Success 仅表示迁移发起成功，后续结果由异步协议处理。
 - AOI 模型位于 `DE.Server/AOI`；Avatar 使用 `Entities/Avatar/ServerAvatarAOIAgentComponent`，Npc 暂不装配 AOI 组件；空间组件位于 `Entities/Space`。公共状态、移动和离场逻辑封装在 `AOIAgent` 中；模型通过 `AgentEventEnter`、`AgentEventLeave` 报告可见性变化。

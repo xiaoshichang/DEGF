@@ -77,7 +77,6 @@ namespace DE.Server.NativeBridge
 
         public void Uninitialize()
         {
-            _pendingSpaceEntryNotifications.Clear();
             var entities = StubInstances.Values.Cast<ServerEntity>()
                 .Concat(Entities.Values)
                 .Concat(Avatars.Values)
@@ -452,7 +451,6 @@ namespace DE.Server.NativeBridge
             if (AvatarClientSessionIds.TryGetValue(avatar.Guid, out var currentSessionId) && currentSessionId == clientSessionId)
             {
                 AvatarClientSessionIds.Remove(avatar.Guid);
-                CancelSpaceEntryNotification(avatar);
             }
         }
 

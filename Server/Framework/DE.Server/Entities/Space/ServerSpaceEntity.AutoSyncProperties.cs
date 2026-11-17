@@ -28,7 +28,6 @@ namespace DE.Server.Entities
                 return;
             }
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
-            runtime.RetryPendingSpaceEntries(this);
             foreach (var avatar in AvatarManageCmpt.Avatars.Values.ToArray())
             {
                 if (avatar.AutoSyncProperty && CanSynchronizeAvatar(avatar))

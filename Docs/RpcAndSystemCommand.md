@@ -210,8 +210,9 @@ Each Space scans its current Avatar members every 50 ms, synchronizing only memb
 Avatar changes go to the Owner and actual AOI observers. Avatars outside a Space have no periodic synchronization.
 Space properties are delivered through snapshots, without dirty tracking or automatic Patch sends.
 Npc entities keep the flag disabled by default; global entities and Stubs are not scanned.
-Explicit entry and migration snapshot preparation flushes pending state before creating a refreshed snapshot.
-Entry notification failures retain an Avatar/Space-bound retry item; the associated Space's timer drives retries without repeating OnAfterEnterSpace.
+OnAfterEnterSpace rejects pending dirty properties with an exception, then creates the entry snapshots directly without flushing or clearing properties.
+Migration snapshot preparation still synchronizes pending state before taking its snapshot.
+OnAfterEnterSpace creates and sends the entry snapshot once; send failures are ignored, without a pending notification queue or retries.
 Migration synchronizes dirty state before leaving, then freezes source writes and synchronizes remaining Owner state before taking its snapshot.
 The target continues the source sequence. During rollback, pending state is synchronized before the restored Owner snapshot.
 The model synchronizes current state; it does not preserve every intermediate transition, cross-property event order, or a reconnect replay history.

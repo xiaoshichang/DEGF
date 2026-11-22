@@ -137,7 +137,9 @@ namespace DE.Server.Entities
             {
                 return;
             }
-            if (!avatar.IsInitialized)
+            // The entry snapshot supplies the initial visible set, including changes made while its send is retried.
+            if (!avatar.IsInitialized || !avatar.SpaceCmpt.IsSpaceEntryNotified
+                || !ReferenceEquals(avatar.SpaceCmpt.CurrentSpace, OwnerEntity))
             {
                 return;
             }
@@ -162,7 +164,8 @@ namespace DE.Server.Entities
             {
                 return;
             }
-            if (!avatar.IsInitialized)
+            if (!avatar.IsInitialized || !avatar.SpaceCmpt.IsSpaceEntryNotified
+                || !ReferenceEquals(avatar.SpaceCmpt.CurrentSpace, OwnerEntity))
             {
                 return;
             }

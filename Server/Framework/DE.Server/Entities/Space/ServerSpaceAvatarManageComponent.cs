@@ -30,6 +30,10 @@ namespace DE.Server.Entities
             {
                 foreach (var avatar in _avatars.Values)
                 {
+                    if (!ReferenceEquals(avatar.SpaceCmpt.CurrentSpace, Space))
+                    {
+                        DELogger.Error("unknown error.");
+                    }
                     avatar.SpaceCmpt.CurrentSpace = null;
                 }
                 _avatars.Clear();

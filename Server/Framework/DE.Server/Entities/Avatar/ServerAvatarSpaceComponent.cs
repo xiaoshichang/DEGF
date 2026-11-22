@@ -22,13 +22,32 @@ namespace DE.Server.Entities
         private EntityProxy Proxy => Avatar.Proxy;
         private EntityMailBox MailBox => Avatar.MailBox;
 
-        /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
-        public ServerSpaceEntity CurrentSpace { get; internal set; }
+        /// <summary>当前空间；入场前和离场后为 null，禁止重复设置同一引用（包括 null）。</summary>
+        public ServerSpaceEntity CurrentSpace
+        {
+            get => _currentSpace;
+            internal set
+            {
+                if (ReferenceEquals(_currentSpace, value))
+                {
+                    throw new InvalidOperationException($"CurrentSpace is already set to this reference, avatarId={Guid}, spaceId={value?.Guid}.");
+                }
+                _currentSpace = value;
+                IsSpaceEntryNotified = false;
+            }
+        }
+
+        // This tracks successful snapshot sending, not client resource loading or acknowledgement.
+        internal bool IsSpaceEntryNotified { get; private set; }
+
+        private ServerSpaceEntity _currentSpace;
 
         /// <summary>初始化空间标识与本地字段，默认属性随后可由快照覆盖。</summary>
         protected override void PreInitialize()
         {
             base.PreInitialize();
+            _currentSpace = null;
+            IsSpaceEntryNotified = false;
             __SpaceId = System.Guid.Empty;
             __SpaceNo = 0;
         }
@@ -49,7 +68,10 @@ namespace DE.Server.Entities
         /// <summary>解除 Avatar 与当前空间的依赖关系。</summary>
         protected override void UnInitialize()
         {
-            CurrentSpace = null;
+            if (CurrentSpace != null)
+            {
+                CurrentSpace = null;
+            }
             base.UnInitialize();
         }
 
@@ -73,9 +95,14 @@ namespace DE.Server.Entities
             var visible = space.AOISpace.GetVisibleAgents(Guid).Select(agent => runtime.Entities[agent.Id]).ToArray();
             var entityTypes = visible.Select(entity => entity.GetType().Name).ToArray();
             var entityData = visible.Select(entity => EntitySerializer.SerializeSnapshot(entity, EntitySerializationProfile.Observer)).ToArray();
-            return Avatar.CallClient("OnEnterSpace", space.GetType().Name,
+            if (!Avatar.CallClient("OnEnterSpace", space.GetType().Name,
                 EntitySerializer.SerializeSnapshot(space, EntitySerializationProfile.Observer),
-                EntitySerializer.SerializeSnapshot(Avatar, EntitySerializationProfile.Owner), entityTypes, entityData);
+                EntitySerializer.SerializeSnapshot(Avatar, EntitySerializationProfile.Owner), entityTypes, entityData))
+            {
+                return false;
+            }
+            IsSpaceEntryNotified = true;
+            return true;
         }
 
         public virtual void OnBeforeLeaveSpace(ServerSpaceEntity space)

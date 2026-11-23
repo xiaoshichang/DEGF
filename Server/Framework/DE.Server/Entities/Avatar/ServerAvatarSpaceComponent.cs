@@ -22,13 +22,32 @@ namespace DE.Server.Entities
         private EntityProxy Proxy => Avatar.Proxy;
         private EntityMailBox MailBox => Avatar.MailBox;
 
-        /// <summary>The Space currently occupied by this Avatar; null before entry and after leaving.</summary>
-        public ServerSpaceEntity CurrentSpace { get; internal set; }
+        /// <summary>当前空间；入场前和离场后为 null，禁止重复设置同一引用（包括 null）。</summary>
+        public ServerSpaceEntity CurrentSpace
+        {
+            get => _currentSpace;
+            internal set
+            {
+                if (ReferenceEquals(_currentSpace, value))
+                {
+                    throw new InvalidOperationException($"CurrentSpace is already set to this reference, avatarId={Guid}, spaceId={value?.Guid}.");
+                }
+                _currentSpace = value;
+                IsSpaceEntryNotified = false;
+            }
+        }
+
+        // This tracks the entry snapshot notification call, not client resource loading or acknowledgement.
+        internal bool IsSpaceEntryNotified { get; private set; }
+
+        private ServerSpaceEntity _currentSpace;
 
         /// <summary>初始化空间标识与本地字段，默认属性随后可由快照覆盖。</summary>
         protected override void PreInitialize()
         {
             base.PreInitialize();
+            _currentSpace = null;
+            IsSpaceEntryNotified = false;
             __SpaceId = System.Guid.Empty;
             __SpaceNo = 0;
         }
@@ -49,7 +68,10 @@ namespace DE.Server.Entities
         /// <summary>解除 Avatar 与当前空间的依赖关系。</summary>
         protected override void UnInitialize()
         {
-            CurrentSpace = null;
+            if (CurrentSpace != null)
+            {
+                CurrentSpace = null;
+            }
             base.UnInitialize();
         }
 
@@ -80,6 +102,7 @@ namespace DE.Server.Entities
             var spaceData = EntitySerializer.SerializeSnapshot(space, EntitySerializationProfile.Observer);
             var ownerData = EntitySerializer.SerializeSnapshot(Avatar, EntitySerializationProfile.Owner);
             Avatar.CallClient("OnEnterSpace", space.GetType().Name, spaceData, ownerData, entityTypes, entityData);
+            IsSpaceEntryNotified = true;
         }
 
         public virtual void OnBeforeLeaveSpace(ServerSpaceEntity space)

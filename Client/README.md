@@ -8,6 +8,7 @@ Unity 工程位于 `Demo`，框架源码位于 `Demo/Assets/DEFramework/Scripts`
 | `DE.Client.Features` | 某一类游戏可以复用的功能，例如移动控制、相机控制 | 依赖 Foundation 和双端共享程序集 |
 | `DE.Client.Editor` | 框架的 Unity 编辑器工具 | 依赖 Foundation，仅在 Editor 编译 |
 | `Demo.Client` | Demo 业务逻辑及启动注册 | 依赖 Foundation、Features 和共享程序集 |
+| `Demo.Editor` | Demo 几何体资源生成工具 | 仅依赖 Unity Editor 和 URP，不依赖游戏运行时 |
 
 原 `DE.Client` 的实现已全部迁入 `DE.Client.Foundation`，并已移除空的 `NewBehaviourScript` 模板脚本。
 原 `DE.Client` 程序集改名为 `DE.Client.Features`，当前仅保留程序集说明，后续按需添加可复用功能。
@@ -20,6 +21,36 @@ Demo 通过 `ApplicationRoot.RegisterGameplay` 注册业务程序集和 `GameIns
 
 在 Unity 中刷新资源并重新生成 IDE 项目文件后，可构建 `Demo/Demo.sln`。
 启动注册的回归验证位于 Unity Test Runner 的 EditMode 测试 `Demo.Client.Tests.GameplayRegistrationTests`。
+
+## 3D URP 与 Demo 资源
+
+项目默认使用 3D 模式和 `Assets/Settings/Renderer3D.asset`，由现有 `UniversalRP.asset` 引用。
+Runtime 场景使用透视相机和有阴影的方向光；新场景模板为 `Lit 3D (URP)`。
+原有 Renderer2D 保留为可选 Renderer，项目不再依赖 2D Feature 包。
+
+`Assets/Demo/Asb` 下的资源按以下目录组织，Unity 中 1 单位对应 1 米，Y 向上、Z 为角色前方：
+
+| 目录 | 内容 |
+| --- | --- |
+| `StaticSceneItem` | 共用材质、基础 Mesh，以及房屋、树、岩石、长椅、路灯、货箱、栅栏、摊位、喷泉和小桥 Prefab |
+| `StaticScene` | 可供实例化的 `City.prefab`、`Outskirts.prefab` 静态地图 |
+| `Character` | Warrior、Archer、Mage、Merchant 各占一个目录，分别包含自己的 Prefab、Controller、Animations、Materials 和 Meshes |
+
+两张静态地图的地面均为 100 × 100 米，原点在地面中心，并提供 `SpawnPoint`。
+SpaceNo 1 对应城市，SpaceNo 2 对应郊外，此处是资源命名约定；尚未接入服务器配置表和登录后的空间加载回调。
+Space 的表现资源以地图 Prefab 提供，不生成对应的 `.unity` 文件，也不使用 Unity SceneManager 管理空间切换。
+后续接入空间加载时，业务应通过 AssetManager 加载地图资源，再按空间生命周期实例化、销毁地图对象并释放加载句柄。
+地图 Prefab 仅包含静态场景内容，相机和光照由客户端统一管理。
+角色不预置在静态地图内，按需实例化。各角色采用一致的约 2 米高主体设计、胶囊身体、球形双手与方形双脚，配饰可能略高于头顶。
+
+角色之间不共用 Mesh、材质、动画或 Controller，也不引用 StaticSceneItem 中的资源。
+每个角色分别保存 Idle、Run、Hit（受击）、Jump、Death、Attack 六个动画；攻击分别表现剑击、拉弓、施法和挥动货包。
+Animator 的 `Speed` 大于 0.1 时跑步，小于 0.1 时待机；`Attack`、`Hit`、`Jump`、`Death` 为 Trigger。
+死亡状态没有出口；重生时由业务显式重置 Animator。动画不驱动实体根位移，Jump 只抬升 Visual，实际移动和碰撞由业务控制。
+
+编辑器菜单 `DEGF/Demo/Generate Geometry Assets` 可重新生成上述资源并恢复 3D URP 配置。
+执行前保存当前场景并退出 Play Mode；重新生成会覆盖生成器负责的资源内容，已有资源 `.meta` GUID 保留。
+工具同时将场景与五种动作的预览输出到不纳入版本控制的 `Library/DemoGeometryPreview`。
 
 实体框架从 `DE.Client.Foundation/Entities/ClientEntity` 开始派生，组件从 `ClientEntityComponent` 派生。
 客户端独立维护生命周期、组件集合和 EntitySerializer。

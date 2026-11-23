@@ -297,6 +297,10 @@ PrepareTarget、ActivateTarget、CommitRoute 初次发送失败会进入已有�
 不等待客户端就绪 RPC，也不保存或迁移客户端就绪标志。入场和迁移提交成功后，`ServerAvatarEntity.OnAfterEnterSpace` 主动向客户端发起入场 RPC。
 普通入场先加入成员表和 AOI 再执行 After 回调；迁移激活阶段仅加入成员表，路由提交后才加入 AOI、执行 After 回调。
 AOI 组件仅通过 AddAOIAgent/RemoveAOIAgent 管理 Agent，不提供 Avatar 入场完成接口。
+`ServerAvatarSpaceComponent` 在当前空间关系变化时重置入场快照通知标记，调用 `OnEnterSpace` 发送后设置该标记，不处理发送失败或重试。
+`CurrentSpace` 禁止重复设置同一引用（包括重复设置 null），违反时抛出 `InvalidOperationException`；清理流程仅在仍有关联时解除关系。
+此前不向该 Avatar 发送实体出现、消失通知，初始可见集合由入场快照统一提供。
+已在场观察者仍正常收到新 Avatar 出现的通知。该标记仅控制服务端通知顺序，不表示客户端资源加载完成，不等待客户端确认，也不进入 AOI 模型或迁移快照。
 Game 成功发出创建响应后才执行 OnAvatarClientAttached，从而将入场 RPC 排在创建响应之后。
 Gate 处理创建响应时发送 LoginRsp，后续 Avatar RPC 直接转发；当前不处理重连或在途旧 RPC，不增加登录阶段的 RPC 缓存。
 客户端按有序连接处理 LoginRsp，完成 Avatar 创建及登录回调后才处理后续 RPC；若在 Avatar 创建前收到 RPC，则记录协议顺序错误，不缓存。

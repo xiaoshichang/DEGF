@@ -309,8 +309,10 @@ def start_cluster(config_path: Path, exe_path: Path) -> None:
             else:
                 for server_id in server_ids:
                     title = make_window_title(server_id)
+                    # Pass CMD a raw command line; argument lists escape quotes with backslashes that CMD treats literally.
+                    command = make_windows_server_command(exe_path, config_path, server_id)
                     process = subprocess.Popen(
-                        ["cmd.exe", "/k", make_windows_server_command(exe_path, config_path, server_id)],
+                        f'cmd.exe /d /s /k "{command}"',
                         cwd=str(ENGINE_DIR),
                         creationflags=subprocess.CREATE_NEW_CONSOLE,
                     )

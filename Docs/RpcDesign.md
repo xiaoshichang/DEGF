@@ -147,16 +147,16 @@ Generator 对每个含 RPC 方法的 partial 类型生成：
 示例输出形态：
 
 ```csharp
-public partial class DemoAvatarEntity
+public partial class DemoServerAvatarEntity
 {
     public static void RegisterGeneratedRpc(DE.Share.Rpc.RpcRegistry registry)
     {
-        registry.Register(typeof(DemoAvatarEntity), 0x12345678u, InvokeGeneratedRpc);
+        registry.Register(typeof(DemoServerAvatarEntity), 0x12345678u, InvokeGeneratedRpc);
     }
 
     private static bool InvokeGeneratedRpc(object target, uint methodId, RpcBinaryReader reader)
     {
-        var entity = (DemoAvatarEntity)target;
+        var entity = (DemoServerAvatarEntity)target;
         switch (methodId)
         {
             case 0x12345678u:

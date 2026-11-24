@@ -55,7 +55,7 @@ namespace Assets.Scripts.Demo.Client.UI
                 return;
             }
 
-            DemoAvatarEntity avatar = accountInfo.Avatar as DemoAvatarEntity;
+            var avatar = accountInfo.Avatar as DemoClientPlayerAvatarEntity;
             string headIcon = avatar == null || string.IsNullOrEmpty(avatar.BasicInfo.HeadIcon)
                 ? "--"
                 : avatar.BasicInfo.HeadIcon;
@@ -75,7 +75,7 @@ namespace Assets.Scripts.Demo.Client.UI
             }
 
             string headIcon = s_HeadIconCandidates[Random.Range(0, s_HeadIconCandidates.Length)];
-            var avatar = AuthSystem.Instance.CurrentAccountInfo?.Avatar as DemoAvatarEntity;
+            var avatar = AuthSystem.Instance.CurrentAccountInfo?.Avatar as DemoClientPlayerAvatarEntity;
             if (avatar == null)
             {
                 return;

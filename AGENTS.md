@@ -20,6 +20,11 @@
 - `ServerEntity`、`ClientEntity` 分别作为双端实体继承根，以 `Guid` 唯一标识，各自实现生命周期、组件管理、属性描述和序列化。
 - 实体统一通过 `UnInitializeEntity()` 结束生命周期，依次执行 `PreUnInitialize()`、`UnInitialize()`、`PostUnInitialize()`；组件清理由对应的 base 阶段逐阶段逆序执行，重复或重入清理无效。
 - Avatar 分为 `ServerAvatarEntity`、`ClientAvatarEntity`，Npc 分为 `ServerNpcEntity`、`ClientNpcEntity`。同一角色的双端 Avatar 通过属性同步和 RPC 通信。
+  Demo 双端分别使用 `DemoServerAvatarEntity`、`DemoClientAvatarEntity`；`DemoClientPlayerAvatarEntity` 继承后者，仅代表当前登录玩家。
+  服务器从业务程序集反射发现服务端实体；客户端在鉴权初始化前扫描已注册的业务程序集，不再由 GameInstance 手动注册实体。
+  客户端选择业务 Avatar 继承链的根类型作为普通 Avatar，再选择其唯一业务派生分支作为 PlayerAvatar；无派生类型时回退到普通 Avatar。
+  服务器类型名通过将客户端类名中的 `Client` 替换为 `Server` 建立对应，PlayerAvatar 分支不注册为观察者实体。
+  Space 使用 `DemoServerSpaceEntity`、`DemoClientSpaceEntity` 对应；空间加载回调仅由 PlayerAvatar 安装，反射创建的客户端业务实体需添加 Preserve。
 - `ServerAvatarImmigateComponent` 封装 Avatar 迁移状态；`ServerAvatarSpaceComponent` 封装空间出入、请求及 `SpaceId` / `SpaceNo`；Transform 组件封装位置和旋转；
 - `EntityPropertyAttribute`、`EntityComponentAttribute` 和 `EntityPropertyFlag` 统一由 `DE.Share/Entities` 定义，命名空间为 `DE.Share.Entities`；实体是属性树根，`Guid` 是根属性，标注 `[EntityComponent]` 的组件持有属性构成子节点。
   组件通过 `AddComponent(component)` 装配；SG 根据 `[EntityComponent]` 持有属性生成组件实例到属性名哈希的引用路由，继承类继续调用基类路由。

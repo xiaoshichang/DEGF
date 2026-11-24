@@ -54,6 +54,12 @@ Animator 的 `Speed` 大于 0.1 时跑步，小于 0.1 时待机；`Attack`、`H
 
 实体框架从 `DE.Client.Foundation/Entities/ClientEntity` 开始派生，组件从 `ClientEntityComponent` 派生。
 客户端独立维护生命周期、组件集合和 EntitySerializer。
+框架在鉴权初始化前反射扫描 `ApplicationRoot.RegisterGameplay` 注册的业务程序集，自动发现 Avatar、PlayerAvatar、Space 和 Npc。
+`DemoClientAvatarEntity` 对应 `DemoServerAvatarEntity`，用于观察者实体；`DemoClientPlayerAvatarEntity` 继承前者，仅由登录流程创建本人。
+Space 对应 `DemoClientSpaceEntity` / `DemoServerSpaceEntity`；空间加载回调只安装在 PlayerAvatar 上。
+普通 Avatar 取业务继承链的根类型，PlayerAvatar 取其唯一业务派生分支；无派生类型时回退到普通 Avatar，多个分支在启动时明确报错。
+`ClientEntityFactory` 按客户端类名中的 `Client` → `Server` 建立服务器名称映射，排除 PlayerAvatar 分支；Npc 现有同名映射保持兼容。
+DemoGameInstance 不再手动注册实体，反射构造的业务类型使用 Preserve 保留；会话重置及鉴权清理时清空类型注册。
 EntityPropertyAttribute、EntityComponentAttribute 和 EntityPropertyFlag 统一定义在 `DE.Share/Entities`，双端通过 `DE.Share.Entities` 使用。
 服务器在 DE.Server.Entities 内实现对应类型，双端使用版本 4 的属性树协议。
 实体是根节点，`Guid` 是根叶属性；`[EntityComponent]` 标记实体持有组件的属性，如 `TransformCmpt`，组件内再声明 `[EntityProperty]`。

@@ -72,34 +72,8 @@ namespace Assets.Scripts.DE.Client.Framework
         public bool IsBusy => _State == AuthState.HttpAuthenticating || _State == AuthState.KcpConnecting || _State == AuthState.HandShaking || _State == AuthState.LoggingIn;
         public bool IsAuthenticated => _State == AuthState.Authenticated;
         public AuthAccountInfo CurrentAccountInfo => _CurrentAccountInfo;
-        public Type AvatarType => _AvatarType;
+        public Type AvatarType => ClientEntityFactory.PlayerAvatarType;
         public event Action<AuthAccountInfo> AvatarUpdated;
-
-        public void RegisterAvatarType<TAvatar>() where TAvatar : ClientAvatarEntity, new()
-        {
-            RegisterAvatarType(typeof(TAvatar));
-        }
-
-        public void RegisterAvatarType(Type avatarType)
-        {
-            if (avatarType == null)
-            {
-                throw new ArgumentNullException(nameof(avatarType));
-            }
-
-            if (!typeof(ClientAvatarEntity).IsAssignableFrom(avatarType))
-            {
-                throw new ArgumentException("Avatar type must derive from ClientAvatarEntity.", nameof(avatarType));
-            }
-
-            if (avatarType.GetConstructor(Type.EmptyTypes) == null)
-            {
-                throw new ArgumentException("Avatar type must have a public parameterless constructor.", nameof(avatarType));
-            }
-
-            _AvatarType = avatarType;
-            ClientEntityFactory.Register(avatarType);
-        }
 
         public void Init()
         {
@@ -590,7 +564,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private ClientAvatarEntity _CreateAvatar()
         {
-            return Activator.CreateInstance(_AvatarType) as ClientAvatarEntity;
+            return (ClientAvatarEntity)Activator.CreateInstance(ClientEntityFactory.PlayerAvatarType);
         }
 
         private bool _InvokeGeneratedClientRpc(ClientAvatarEntity avatar, uint methodId, byte[] argsPayload)
@@ -866,7 +840,6 @@ namespace Assets.Scripts.DE.Client.Framework
         private Action<AuthState> _PendingStateChangedCallback;
         private Action<AuthAccountInfo> _PendingSucceededCallback;
         private Action<string> _PendingFailedCallback;
-        private Type _AvatarType = typeof(ClientAvatarEntity);
         private readonly List<byte> _ReceiveBuffer = new List<byte>();
         private readonly byte[] _ReceiveHeaderBuffer = new byte[MessageDef.Header.WireSize];
     }

@@ -13,7 +13,7 @@ public partial class ServerAvatarBasicInfoComponent : ServerEntityComponent
     [EntityProperty(EntityPropertyFlag.ClientServer | EntityPropertyFlag.Persistent)]
     private int __Score;
 
-    private DemoAvatarEntity _owner = null!;
+    private DemoServerAvatarEntity _owner = null!;
 
     /// <summary>初始化基础信息默认属性和所属 Avatar 字段，不处理组件依赖。</summary>
     protected override void PreInitialize()
@@ -21,7 +21,7 @@ public partial class ServerAvatarBasicInfoComponent : ServerEntityComponent
         base.PreInitialize();
         __HeadIcon = "xxx.png";
         __Score = 1;
-        _owner = (DemoAvatarEntity)OwnerEntity;
+        _owner = (DemoServerAvatarEntity)OwnerEntity;
     }
 
     /// <summary>依赖清理完成后释放所属 Avatar 字段。</summary>

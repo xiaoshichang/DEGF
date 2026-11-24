@@ -65,43 +65,4 @@ namespace DE.Client.Entities
         }
     }
 
-    public static class ClientEntityFactory
-    {
-        private static readonly Dictionary<string, Type> EntityTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
-        {
-            { "ServerSpaceEntity", typeof(ClientSpaceEntity) },
-            { "ServerAvatarEntity", typeof(ClientAvatarEntity) },
-            { "ServerNpcEntity", typeof(ClientNpcEntity) },
-        };
-
-        public static void Register<T>() where T : ClientEntity, new()
-        {
-            Register(typeof(T));
-        }
-
-        public static void Register(Type entityType)
-        {
-            if (entityType == null)
-            {
-                throw new ArgumentNullException(nameof(entityType));
-            }
-            if (!typeof(ClientEntity).IsAssignableFrom(entityType) || entityType.IsAbstract || entityType.ContainsGenericParameters
-                || entityType.GetConstructor(Type.EmptyTypes) == null)
-            {
-                throw new ArgumentException("Client entity type must be concrete and have a public parameterless constructor.", nameof(entityType));
-            }
-            EntityTypes[entityType.Name] = entityType;
-        }
-
-        public static ClientEntity Create(string typeName, byte[] data)
-        {
-            if (!EntityTypes.TryGetValue(typeName, out var entityType))
-            {
-                throw new InvalidOperationException("Unregistered client entity type: " + typeName);
-            }
-            var entity = (ClientEntity)Activator.CreateInstance(entityType);
-            entity.InitializeEntity(data, EntitySerializationProfile.Observer);
-            return entity;
-        }
-    }
 }

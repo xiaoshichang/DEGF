@@ -2,6 +2,7 @@ using Assets.Scripts.DE.Client.Asset;
 using Assets.Scripts.DE.Client.Core;
 using Assets.Scripts.DE.Client.Network;
 using Assets.Scripts.DE.Client.UI;
+using DE.Client.Entities;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -39,6 +40,7 @@ namespace Assets.Scripts.DE.Client.Framework
         {
             _RegisteredGameplayAssembly = null;
             _GameInstanceFactory = null;
+            ClientEntityFactory.Reset();
         }
 
         private void _CollectAssemblies()
@@ -98,6 +100,7 @@ namespace Assets.Scripts.DE.Client.Framework
 
         private void _InitAuthSystem()
         {
+            ClientEntityFactory.Initialize(_RegisteredGameplayAssembly);
             _AuthSystem = new AuthSystem();
             _AuthSystem.Init();
             AuthSystem.Instance = _AuthSystem;
@@ -132,6 +135,7 @@ namespace Assets.Scripts.DE.Client.Framework
             _AuthSystem.UnInit();
             _AuthSystem = null;
             AuthSystem.Instance = null;
+            ClientEntityFactory.Reset();
         }
 
         private void _InitUIManager()

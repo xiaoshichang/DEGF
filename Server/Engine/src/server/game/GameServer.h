@@ -26,6 +26,7 @@ namespace de::server::engine
 		void HandleGmTotalEntityCountReq(const std::string& serverId, const std::vector<std::byte>& data);
 		void ConnectToGm();
 		void ConnectToAllGates();
+		void TryNotifyGameNetworkReady();
 		void TryNotifyGameReady();
 		bool AreAllGateSessionsRegistered();
 		void StartHeartbeatTimer();
@@ -36,6 +37,8 @@ namespace de::server::engine
 		std::optional<network::InnerNetwork::SessionId> gmSessionId_;
 		std::optional<TimerManager::TimerID> heartbeatTimerId_;
 		bool allNodeReadyReceived_ = false;
+		bool stubDistributeReceived_ = false;
+		bool gameNetworkReadyNotified_ = false;
 		bool managedStubsReady_ = false;
 		bool gameReadyNotified_ = false;
 	};

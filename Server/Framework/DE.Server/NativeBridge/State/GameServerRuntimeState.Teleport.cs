@@ -862,6 +862,8 @@ namespace DE.Server.NativeBridge
             _lastAbortedTargetAvatarMigrations.Remove(request.AvatarId);
             _targetAvatarMigrations.Remove(request.MigrationId);
 
+            // The Gate route is committed; flush target entry changes before creating the entry snapshot.
+            context.Avatar.SynchronizeProperties(this);
             context.Avatar.SpaceCmpt.OnAfterEnterSpace(enteredSpace);
             return SendTargetResponse(request, AvatarMigrationCommand.TargetCompleted, true);
         }

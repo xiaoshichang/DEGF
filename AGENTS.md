@@ -15,6 +15,10 @@
 2. Game 承载 C# 实体和业务逻辑。Game 之间不直连，跨 Game 通信必须经过 Gate 转发。
 3. Gate 负责账号鉴权、客户端连接管理、消息转发，以及 Avatar 的动态路由和迁移期间的消息缓存。
 
+集群启动先由 GM 向全部 Game / Gate 下发 Stub 分配表；Game 收到后连接全部 Gate，完成内网注册后上报 `GameNetworkReadyNtf`。
+GM 等全部 Game 网络就绪、全部 Gate 确认分配表后，发送 `AllNodeReadyNtf` 启动 Stub 初始化，保证跨 Game 创建空间时路由已可用。
+全部 Game 的 Stub 就绪并上报 `GameReadyNtf` 后，GM 才发送 `OpenGateNtf` 开放客户端连接。
+
 ### 分布式实体与通信
 
 - `ServerEntity`、`ClientEntity` 分别作为双端实体继承根，以 `Guid` 唯一标识，各自实现生命周期、组件管理、属性描述和序列化。
@@ -50,7 +54,7 @@
   客户端依赖有序传输按接收顺序应用 Patch，不维护同步基线，不去重或检查序号缺口；服务器没有接收 Patch 的入口。
   空间周期同步处理 `AutoSyncProperty` 开启且迁移状态允许同步的成员 Avatar，发给 Owner 及 AOI 观察者；不扫描全局实体或 Stub。
   每次同步一次性发送全部脏属性当前值，发送后清空脏标记，暂不处理发送失败或重试；不分 batch，属性写入和编解码按单线程顺序调用。
-  RPC 与属性同步不保证相互顺序，不增加强制刷新或跨通道排序机制。
+  普通 RPC 与属性同步不保证相互顺序，不增加通用强制刷新或跨通道排序机制；入场流程在生成入场快照前显式同步脏属性。
   迁移快照前同步脏属性并冻结源实体属性写入，目标从快照序号继续；回滚后恢复写入。单值上限 1 MiB、包上限 4 MiB、脏属性按单个 4 MiB 包预算约束，最多 65535 个路径。
   组件类重命名不影响标识，继承逻辑由生成方法调用基类生成方法串接。
 - `ServerAvatarEntity` 支持跨 Game 迁移；`ServerStubEntity` 表示集群范围内全局唯一服务，如 OnlineStub、MatchStub、SpaceStub。
@@ -74,6 +78,7 @@
 - 当前不处理重连和在途旧 RPC；Gate 不增加登录阶段的 RPC 缓存，服务器不通过重新绑定重发当前场景状态。
 - 不等待客户端就绪 RPC；客户端仅在加载器设置前保留待加载场景和 AOI 变化，不缓存 Avatar 创建前的 RPC。
 - 服务器 Avatar 使用 `OnBeforeEnterSpace` / `OnAfterEnterSpace`、`OnBeforeLeaveSpace` / `OnAfterLeaveSpace` 回调。
+  普通入场在设置空间属性、加入 AOI 后，迁移入场在 Gate 提交路由、目标完成激活后，均在调用 `OnAfterEnterSpace` 前强制同步脏属性到 Owner 和 AOI 观察者。
   `OnAfterEnterSpace` 检查没有待同步的脏属性，非空时抛出异常；检查通过后生成快照并发送一次入场通知，不额外同步或清空脏属性。
   暂不处理入场通知发送失败，不维护待通知队列或重试。
 - 迁移目标激活时只预留成员关系，Gate 提交路由后才注册 AOIAgent 并执行 `OnAfterEnterSpace`；AOI 不维护 Avatar 入场完成状态。
@@ -129,7 +134,9 @@ Unity 工程包含框架、Demo 业务和双端共享源码。框架源码根目
 - `DataRuntime` 按单线程使用；后台预热必须完成后再访问数据或关闭运行时，每张表的 Provider 由工厂独立创建。
 - `Server/Config/local-dev.json` 为本地集群配置，包含节点、日志、KCP、托管程序集、预加载程序集、数据目录和 MongoDB 设置。
 - 配置中的托管 DLL 和 `dataRoot` 相对路径以配置文件所在目录为基准。默认托管 DLL 指向 Debug/net10.0 输出。
-- 托管运行时启动时连接并检查 MongoDB；本地启动需可用的数据库，可用 `DEGF_MONGODB_URI` 覆盖连接字符串。
+- `database.enabled` 默认 `true`，托管运行时启动时连接并检查 MongoDB，可用 `DEGF_MONGODB_URI` 覆盖连接字符串。
+  本地配置暂设为 `false`，用于无 DB 联调：跳过数据库参数校验、初始化和账号存在性查询，仍保留账号、密码非空检查与 Gate 路由校验。
+  关闭时 `DatabaseService` 为 null，各节点启动日志明确提示无 DB 开发模式；不能验证数据库读写或账号存在性，恢复 DB 时将其设回 `true`。
 - `Server/Scripts/start_server_cluster.py`、`kill_server_cluster.py` 实现集群启动与强杀，当前提供 `.bat` 包装入口。
 - 启动脚本支持 `--config` 和 `--exe`，默认使用本地配置和 Debug 引擎产物；集群日志默认写入 `Server/Scripts/logs`。
 

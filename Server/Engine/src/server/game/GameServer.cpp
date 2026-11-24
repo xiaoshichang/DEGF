@@ -157,6 +157,7 @@ namespace de::server::engine
 		if (const auto* gateConfig = config::FindGateConfig(GetClusterConfig(), serverId))
 		{
 			(void)gateConfig;
+			TryNotifyGameNetworkReady();
 			TryNotifyGameReady();
 		}
 	}
@@ -166,6 +167,11 @@ namespace de::server::engine
 		switch (static_cast<network::MessageID::SS>(messageId))
 		{
 		case network::MessageID::SS::AllNodeReadyNtf:
+			if (allNodeReadyReceived_)
+			{
+				return;
+			}
+
 			allNodeReadyReceived_ = true;
 			managedStubsReady_ = false;
 
@@ -175,7 +181,6 @@ namespace de::server::engine
 				Logger::Warn("GameServer", "Failed to process AllNodeReadyNtf payload in managed runtime.");
 			}
 
-			ConnectToAllGates();
 			return;
 
 		case network::MessageID::SS::StubDistributeNtf:
@@ -183,7 +188,12 @@ namespace de::server::engine
 				managedRuntimeService == nullptr || !managedRuntimeService->HandleStubDistribute(data))
 			{
 				Logger::Warn("GameServer", "Failed to process StubDistributeNtf payload in managed runtime.");
+				return;
 			}
+
+			stubDistributeReceived_ = true;
+			ConnectToAllGates();
+			TryNotifyGameNetworkReady();
 			return;
 
 		case network::MessageID::SS::CreateAvatarReq:
@@ -230,12 +240,15 @@ namespace de::server::engine
 		{
 			gmSessionId_.reset();
 			allNodeReadyReceived_ = false;
+			stubDistributeReceived_ = false;
+			gameNetworkReadyNotified_ = false;
 			managedStubsReady_ = false;
 			gameReadyNotified_ = false;
 		}
 		else if (const auto* gateConfig = config::FindGateConfig(GetClusterConfig(), serverId))
 		{
 			(void)gateConfig;
+			gameNetworkReadyNotified_ = false;
 			gameReadyNotified_ = false;
 		}
 
@@ -286,7 +299,7 @@ namespace de::server::engine
 
 	void GameServer::ConnectToAllGates()
 	{
-		if (!allNodeReadyReceived_)
+		if (!stubDistributeReceived_)
 		{
 			return;
 		}
@@ -326,6 +339,30 @@ namespace de::server::engine
 		}
 
 		return true;
+	}
+
+	void GameServer::TryNotifyGameNetworkReady()
+	{
+		if (!stubDistributeReceived_ || gameNetworkReadyNotified_)
+		{
+			return;
+		}
+
+		const std::string gmServerId(config::GetCanonicalGmServerId());
+		auto& innerNetwork = GetInnerNetwork();
+		if (!innerNetwork.HasRegisteredSession(gmServerId) || !AreAllGateSessionsRegistered())
+		{
+			return;
+		}
+
+		if (!innerNetwork.Send(gmServerId, static_cast<std::uint32_t>(network::MessageID::SS::GameNetworkReadyNtf), {}))
+		{
+			Logger::Warn("GameServer", "Failed to send GameNetworkReadyNtf to GM.");
+			return;
+		}
+
+		gameNetworkReadyNotified_ = true;
+		Logger::Info("GameServer", "Sent GameNetworkReadyNtf to GM after all gate sessions registered.");
 	}
 
 	void GameServer::TryNotifyGameReady()

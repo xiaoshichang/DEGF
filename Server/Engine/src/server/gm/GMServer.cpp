@@ -125,7 +125,7 @@ namespace de::server::engine
 	{
 		registeredNodeServerIds_.insert(serverId);
 		ServerBase::OnInnerRegistered(serverId);
-		TryNotifyAllNodeReady();
+		TryDistributeStubs();
 	}
 
 	void GMServer::OnInnerMessage(const std::string& serverId, std::uint32_t messageId, const std::vector<std::byte>& data)
@@ -138,6 +138,10 @@ namespace de::server::engine
 
 		case network::MessageID::SS::GameReadyNtf:
 			HandleGameReadyNtf(serverId);
+			return;
+
+		case network::MessageID::SS::GameNetworkReadyNtf:
+			HandleGameNetworkReadyNtf(serverId);
 			return;
 
 		case network::MessageID::SS::StubDistributeGateAck:
@@ -180,6 +184,19 @@ namespace de::server::engine
 		TryNotifyOpenGate();
 	}
 
+	void GMServer::HandleGameNetworkReadyNtf(const std::string& serverId)
+	{
+		if (!stubDistributeNotified_ || config::FindGameConfig(GetClusterConfig(), serverId) == nullptr)
+		{
+			Logger::Warn("GMServer", "Ignored unexpected GameNetworkReadyNtf from " + serverId + ".");
+			return;
+		}
+
+		networkReadyGameServerIds_.insert(serverId);
+		Logger::Info("GMServer", "Received GameNetworkReadyNtf from " + serverId + ".");
+		TryNotifyAllNodeReady();
+	}
+
 	void GMServer::HandleStubDistributeGateAck(const std::string& serverId)
 	{
 		if (config::FindGateConfig(GetClusterConfig(), serverId) == nullptr)
@@ -190,6 +207,7 @@ namespace de::server::engine
 
 		stubDistributeReadyGateServerIds_.insert(serverId);
 		Logger::Info("GMServer", "Received StubDistributeGateAck from " + serverId + ".");
+		TryNotifyAllNodeReady();
 		TryNotifyOpenGate();
 	}
 
@@ -229,6 +247,7 @@ namespace de::server::engine
 	{
 		registeredNodeServerIds_.erase(serverId);
 		readyGameServerIds_.erase(serverId);
+		networkReadyGameServerIds_.clear();
 		stubDistributeReadyGateServerIds_.clear();
 		if (httpHandler_ != nullptr)
 		{
@@ -236,6 +255,7 @@ namespace de::server::engine
 		}
 
 		allNodeReadyNotified_ = false;
+		stubDistributeNotified_ = false;
 		openGateNotified_ = false;
 		ServerBase::OnInnerDisconnect(serverId);
 	}
@@ -411,9 +431,9 @@ namespace de::server::engine
 		return gameServerIds;
 	}
 
-	void GMServer::TryNotifyAllNodeReady()
+	void GMServer::TryDistributeStubs()
 	{
-		if (allNodeReadyNotified_)
+		if (stubDistributeNotified_)
 		{
 			return;
 		}
@@ -459,6 +479,7 @@ namespace de::server::engine
 		}
 
 		readyGameServerIds_.clear();
+		networkReadyGameServerIds_.clear();
 		stubDistributeReadyGateServerIds_.clear();
 
 		auto& innerNetwork = GetInnerNetwork();
@@ -482,6 +503,42 @@ namespace de::server::engine
 			}
 		}
 
+		stubDistributeNotified_ = true;
+		Logger::Info(
+			"GMServer",
+			"Sent StubDistributeNtf to all game/gate nodes; waiting for game networks and gate acknowledgements, payload size "
+				+ std::to_string(payload.size()) + "."
+		);
+		TryNotifyAllNodeReady();
+	}
+
+	void GMServer::TryNotifyAllNodeReady()
+	{
+		if (!stubDistributeNotified_ || allNodeReadyNotified_)
+		{
+			return;
+		}
+
+		const auto& clusterConfig = GetClusterConfig();
+		for (const auto& [serverId, gameConfig] : clusterConfig.game)
+		{
+			(void)gameConfig;
+			if (networkReadyGameServerIds_.find(serverId) == networkReadyGameServerIds_.end())
+			{
+				return;
+			}
+		}
+
+		for (const auto& [serverId, gateConfig] : clusterConfig.gate)
+		{
+			(void)gateConfig;
+			if (stubDistributeReadyGateServerIds_.find(serverId) == stubDistributeReadyGateServerIds_.end())
+			{
+				return;
+			}
+		}
+
+		auto& innerNetwork = GetInnerNetwork();
 		for (const auto& [serverId, gameConfig] : clusterConfig.game)
 		{
 			(void)gameConfig;
@@ -495,13 +552,13 @@ namespace de::server::engine
 		allNodeReadyNotified_ = true;
 		Logger::Info(
 			"GMServer",
-			"Sent StubDistributeNtf to all game/gate nodes and AllNodeReadyNtf to all game nodes with stub distribute payload size " + std::to_string(payload.size()) + "."
+			"Sent AllNodeReadyNtf to all game nodes after all game networks are ready and all gates acknowledged stub distribute table."
 		);
 	}
 
 	void GMServer::TryNotifyOpenGate()
 	{
-		if (openGateNotified_)
+		if (!allNodeReadyNotified_ || openGateNotified_)
 		{
 			return;
 		}

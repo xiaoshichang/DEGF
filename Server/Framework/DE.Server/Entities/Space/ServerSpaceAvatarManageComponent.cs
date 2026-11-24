@@ -151,6 +151,8 @@ namespace DE.Server.Entities
                 avatar.SpaceCmpt.SetSpace(previousSpaceId, previousSpaceNo);
                 return false;
             }
+            // Flush entry changes to the Owner and AOI observers before the entry snapshot is created.
+            avatar.SynchronizeProperties(runtime);
             avatar.SpaceCmpt.OnAfterEnterSpace(Space);
             return true;
         }

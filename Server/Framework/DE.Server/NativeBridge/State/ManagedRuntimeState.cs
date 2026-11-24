@@ -628,7 +628,18 @@ namespace DE.Server.NativeBridge
             _RegisterUnhandledExceptionHandlers();
             ClusterConfig = ManagedClusterConfig.Load(ConfigPath);
             _LoadManagedAssemblies();
-            DatabaseService = new DatabaseService(ClusterConfig.Database);
+            if (ClusterConfig.Database.Enabled)
+            {
+                DatabaseService = new DatabaseService(ClusterConfig.Database);
+            }
+            else
+            {
+                DELogger.Warn(
+                    nameof(ManagedRuntimeState),
+                    "Database is disabled for development; database initialization and account existence checks are skipped."
+                );
+            }
+
             _InitDataRuntime();
 
             var assemblies = new List<Assembly>

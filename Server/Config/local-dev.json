@@ -33,6 +33,7 @@
   },
   "dataRoot": "../../Data/Excel",
   "database": {
+    "enabled": false,
     "provider": "MongoDB",
     "connectionString": "mongodb://127.0.0.1:27017",
     "connectionStringEnv": "DEGF_MONGODB_URI",

@@ -65,6 +65,11 @@ namespace DE.Server.NativeBridge
                 return routeResult;
             }
 
+            if (!_managedRuntimeState.ClusterConfig.Database.Enabled)
+            {
+                return routeResult;
+            }
+
             var databaseService = _managedRuntimeState.DatabaseService;
             using (var cancellation = databaseService.CreateOperationCancellation())
             {

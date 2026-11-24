@@ -38,6 +38,7 @@ namespace Assets.Scripts.DE.Share
                 GmTotalEntityCountRsp = 0x0002000Du,
                 StubDistributeGateAck = 0x0002000Eu,
                 SystemCommandNtf = 0x0002000Fu,
+                GameNetworkReadyNtf = 0x00020010u,
             }
 
             public static bool IsCS(uint messageId)

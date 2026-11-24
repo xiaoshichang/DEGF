@@ -295,7 +295,9 @@ PrepareTarget、ActivateTarget、CommitRoute 初次发送失败会进入已有�
 入场成功加入成员表后设置该引用，离场成功移除成员后立即置空，再移除 AOIAgent 并执行 OnAfterLeaveSpace 回调。
 `SpaceId` 是持久化的最后场景记录，退出时仍保留。服务器在 `OnAvatarClientAttached` 中主动发起入场。
 不等待客户端就绪 RPC，也不保存或迁移客户端就绪标志。入场和迁移提交成功后，`ServerAvatarEntity.OnAfterEnterSpace` 主动向客户端发起入场 RPC。
-普通入场先加入成员表和 AOI 再执行 After 回调；迁移激活阶段仅加入成员表，路由提交后才加入 AOI、执行 After 回调。
+普通入场先设置空间属性、加入成员表和 AOI，再强制同步脏属性到 Owner 和 AOI 观察者，最后执行 After 回调。
+迁移激活阶段仅加入成员表，Gate 路由提交后才加入 AOI、完成目标激活、强制同步脏属性并执行 After 回调。
+`OnAfterEnterSpace` 保留脏属性集合为空的检查，负责生成并发送入场快照，不在回调内隐式同步或清空脏标记。
 AOI 组件仅通过 AddAOIAgent/RemoveAOIAgent 管理 Agent，不提供 Avatar 入场完成接口。
 `ServerAvatarSpaceComponent` 在当前空间关系变化时重置入场快照通知标记，调用 `OnEnterSpace` 发送后设置该标记，不处理发送失败或重试。
 `CurrentSpace` 禁止重复设置同一引用（包括重复设置 null），违反时抛出 `InvalidOperationException`；清理流程仅在仍有关联时解除关系。

@@ -4,6 +4,7 @@ namespace DE.Server.Database
 {
     public sealed class DatabaseConfig
     {
+        public bool Enabled { get; set; } = true;
         public string Provider { get; set; } = "MongoDB";
         public string ConnectionString { get; set; } = "mongodb://127.0.0.1:27017";
         public string ConnectionStringEnv { get; set; } = "DEGF_MONGODB_URI";
@@ -31,6 +32,11 @@ namespace DE.Server.Database
 
         public void Validate()
         {
+            if (!Enabled)
+            {
+                return;
+            }
+
             if (!string.Equals(Provider, "MongoDB", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Unsupported database provider: " + Provider);

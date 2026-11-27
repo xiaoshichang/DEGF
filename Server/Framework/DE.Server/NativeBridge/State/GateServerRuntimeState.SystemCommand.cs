@@ -31,6 +31,22 @@ namespace DE.Server.NativeBridge
             {
                 return false;
             }
+            if (command.Kind == SystemCommandKind.AvatarMigration)
+            {
+                if (!AvatarMigrationProtocol.TryDeserialize(command, out var migration)
+                    || migration.GateServerId != _managedRuntimeState.ServerId)
+                {
+                    return false;
+                }
+                var isTransfer = migration.Command == AvatarMigrationCommand.TeleportToGame
+                    && sourceServerId == migration.SourceGameServerId && command.TargetServerId == migration.TargetGameServerId;
+                var isResult = migration.Command == AvatarMigrationCommand.TeleportResult
+                    && sourceServerId == migration.TargetGameServerId && command.TargetServerId == migration.SourceGameServerId;
+                if (!isTransfer && !isResult)
+                {
+                    return false;
+                }
+            }
             if (command.Kind == SystemCommandKind.CreateEntity
                 && (!RemoteEntityCaller.TryReadCommand(command, out var creation) || creation.OriginServerId != sourceServerId))
             {

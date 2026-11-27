@@ -45,7 +45,8 @@ namespace DE.Server.Entities
 
         public IReadOnlyDictionary<Guid, ServerAvatarEntity> Avatars => _avatars;
 
-        public bool Enter(ServerAvatarEntity avatar)
+        /// <summary>Check admission before publishing a migration End or changing membership.</summary>
+        public bool CanEnter(ServerAvatarEntity avatar)
         {
             if (avatar == null)
             {
@@ -133,28 +134,38 @@ namespace DE.Server.Entities
                 DELogger.Error(nameof(ServerSpaceAvatarManageComponent), $"Space Enter rejected due to capacity, avatarId={avatar.Guid}, spaceId={Guid}.");
                 return false;
             }
+            if (!avatar.IsInitialized || !Space.IsInitialized || avatar.AOIAgentCmpt?.Agent == null
+                || avatar.AOIAgentCmpt.Agent.Space != null || Space.AOISpace.Contains(avatar.Guid))
+            {
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Complete validated entry; broken invariants and callback exceptions propagate to the caller.</summary>
+        public void Enter(ServerAvatarEntity avatar)
+        {
+            if (!CanEnter(avatar))
+            {
+                throw new InvalidOperationException("Space entry preconditions changed after admission.");
+            }
+            var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();
             avatar.SpaceCmpt.OnBeforeEnterSpace(Space);
             var previousSpaceId = avatar.SpaceCmpt.SpaceId;
             var previousSpaceNo = avatar.SpaceCmpt.SpaceNo;
             _avatars.Add(avatar.Guid, avatar);
             avatar.SpaceCmpt.CurrentSpace = Space;
             avatar.SpaceCmpt.SetSpace(Guid, Space.SpaceNo);
-            // Migration activation reserves membership; AOI entry waits for the Gate route commit.
-            if (avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.TargetPrepared)
-            {
-                return true;
-            }
             if (!Space.AOISpace.AddAOIAgent(avatar))
             {
                 _avatars.Remove(avatar.Guid);
                 avatar.SpaceCmpt.CurrentSpace = null;
                 avatar.SpaceCmpt.SetSpace(previousSpaceId, previousSpaceNo);
-                return false;
+                throw new InvalidOperationException("A validated Avatar could not be added to AOI.");
             }
             // Flush entry changes to the Owner and AOI observers before the entry snapshot is created.
             avatar.SynchronizeProperties(runtime);
             avatar.SpaceCmpt.OnAfterEnterSpace(Space);
-            return true;
         }
 
         public bool Leave(ServerAvatarEntity avatar)

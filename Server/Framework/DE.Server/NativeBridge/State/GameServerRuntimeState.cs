@@ -148,6 +148,7 @@ namespace DE.Server.NativeBridge
 
         public GmTotalEntityCountRsp BuildTotalEntityCountRsp(ulong requestId)
         {
+            RemoveExpiredAvatarForwardingRoutes();
             return new GmTotalEntityCountRsp
             {
                 RequestId = requestId,
@@ -191,6 +192,7 @@ namespace DE.Server.NativeBridge
             Entities[entity.Guid] = entity;
             if (entity is ServerAvatarEntity avatar)
             {
+                _avatarForwardingRoutes.Remove(entity.Guid);
                 Avatars[entity.Guid] = avatar;
             }
         }
@@ -220,6 +222,18 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
+            var serverRpc = new ServerRpcPayload
+            {
+                Version = ServerRpcPayload.CurrentVersion,
+                TargetKind = RpcTargetKind.ServerAvatarProxy,
+                EntityId = rpc.AvatarId,
+                MethodId = rpc.MethodId,
+                ArgsPayload = rpc.ArgsPayload,
+            };
+            if (TryForwardMigratingAvatarRpc(serverRpc, out var forwarded))
+            {
+                return forwarded;
+            }
             if (!Avatars.TryGetValue(rpc.AvatarId, out var avatar) || avatar == null)
             {
                 DELogger.Warn(
@@ -248,6 +262,10 @@ namespace DE.Server.NativeBridge
                 && rpc.TargetServerId != _managedRuntimeState.ServerId)
             {
                 return false;
+            }
+            if (TryForwardMigratingAvatarRpc(rpc, out var forwarded))
+            {
+                return forwarded;
             }
             switch (rpc.TargetKind)
             {

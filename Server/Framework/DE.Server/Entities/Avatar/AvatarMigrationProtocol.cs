@@ -6,117 +6,21 @@ using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge
 {
-    /// <summary>
-    /// Avatar 迁移协议命令。
-    /// Source Game 是迁移开始时承载 Avatar 的 Game，Target Game 是目标 Space 所绑定的 Game，
-    /// Owner Gate 是 Avatar Proxy 所绑定并负责冻结、切换路由和缓存迁移期间消息的 Gate。
-    /// Game 之间不直连，因此 Source Game 与 Target Game 之间的命令和响应均由 Owner Gate 转发。
-    /// </summary>
+    // KBEngine 2.5.12: Base onMigrationCellappStart/End, Cell reqTeleportToCellApp/CB/Over.
     internal enum AvatarMigrationCommand : ushort
     {
-        /// <summary>
-        /// 含义：请求 Owner Gate 冻结 Avatar 当前路由，迁移期间相关 RPC 改为进入 Gate 缓存队列。
-        /// 方向：Source Game → Owner Gate。
-        /// 状态影响：Source Game 发送前进入 FreezingRoute；Gate 成功处理后创建 Gate 迁移上下文并保持原路由不变。
-        /// </summary>
-        FreezeRoute = 1,
-
-        /// <summary>
-        /// 含义：Owner Gate 通知 Source Game，Avatar 路由已经冻结。
-        /// 方向：Owner Gate → Source Game。
-        /// 状态影响：成功时 Source Game 依次进入 Serializing 和 PreparingTarget，Avatar 离开原 Space 并生成迁移快照；失败时迁移进入 Failed。
-        /// </summary>
-        RouteFrozen = 2,
-
-        /// <summary>
-        /// 含义：把 Avatar 迁移快照发送到 Target Game，要求创建尚未激活的目标 Avatar。
-        /// 方向：Source Game → Owner Gate → Target Game。
-        /// 状态影响：Source Game 保持 PreparingTarget；Target Game 成功反序列化后把目标 Avatar 置为 TargetPrepared，但暂不注册到本地实体表和目标 Space。
-        /// </summary>
-        PrepareTarget = 3,
-
-        /// <summary>
-        /// 含义：Target Game 返回目标 Avatar 的准备结果。
-        /// 方向：Target Game → Owner Gate → Source Game。
-        /// 状态影响：成功时 Source Game 记录目标已准备，依次进入 TargetPrepared 和 ActivatingTarget；失败时进入 RollingBack。
-        /// </summary>
-        TargetPrepared = 4,
-
-        /// <summary>
-        /// 含义：请求 Target Game 激活已经反序列化的 Avatar。
-        /// 方向：Source Game → Owner Gate → Target Game。
-        /// 状态影响：成功时 Target Game 注册 Avatar、恢复 Client Session 绑定、进入目标 Space，并把目标 Avatar 置为 TargetActivated。
-        /// </summary>
-        ActivateTarget = 5,
-
-        /// <summary>
-        /// 含义：Target Game 返回目标 Avatar 的激活结果。
-        /// 方向：Target Game → Owner Gate → Source Game。
-        /// 状态影响：成功时 Source Game 依次进入 TargetActivated 和 CommittingRoute；失败时进入 RollingBack。
-        /// </summary>
-        TargetActivated = 6,
-
-        /// <summary>
-        /// 含义：目标 Avatar 已可服务，请求 Owner Gate 将正式路由从 Source Game 切换到 Target Game。
-        /// 方向：Source Game → Owner Gate。
-        /// 状态影响：Gate 先把冻结期间缓存的消息按新路由发送，再更新账号路由到 Target Game，记录迁移已提交并解除冻结。
-        /// </summary>
-        CommitRoute = 7,
-
-        /// <summary>
-        /// 含义：Owner Gate 返回 Avatar 路由提交结果。
-        /// 方向：Owner Gate → Source Game。
-        /// 状态影响：成功时 Source Game 注销原 Avatar，进入 CompletingTarget；失败时进入 RollingBack。
-        /// </summary>
-        RouteCommitted = 8,
-
-        /// <summary>
-        /// 含义：路由已经切换，请求 Target Game 完成迁移并清理目标迁移上下文。
-        /// 方向：Source Game → Owner Gate → Target Game。
-        /// 状态影响：Target Game 把目标 Avatar 置为 Completed，记录完成的迁移编号并移除目标迁移上下文；Avatar 保持注册且留在目标 Space。
-        /// </summary>
-        CompleteTarget = 9,
-
-        /// <summary>
-        /// 含义：Target Game 返回迁移完成结果。
-        /// 方向：Target Game → Owner Gate → Source Game。
-        /// 状态影响：成功时 Source Game 把迁移置为 Completed 并移除源迁移上下文；失败时保持 CompletingTarget，并记录错误等待外部处理。
-        /// </summary>
-        TargetCompleted = 10,
-
-        /// <summary>
-        /// 含义：迁移未能提交，请求 Owner Gate 恢复 Source Game 路由。
-        /// 方向：Source Game → Owner Gate。
-        /// 状态影响：Gate 把缓存消息按原路由回放到 Source Game，丢弃仅由 Target Game 产生且不应回放的 Client RPC，恢复原路由并解除冻结。
-        /// </summary>
-        RollbackRoute = 11,
-
-        /// <summary>
-        /// 含义：Owner Gate 返回 Avatar 路由回滚结果。
-        /// 方向：Owner Gate → Source Game。
-        /// 状态影响：Source Game 尝试让 Avatar 重新进入迁移前的 Space，随后把迁移置为 Failed 并移除源迁移上下文。
-        /// </summary>
-        RouteRolledBack = 12,
-
-        /// <summary>
-        /// 含义：请求 Target Game 放弃已经准备或激活的目标 Avatar；目标清理完成后才能回滚 Gate 路由。
-        /// 方向：Source Game → Owner Gate → Target Game。
-        /// 状态影响：Target Game 从目标 Space 移除并注销已激活的 Avatar，把目标 Avatar 置为 Failed，记录中止编号并移除目标迁移上下文。
-        /// </summary>
-        AbortTarget = 13,
-
-        /// <summary>
-        /// 含义：Target Game 返回目标 Avatar 的中止结果。
-        /// 方向：Target Game → Owner Gate → Source Game。
-        /// 状态影响：成功时 Source Game 确认目标已中止并发送 RollbackRoute；失败时保持 RollingBack，并记录错误等待外部处理。
-        /// </summary>
-        TargetAborted = 14,
+        MigrationStart = 1,
+        TeleportToGame = 2,
+        TeleportResult = 3,
+        MigrationEnd = 4,
+        MigrationOver = 5,
+        // DEGF input-order extension; TeleportResult fences the source's earlier client input.
+        SourceInputDrained = 6,
     }
 
     internal sealed class AvatarMigrationMessage
     {
-        public const ushort CurrentVersion = 1;
-
+        public const ushort CurrentVersion = 3;
         public ushort Version { get; set; } = CurrentVersion;
         public AvatarMigrationCommand Command { get; set; }
         public Guid MigrationId { get; set; }
@@ -130,7 +34,7 @@ namespace DE.Server.NativeBridge
         public string Error { get; set; } = string.Empty;
         public byte[] AvatarData { get; set; } = Array.Empty<byte>();
 
-        public AvatarMigrationMessage CreateResponse(AvatarMigrationCommand command, bool success, string error = null)
+        public AvatarMigrationMessage CreateResponse(AvatarMigrationCommand command, bool success = true, string error = null)
         {
             return new AvatarMigrationMessage
             {
@@ -156,11 +60,8 @@ namespace DE.Server.NativeBridge
             PropertyNameCaseInsensitive = false,
         };
 
-        public static byte[] BuildSystemCommandPayload(
-            string targetServerId,
-            AvatarMigrationMessage message)
+        public static byte[] BuildSystemCommandPayload(string targetServerId, AvatarMigrationMessage message)
         {
-            var messagePayload = JsonSerializer.SerializeToUtf8Bytes(message, s_jsonOptions);
             return new SystemCommandPayload
             {
                 Version = SystemCommandPayload.CurrentVersion,
@@ -168,37 +69,33 @@ namespace DE.Server.NativeBridge
                 EntityId = message.AvatarId,
                 TargetServerId = targetServerId ?? string.Empty,
                 CommandId = (uint)message.Command,
-                Data = messagePayload,
+                Data = JsonSerializer.SerializeToUtf8Bytes(message, s_jsonOptions),
             }.Serialize();
         }
 
-        public static bool TryDeserialize(SystemCommandPayload commandEnvelope, out AvatarMigrationMessage message)
+        public static bool TryDeserialize(SystemCommandPayload envelope, out AvatarMigrationMessage message)
         {
             message = null;
-            if (commandEnvelope.Kind != SystemCommandKind.AvatarMigration || commandEnvelope.Data == null
-                || commandEnvelope.Data.Length == 0
-                || commandEnvelope.Data.Length > MaxPayloadSizeBytes)
+            if (envelope.Kind != SystemCommandKind.AvatarMigration || envelope.Data == null
+                || envelope.Data.Length == 0 || envelope.Data.Length > MaxPayloadSizeBytes)
             {
                 return false;
             }
-
             try
             {
-                message = JsonSerializer.Deserialize<AvatarMigrationMessage>(commandEnvelope.Data, s_jsonOptions);
+                message = JsonSerializer.Deserialize<AvatarMigrationMessage>(envelope.Data, s_jsonOptions);
             }
             catch (JsonException)
             {
                 return false;
             }
-
-            return message != null
-                && message.Version == AvatarMigrationMessage.CurrentVersion
-                && message.MigrationId != Guid.Empty
-                && message.AvatarId != Guid.Empty
-                && message.AvatarId == commandEnvelope.EntityId
-                && (uint)message.Command == commandEnvelope.CommandId
+            return message != null && message.Version == AvatarMigrationMessage.CurrentVersion
+                && Enum.IsDefined(typeof(AvatarMigrationCommand), message.Command)
+                && message.MigrationId != Guid.Empty && message.AvatarId != Guid.Empty && message.TargetSpaceId != Guid.Empty
+                && message.AvatarId == envelope.EntityId && (uint)message.Command == envelope.CommandId
                 && !string.IsNullOrWhiteSpace(message.SourceGameServerId)
                 && !string.IsNullOrWhiteSpace(message.TargetGameServerId)
+                && message.SourceGameServerId != message.TargetGameServerId
                 && !string.IsNullOrWhiteSpace(message.GateServerId);
         }
     }
@@ -207,35 +104,42 @@ namespace DE.Server.NativeBridge
     {
         public ServerAvatarEntity Avatar;
         public AvatarMigrationMessage Message;
-        public EntityMailBox TargetSpace;
         public Guid SourceSpaceId;
         public byte[] AvatarData = Array.Empty<byte>();
-        public bool TargetWasPrepared;
     }
 
     internal sealed class TargetAvatarMigrationContext
     {
         public ServerAvatarEntity Avatar;
         public AvatarMigrationMessage Message;
-        public bool IsActivated;
+        // KBE reqTeleportToCellApp sets success=true only after enter-world and teleport callbacks return (line 2004).
+        public bool EntryCompleted;
     }
 
-    internal enum QueuedAvatarMigrationMessageKind
+    // KBEngine entity_macro.h: ENTITY_FLAGS_TELEPORT_START / ENTITY_FLAGS_TELEPORT_STOP.
+    [Flags]
+    internal enum GateAvatarMigrationFlags
     {
-        ServerRpcToGame,
-        AvatarRpcToClient,
-    }
-
-    internal sealed class QueuedAvatarMigrationMessage
-    {
-        public QueuedAvatarMigrationMessageKind Kind;
-        public string SourceServerId = string.Empty;
-        public byte[] Payload = Array.Empty<byte>();
+        None = 0,
+        TeleportStart = 1,
+        TeleportStop = 2,
     }
 
     internal sealed class GateAvatarMigrationContext
     {
         public AvatarMigrationMessage Message;
-        public readonly Queue<QueuedAvatarMigrationMessage> Messages = new Queue<QueuedAvatarMigrationMessage>();
+        public GateAvatarMigrationFlags Flags;
+        // DEGF-only completion condition; Avatar roles and KBE Start/End flags stay unchanged.
+        public bool SourceInputDrained;
+        public readonly Queue<byte[]> ClientInputs = new Queue<byte[]>();
+        // BaseMessagesForwardClientHandler buffers client output when End arrives before Start.
+        public readonly Queue<byte[]> ClientMessages = new Queue<byte[]>();
+    }
+
+    // KBEngine GhostManager: a short-lived route survives removal of the source entity.
+    internal sealed class AvatarForwardingRoute
+    {
+        public AvatarMigrationMessage Message;
+        public DateTime ExpiresAtUtc;
     }
 }

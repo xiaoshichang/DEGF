@@ -17,6 +17,11 @@ namespace DE.Server.Entities
                 DELogger.Warn(nameof(AvatarRpcCaller), $"Cannot send avatar RPC because gate proxy is invalid, avatarId={avatar.Guid}.");
                 return false;
             }
+            // KBE destroyEntity(id, false) does not run source-side business output after migration.
+            if (avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.Ghost)
+            {
+                return false;
+            }
 
             var payload = new ServerRpcPayload
             {

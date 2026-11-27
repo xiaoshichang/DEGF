@@ -1,329 +1,254 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using DE.Server.Entities;
-using DE.Share.Rpc;
 
 namespace DE.Server.NativeBridge
 {
     public sealed partial class GateServerRuntimeState
     {
         private readonly Dictionary<Guid, GateAvatarMigrationContext> _gateAvatarMigrations = new();
+        private readonly Dictionary<Guid, AvatarMigrationMessage> _completedGateAvatarMigrations = new();
+        // KBEngine Entity::pBufferedSendToClientMessages_ exists only when End preceded Start.
+        private readonly HashSet<Guid> _gateAvatarClientForwarders = new();
 
         internal bool HandleAvatarMigrationGateMessage(string sourceServerId, SystemCommandPayload commandEnvelope)
         {
-            if (!AvatarMigrationProtocol.TryDeserialize(commandEnvelope, out var message))
+            if (!AvatarMigrationProtocol.TryDeserialize(commandEnvelope, out var request)
+                || (request.Command != AvatarMigrationCommand.MigrationStart && request.Command != AvatarMigrationCommand.MigrationEnd
+                    && request.Command != AvatarMigrationCommand.SourceInputDrained)
+                || (request.Command == AvatarMigrationCommand.SourceInputDrained && !request.Success))
             {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Received malformed Avatar migration Gate message, sourceServerId={sourceServerId ?? "<null>"}, avatarId={commandEnvelope.EntityId}, commandId={commandEnvelope.CommandId}.");
+                DELogger.Error(nameof(GateServerRuntimeState), "Received malformed or unsupported Avatar migration Gate message.");
                 return false;
             }
 
-            if (!string.Equals(sourceServerId, message.SourceGameServerId, StringComparison.Ordinal))
+            var expectedSender = request.Command == AvatarMigrationCommand.MigrationEnd && request.Success
+                ? request.TargetGameServerId : request.SourceGameServerId;
+            if (!string.Equals(sourceServerId, expectedSender, StringComparison.Ordinal)
+                || !string.Equals(request.GateServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal)
+                || !string.Equals(commandEnvelope.TargetServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal)
+                || !_managedRuntimeState.GetGameServerIds().Contains(request.SourceGameServerId)
+                || !_managedRuntimeState.GetGameServerIds().Contains(request.TargetGameServerId))
             {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Rejected Avatar migration Gate message because source Game does not match the request, avatarId={message.AvatarId}, migrationId={message.MigrationId}, sourceServerId={sourceServerId ?? "<null>"}, expectedSourceGameServerId={message.SourceGameServerId}.");
+                DELogger.Error(nameof(GateServerRuntimeState),
+                    $"Rejected Avatar migration association, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
                 return false;
             }
 
-            if (!string.Equals(message.GateServerId, _managedRuntimeState.ServerId, StringComparison.Ordinal))
+            // Completed identities are retained so delayed commands cannot resurrect a route after A -> B -> A.
+            if (_completedGateAvatarMigrations.TryGetValue(request.MigrationId, out var completed))
             {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Rejected Avatar migration Gate message because target Gate does not match the current Gate, avatarId={message.AvatarId}, migrationId={message.MigrationId}, targetGateServerId={message.GateServerId}, currentGateServerId={_managedRuntimeState.ServerId}.");
+                return GameServerRuntimeState.IsSameMigration(completed, request)
+                    && (request.Command == AvatarMigrationCommand.MigrationStart || completed.Success == request.Success);
+            }
+
+            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account)
+                || !string.Equals(account.GameServerId, request.SourceGameServerId, StringComparison.Ordinal)
+                || (account.ClientSessionId != 0 && account.ClientSessionId != request.ClientSessionId))
+            {
+                DELogger.Error(nameof(GateServerRuntimeState),
+                    $"Rejected Avatar migration route or session, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
                 return false;
             }
 
-            switch (message.Command)
+            if (_gateAvatarMigrations.TryGetValue(request.AvatarId, out var context))
             {
-            case AvatarMigrationCommand.FreezeRoute:
-                return HandleFreezeRoute(message);
-            case AvatarMigrationCommand.CommitRoute:
-                return HandleCommitRoute(message);
-            case AvatarMigrationCommand.RollbackRoute:
-                return HandleRollbackRoute(message);
+                if (!GameServerRuntimeState.IsSameMigration(context.Message, request))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                // A drain receipt may complete an existing handoff, but cannot start one.
+                if (request.Command == AvatarMigrationCommand.SourceInputDrained)
+                {
+                    return false;
+                }
+                context = new GateAvatarMigrationContext
+                {
+                    Message = request,
+                    Flags = request.Command == AvatarMigrationCommand.MigrationStart
+                        ? GateAvatarMigrationFlags.TeleportStart : GateAvatarMigrationFlags.TeleportStop,
+                };
+                _gateAvatarMigrations.Add(request.AvatarId, context);
+                if (request.Command == AvatarMigrationCommand.MigrationEnd)
+                {
+                    _gateAvatarClientForwarders.Add(request.AvatarId);
+                }
+
+                return true;
+            }
+
+            switch (request.Command)
+            {
+            case AvatarMigrationCommand.MigrationStart:
+                return HandleMigrationStart(context, account);
+            case AvatarMigrationCommand.MigrationEnd:
+                return HandleMigrationEnd(context, account, request);
+            case AvatarMigrationCommand.SourceInputDrained:
+                if (context.Message.Command == AvatarMigrationCommand.MigrationEnd && !context.Message.Success)
+                {
+                    return false;
+                }
+                context.SourceInputDrained = true;
+                return CompleteGateMigration(context, account);
             default:
-                DELogger.Error(nameof(GateServerRuntimeState), $"Rejected unsupported Avatar migration Gate command, avatarId={message.AvatarId}, migrationId={message.MigrationId}, command={message.Command}.");
                 return false;
             }
         }
 
-        internal bool TryQueueAvatarProxyRpc(Guid avatarId, string sourceServerId, byte[] payload)
-        {
-            return TryQueueAvatarMessage(
-                avatarId,
-                QueuedAvatarMigrationMessageKind.ServerRpcToGame,
-                sourceServerId,
-                payload
-            );
-        }
-
-        internal bool TryQueueServerAvatarRpc(Guid avatarId, string sourceServerId, byte[] payload)
-        {
-            return TryQueueAvatarMessage(
-                avatarId,
-                QueuedAvatarMigrationMessageKind.AvatarRpcToClient,
-                sourceServerId,
-                payload
-            );
-        }
-
-        internal void ClearGateAvatarImmigrations()
-        {
-            _gateAvatarMigrations.Clear();
-        }
-
-        internal bool IsAvatarMigrationRouteFrozen(Guid avatarId)
+        internal bool IsAvatarMigrating(Guid avatarId)
         {
             return _gateAvatarMigrations.ContainsKey(avatarId);
         }
 
-        private bool HandleFreezeRoute(AvatarMigrationMessage request)
-        {
-            if (request == null)
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), "Failed to freeze Avatar route because migration request is null.");
-                return false;
-            }
-
-            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to freeze Avatar route because route does not exist, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteFrozen, false, "Avatar route does not exist");
-            }
-
-            if (account.LastMigrationId == request.MigrationId)
-            {
-                var command = account.LastMigrationCommitted
-                    ? AvatarMigrationCommand.RouteCommitted
-                    : AvatarMigrationCommand.RouteRolledBack;
-                return SendGateResponse(request, command, true);
-            }
-
-            if (_gateAvatarMigrations.TryGetValue(request.AvatarId, out var existingContext))
-            {
-                var isSameMigration = GameServerRuntimeState.IsSameMigration(existingContext.Message, request);
-                if (!isSameMigration)
-                {
-                    DELogger.Error(nameof(GateServerRuntimeState), $"Failed to freeze Avatar route because another migration is active, avatarId={request.AvatarId}, migrationId={request.MigrationId}, activeMigrationId={existingContext.Message?.MigrationId}.");
-                }
-
-                return SendGateResponse(
-                    request,
-                    AvatarMigrationCommand.RouteFrozen,
-                    isSameMigration,
-                    isSameMigration ? string.Empty : "another migration is active"
-                );
-            }
-
-            if (!string.Equals(account.GameServerId, request.SourceGameServerId, StringComparison.Ordinal))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to freeze Avatar route because source Game is not the current route, avatarId={request.AvatarId}, migrationId={request.MigrationId}, sourceGameServerId={request.SourceGameServerId}, currentGameServerId={account.GameServerId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteFrozen, false, "source Game is not the current Avatar route");
-            }
-
-            _gateAvatarMigrations.Add(
-                request.AvatarId,
-                new GateAvatarMigrationContext
-                {
-                    Message = request,
-                }
-            );
-            return SendGateResponse(request, AvatarMigrationCommand.RouteFrozen, true);
-        }
-
-        private bool HandleCommitRoute(AvatarMigrationMessage request)
-        {
-            if (request == null)
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), "Failed to commit Avatar route because migration request is null.");
-                return false;
-            }
-
-            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to commit Avatar route because route does not exist, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, false, "Avatar route does not exist");
-            }
-
-            if (account.LastMigrationId == request.MigrationId)
-            {
-                if (account.LastMigrationCommitted)
-                {
-                    return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, true);
-                }
-            }
-
-            if (!_gateAvatarMigrations.TryGetValue(request.AvatarId, out var context))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to commit Avatar route because route is not frozen, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, false, "migration route is not frozen");
-            }
-
-            if (!GameServerRuntimeState.IsSameMigration(context.Message, request))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to commit Avatar route because request does not match frozen migration, avatarId={request.AvatarId}, migrationId={request.MigrationId}, frozenMigrationId={context.Message?.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, false, "migration request does not match frozen route");
-            }
-
-            if (!FlushGateQueue(context, true, account.ClientSessionId))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to commit Avatar route because queued messages could not be flushed, avatarId={request.AvatarId}, migrationId={request.MigrationId}, queuedMessageCount={context.Messages.Count}.");
-                return false;
-            }
-
-            account.GameServerId = request.TargetGameServerId;
-            account.LastMigrationId = request.MigrationId;
-            account.LastMigrationCommitted = true;
-            _gateAvatarMigrations.Remove(request.AvatarId);
-            return SendGateResponse(request, AvatarMigrationCommand.RouteCommitted, true);
-        }
-
-        private bool HandleRollbackRoute(AvatarMigrationMessage request)
-        {
-            if (request == null)
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), "Failed to roll back Avatar route because migration request is null.");
-                return false;
-            }
-
-            if (!AvatarIdToAccount.TryGetValue(request.AvatarId, out var account))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to roll back Avatar route because route does not exist, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, false, "Avatar route does not exist");
-            }
-
-            if (account.LastMigrationId == request.MigrationId)
-            {
-                if (!account.LastMigrationCommitted)
-                {
-                    return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, true);
-                }
-            }
-
-            if (!_gateAvatarMigrations.TryGetValue(request.AvatarId, out var context))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to roll back Avatar route because route is not frozen, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, false, "migration route is not frozen");
-            }
-
-            if (!GameServerRuntimeState.IsSameMigration(context.Message, request))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to roll back Avatar route because request does not match frozen migration, avatarId={request.AvatarId}, migrationId={request.MigrationId}, frozenMigrationId={context.Message?.MigrationId}.");
-                return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, false, "migration request does not match frozen route");
-            }
-
-            if (!FlushGateQueue(context, false, account.ClientSessionId))
-            {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to roll back Avatar route because queued messages could not be flushed, avatarId={request.AvatarId}, migrationId={request.MigrationId}, queuedMessageCount={context.Messages.Count}.");
-                return false;
-            }
-
-            account.GameServerId = request.SourceGameServerId;
-            account.LastMigrationId = request.MigrationId;
-            account.LastMigrationCommitted = false;
-            _gateAvatarMigrations.Remove(request.AvatarId);
-            return SendGateResponse(request, AvatarMigrationCommand.RouteRolledBack, true);
-        }
-
-        private bool TryQueueAvatarMessage(
-            Guid avatarId,
-            QueuedAvatarMigrationMessageKind kind,
-            string sourceServerId,
-            byte[] payload)
+        private bool TryBufferAvatarClientInput(Guid avatarId, byte[] payload)
         {
             if (!_gateAvatarMigrations.TryGetValue(avatarId, out var context))
             {
                 return false;
             }
 
-            context.Messages.Enqueue(
-                new QueuedAvatarMigrationMessage
-                {
-                    Kind = kind,
-                    SourceServerId = sourceServerId ?? string.Empty,
-                    Payload = payload == null ? Array.Empty<byte>() : (byte[])payload.Clone(),
-                }
-            );
+            // HandleClientAvatarRpc owns this freshly serialized payload. Ghost forwards use a separate
+            // relay entry and must keep flowing so they precede the source's drain receipt.
+            context.ClientInputs.Enqueue(payload);
             return true;
         }
 
-        private bool FlushGateQueue(GateAvatarMigrationContext context, bool commit, ulong clientSessionId)
+        internal bool TryBufferAvatarClientRpc(Guid avatarId, string sourceServerId, byte[] payload)
         {
-            if (context == null)
+            if (!_gateAvatarMigrations.TryGetValue(avatarId, out var context)
+                || !_gateAvatarClientForwarders.Contains(avatarId))
             {
-                DELogger.Error(nameof(GateServerRuntimeState), "Failed to flush Avatar migration queue because migration context is null.");
                 return false;
             }
 
-            while (context.Messages.Count > 0)
+            var outputGame = context.Message.Success ? context.Message.TargetGameServerId : context.Message.SourceGameServerId;
+            if (!string.Equals(sourceServerId, outputGame, StringComparison.Ordinal))
             {
-                var message = context.Messages.Peek();
-                if (message == null)
-                {
-                    DELogger.Error(nameof(GateServerRuntimeState), $"Failed to flush Avatar migration queue because queued message is null, avatarId={context.Message?.AvatarId}, migrationId={context.Message?.MigrationId}.");
-                    return false;
-                }
-
-                bool sent;
-                switch (message.Kind)
-                {
-                case QueuedAvatarMigrationMessageKind.ServerRpcToGame:
-                    sent = NativeAPI.SendServerRpcToServer(
-                        commit ? context.Message.TargetGameServerId : context.Message.SourceGameServerId,
-                        message.Payload
-                    );
-                    break;
-                case QueuedAvatarMigrationMessageKind.AvatarRpcToClient:
-                    if (clientSessionId == 0)
-                    {
-                        DELogger.Error(nameof(GateServerRuntimeState), $"Discarded queued Avatar RPC to Client because client session is unavailable, avatarId={context.Message.AvatarId}, migrationId={context.Message.MigrationId}.");
-                        context.Messages.Dequeue();
-                        continue;
-                    }
-
-                    if (!commit)
-                    {
-                        if (!string.Equals(message.SourceServerId, context.Message.SourceGameServerId, StringComparison.Ordinal))
-                        {
-                            DELogger.Error(nameof(GateServerRuntimeState), $"Discarded queued Avatar RPC to Client during rollback because it originated from target Game, avatarId={context.Message.AvatarId}, migrationId={context.Message.MigrationId}, messageSourceServerId={message.SourceServerId}, sourceGameServerId={context.Message.SourceGameServerId}.");
-                            context.Messages.Dequeue();
-                            continue;
-                        }
-                    }
-
-                    sent = NativeAPI.SendAvatarRpcToClient(clientSessionId, message.Payload);
-                    break;
-                default:
-                    DELogger.Error(nameof(GateServerRuntimeState), $"Failed to flush Avatar migration queue because message kind is unsupported, avatarId={context.Message?.AvatarId}, migrationId={context.Message?.MigrationId}, messageKind={message.Kind}.");
-                    return false;
-                }
-
-                if (!sent)
-                {
-                    DELogger.Error(nameof(GateServerRuntimeState), $"Failed to send queued Avatar migration message, avatarId={context.Message.AvatarId}, migrationId={context.Message.MigrationId}, messageKind={message.Kind}, commit={commit}.");
-                    return false;
-                }
-
-                context.Messages.Dequeue();
+                // The old source channel may still deliver output preceding MigrationStart; it must pass through first.
+                return false;
             }
 
+            if (AvatarIdToAccount.TryGetValue(avatarId, out var account) && account.ClientSessionId == 0)
+            {
+                DELogger.Info(nameof(GateServerRuntimeState),
+                    $"Discarded migration output for a disconnected client, avatarId={avatarId}, migrationId={context.Message.MigrationId}.");
+                return true;
+            }
+
+            // KBEngine 2.5.12 BaseMessagesForwardClientHandler::pushMessages: only End-before-Start buffers client output.
+            context.ClientMessages.Enqueue(payload == null ? Array.Empty<byte>() : (byte[])payload.Clone());
             return true;
         }
 
-        private bool SendGateResponse(
-            AvatarMigrationMessage request,
-            AvatarMigrationCommand command,
-            bool success,
-            string error = null)
+        internal void ClearGateAvatarImmigrations()
         {
-            var response = request.CreateResponse(command, success, error);
-            var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(
-                request.SourceGameServerId,
-                response
-            );
-            var sent = NativeAPI.SendSystemCommandToServer(request.SourceGameServerId, payload);
-            if (!sent)
+            _gateAvatarMigrations.Clear();
+            _completedGateAvatarMigrations.Clear();
+            _gateAvatarClientForwarders.Clear();
+        }
+
+        private bool HandleMigrationStart(GateAvatarMigrationContext context, AvatarAccount account)
+        {
+            // KBEngine 2.5.12 Entity::onMigrationCellappStart: meet TELEPORT_STOP or record TELEPORT_START, without an ACK.
+            if (context.Message.Command == AvatarMigrationCommand.MigrationEnd)
             {
-                DELogger.Error(nameof(GateServerRuntimeState), $"Failed to send Avatar migration Gate response, avatarId={request.AvatarId}, migrationId={request.MigrationId}, command={command}, success={success}, sourceGameServerId={request.SourceGameServerId}.");
+                context.Flags &= ~GateAvatarMigrationFlags.TeleportStop;
+                return CompleteGateMigration(context, account);
             }
 
-            return sent;
+            context.Flags |= GateAvatarMigrationFlags.TeleportStart;
+            return true;
+        }
+
+        private bool HandleMigrationEnd(GateAvatarMigrationContext context, AvatarAccount account, AvatarMigrationMessage request)
+        {
+            if (context.Message.Command == AvatarMigrationCommand.MigrationEnd && context.Message.Success != request.Success)
+            {
+                DELogger.Error(nameof(GateServerRuntimeState),
+                    $"Rejected contradictory migration result, avatarId={request.AvatarId}, migrationId={request.MigrationId}.");
+                return false;
+            }
+
+            context.Message = request;
+            // KBEngine 2.5.12 Entity::onMigrationCellappEnd: Start already arrived, or create the client forwarding handler.
+            if ((context.Flags & GateAvatarMigrationFlags.TeleportStart) != 0)
+            {
+                context.Flags &= ~GateAvatarMigrationFlags.TeleportStart;
+                return CompleteGateMigration(context, account);
+            }
+
+            // A duplicate End either still awaits Start, or repeats an unsuccessful forwarding/send operation.
+            return (context.Flags & GateAvatarMigrationFlags.TeleportStop) != 0 || CompleteGateMigration(context, account);
+        }
+
+        private bool CompleteGateMigration(GateAvatarMigrationContext context, AvatarAccount account)
+        {
+            // Keep the KBE rendezvous; only successful handoffs additionally wait for source input drain.
+            if (context.Message.Command != AvatarMigrationCommand.MigrationEnd || context.Flags != GateAvatarMigrationFlags.None
+                || (context.Message.Success && !context.SourceInputDrained))
+            {
+                return true;
+            }
+
+            // KBEngine BaseMessagesForwardClientHandler::process / Entity::onBufferedForwardToClientMessagesOver:
+            // drain the earlier target output before onMigrationCellappOver changes the associated Cell/Game.
+            while (context.ClientMessages.Count > 0)
+            {
+                if (account.ClientSessionId == 0)
+                {
+                    DELogger.Info(nameof(GateServerRuntimeState),
+                        $"Discarded queued migration output for a disconnected client, avatarId={context.Message.AvatarId}.");
+                    context.ClientMessages.Dequeue();
+                    continue;
+                }
+
+                if (!NativeAPI.SendAvatarRpcToClient(account.ClientSessionId, context.ClientMessages.Peek()))
+                {
+                    DELogger.Error(nameof(GateServerRuntimeState),
+                        $"Failed to forward migration output, avatarId={context.Message.AvatarId}, migrationId={context.Message.MigrationId}.");
+                    return false;
+                }
+
+                context.ClientMessages.Dequeue();
+            }
+
+            var request = context.Message;
+            var targetGame = request.Success ? request.TargetGameServerId : request.SourceGameServerId;
+            var response = request.CreateResponse(AvatarMigrationCommand.MigrationOver, request.Success, request.Error);
+            var payload = AvatarMigrationProtocol.BuildSystemCommandPayload(targetGame, response);
+            // KBEngine 2.5.12 Entity::onMigrationCellappOver sends reqTeleportToCellAppOver before replacing cellEntityCall's ID.
+            if (!NativeAPI.SendSystemCommandToServer(targetGame, payload))
+            {
+                DELogger.Error(nameof(GateServerRuntimeState),
+                    $"Failed to send MigrationOver, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetGame={targetGame}.");
+                return false;
+            }
+
+            // All old Ghost forwards were sent on this same Gate -> target session before the drain
+            // receipt was processed. Send the FIFO before removing the context and resuming direct input.
+            while (context.ClientInputs.Count > 0)
+            {
+                if (!NativeAPI.SendServerRpcToServer(targetGame, context.ClientInputs.Peek()))
+                {
+                    DELogger.Error(nameof(GateServerRuntimeState),
+                        $"Failed to forward migration input, avatarId={request.AvatarId}, migrationId={request.MigrationId}, targetGame={targetGame}.");
+                    return false;
+                }
+
+                context.ClientInputs.Dequeue();
+            }
+
+            account.GameServerId = targetGame;
+            account.LastMigrationId = request.MigrationId;
+            account.LastMigrationCommitted = request.Success;
+            _completedGateAvatarMigrations.Add(request.MigrationId, request);
+            _gateAvatarClientForwarders.Remove(request.AvatarId);
+            _gateAvatarMigrations.Remove(request.AvatarId);
+            return true;
         }
     }
 }

@@ -20,7 +20,7 @@ namespace DE.Server.Entities
         /// <summary>该 Guid 已注册，但对应的 Avatar 实例与传入实例不同。</summary>
         AvatarInstanceMismatch,
 
-        /// <summary>Avatar 正处于迁移中，不能同时执行本地传送；本地传送仅允许 Idle、Completed、Failed 状态。</summary>
+        /// <summary>Avatar 是 Ghost 或尚未收到 MigrationOver；只有 Real 可以再次传送。</summary>
         ImmigrationInProgress,
 
         /// <summary>目标绑定当前 Game，但其实体 ID 不存在于本地实体注册表中。</summary>
@@ -38,22 +38,25 @@ namespace DE.Server.Entities
         /// <summary>原场景的 Leave 返回失败，未继续尝试进入目标场景。</summary>
         LeaveSourceSpaceFailed,
 
-        /// <summary>目标场景的 Enter 返回失败；已恢复原场景，原本没有场景的 Avatar 则继续保持无场景状态。</summary>
+        /// <summary>目标场景的 CanEnter 拒绝入场；已恢复原场景，原本没有场景的 Avatar 则保持无场景状态。</summary>
         EnterTargetSpaceFailed,
 
-        /// <summary>目标场景入场失败后，重新进入原场景也失败；Avatar 当前未属于任何场景，需要调用方处理。</summary>
+        /// <summary>目标拒绝入场，原场景也未通过 CanEnter；Avatar 当前没有场景，需要调用方处理。</summary>
         RestoreSourceSpaceFailed,
-
-        /// <summary>跨 Game 迁移仅允许从 Idle 开始；迁移中及 Completed、Failed 终态都不能再次发起迁移。</summary>
-        ImmigrationStateNotIdle,
 
         /// <summary>Avatar 的 IsAllowImmigrate 返回 false，禁止跨 Game 迁移。</summary>
         ImmigrationNotAllowed,
 
-        /// <summary>Avatar 的 Gate Proxy 无效，无法向 OwnerGate 发起跨 Game 路由冻结。</summary>
+        /// <summary>Avatar 的 Gate Proxy 无效，无法通知 OwnerGate 并中继跨 Game 迁移。</summary>
         InvalidAvatarProxy,
 
-        /// <summary>首个 FreezeRoute 请求发送失败；已移除源迁移上下文并将 Avatar 状态置为 Failed。</summary>
-        FreezeRouteRequestFailed,
+        /// <summary>MigrationStart 发送失败，源 Avatar 尚未改变角色或离场。</summary>
+        MigrationStartRequestFailed,
+
+        /// <summary>迁移快照准备失败；已尝试恢复源 Avatar。</summary>
+        MigrationSnapshotFailed,
+
+        /// <summary>TeleportToGame 发送失败；已尝试恢复源 Avatar。</summary>
+        TransferRequestFailed,
     }
 }

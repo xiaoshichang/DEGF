@@ -137,9 +137,7 @@ namespace DE.Server.Entities
         private bool BeginSpaceRequest(int spaceNo, Guid spaceId)
         {
             if (_spaceRequest != null || !Proxy.IsValid
-                || (Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Idle
-                    && Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Completed
-                    && Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Failed))
+                || Avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Real)
             {
                 return false;
             }
@@ -201,12 +199,6 @@ namespace DE.Server.Entities
             if (CurrentSpace != null && CurrentSpace.Guid == space.EntityId)
             {
                 NotifySpaceEnterFailed($"Space allocation returned the current Space, spaceId={space.EntityId}");
-                return;
-            }
-            if (Avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.Completed && space.BindingGame != MailBox.BindingGame)
-            {
-                NotifySpaceEnterFailed($"Cannot start another cross-Game migration after completion, "
-                    + $"targetSpaceId={space.EntityId}, targetGame={space.BindingGame}");
                 return;
             }
             var runtime = ManagedRuntimeState.RequireCurrentGameServerRuntimeState();

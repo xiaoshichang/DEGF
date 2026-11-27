@@ -118,7 +118,7 @@ namespace DE.Server.Entities
                 DELogger.Error(nameof(ServerSpaceAOIComponent), $"Cannot remove a null entity from AOI, spaceId={OwnerEntity.Guid}.");
                 return false;
             }
-            // Prepared migration candidates may leave without ever becoming visible.
+            // A failed entry may need cleanup before an AOI agent has been installed.
             if (!Contains(entity.Guid))
             {
                 return false;

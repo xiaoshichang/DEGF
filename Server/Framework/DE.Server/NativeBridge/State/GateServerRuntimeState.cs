@@ -94,7 +94,7 @@ namespace DE.Server.NativeBridge
             var avatarId = GenerateStableAvatarId(accountName);
 
             if (AccountToAvatarId.TryGetValue(accountName, out var migratingAvatarId)
-                && IsAvatarMigrationRouteFrozen(migratingAvatarId))
+                && IsAvatarMigrating(migratingAvatarId))
             {
                 return NativeAPI.SendAvatarLoginRsp(
                     clientSessionId,
@@ -282,7 +282,7 @@ namespace DE.Server.NativeBridge
                 NotifyAvatarClientDetached(avatarAccount, AvatarClientDetachReason.Disconnected);
             }
 
-            if (IsAvatarMigrationRouteFrozen(avatarId))
+            if (IsAvatarMigrating(avatarId))
             {
                 avatarAccount.ClientSessionId = 0;
                 DELogger.Info(
@@ -334,12 +334,9 @@ namespace DE.Server.NativeBridge
                 MethodId = clientRpc.MethodId,
                 ArgsPayload = clientRpc.ArgsPayload,
             }.Serialize();
-            if (TryQueueAvatarProxyRpc(avatarId, _managedRuntimeState.ServerId, managedPayload))
-            {
-                return true;
-            }
 
-            return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, managedPayload);
+            return TryBufferAvatarClientInput(avatarId, managedPayload)
+                || NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, managedPayload);
         }
 
         public bool HandleServerAvatarRpc(string sourceServerId, byte[] payload)
@@ -354,7 +351,7 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            if (TryQueueServerAvatarRpc(avatarId, sourceServerId, payload))
+            if (TryBufferAvatarClientRpc(avatarId, sourceServerId, payload))
             {
                 return true;
             }
@@ -423,10 +420,6 @@ namespace DE.Server.NativeBridge
                 "OnAvatarClientDetached",
                 new object[] { avatarAccount.ClientSessionId, reason }
             );
-            if (TryQueueAvatarProxyRpc(avatarAccount.AvatarId, _managedRuntimeState.ServerId, payload))
-            {
-                return true;
-            }
 
             return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, payload);
         }
@@ -475,10 +468,6 @@ namespace DE.Server.NativeBridge
                 return false;
             }
 
-            if (TryQueueAvatarProxyRpc(serverRpc.EntityId, sourceServerId, payload))
-            {
-                return true;
-            }
 
             return NativeAPI.SendServerRpcToServer(avatarAccount.GameServerId, payload);
         }

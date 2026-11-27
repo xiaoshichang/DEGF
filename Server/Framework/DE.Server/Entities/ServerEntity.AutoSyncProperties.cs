@@ -109,9 +109,8 @@ namespace DE.Server.Entities
             {
                 return false;
             }
-            return avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.Idle
-                || avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.Completed
-                || avatar.ImmigateCmpt.ImmigrationState == AvatarImmigrationState.Failed;
+            // KBE's target is Real even while TELEPORT_START blocks another teleport.
+            return avatar.ImmigateCmpt.ImmigrationState != AvatarImmigrationState.Ghost;
         }
 
         internal void SynchronizeProperties(GameServerRuntimeState runtime, bool ownerOnly = false)

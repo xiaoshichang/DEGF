@@ -13,7 +13,7 @@
 
 1. GM 控制集群启动、关闭、节点状态、统计、Stub 分配和 GM 指令分发。
 2. Game 承载 C# 实体和业务逻辑。Game 之间不直连，跨 Game 通信必须经过 Gate 转发。
-3. Gate 负责账号鉴权、客户端连接管理、消息转发，以及 Avatar 的动态路由和迁移期间的消息缓存。
+3. Gate 负责账号鉴权、客户端连接管理、消息转发，以及 Avatar 动态路由、迁移期间的客户端输入缓存和 Start / End 逆序时的客户端输出缓存。
 
 集群启动先由 GM 向全部 Game / Gate 下发 Stub 分配表；Game 收到后连接全部 Gate，完成内网注册后上报 `GameNetworkReadyNtf`。
 GM 等全部 Game 网络就绪、全部 Gate 确认分配表后，发送 `AllNodeReadyNtf` 启动 Stub 初始化，保证跨 Game 创建空间时路由已可用。
@@ -29,7 +29,19 @@ GM 等全部 Game 网络就绪、全部 Gate 确认分配表后，发送 `AllNod
   客户端选择业务 Avatar 继承链的根类型作为普通 Avatar，再选择其唯一业务派生分支作为 PlayerAvatar；无派生类型时回退到普通 Avatar。
   服务器类型名通过将客户端类名中的 `Client` 替换为 `Server` 建立对应，PlayerAvatar 分支不注册为观察者实体。
   Space 使用 `DemoServerSpaceEntity`、`DemoClientSpaceEntity` 对应；空间加载回调仅由 PlayerAvatar 安装，反射创建的客户端业务实体需添加 Preserve。
-- `ServerAvatarImmigateComponent` 封装 Avatar 迁移状态；`ServerAvatarSpaceComponent` 封装空间出入、请求及 `SpaceId` / `SpaceNo`；Transform 组件封装位置和旋转；
+- `ServerAvatarImmigateComponent` 封装 Avatar 的 `Real` / `Ghost` / `Teleporting` 迁移角色，依据 KBEngine 2.5.12；
+  `ServerAvatarSpaceComponent` 封装空间出入、请求及 `SpaceId` / `SpaceNo`；Transform 组件封装位置和旋转。
+  源迁移时转成 Ghost，把收到的 RPC 按指定目标 Game 的 MailBox 经 Gate 转发；目标恢复并预校验后按 MigrationEnd、void Enter、TeleportResult 顺序交接。
+  OwnerGate 会合 MigrationStart / MigrationEnd；成功路径另等源 SourceInputDrained，再发送 MigrationOver、按 FIFO 释放客户端输入并切换关联。
+  目标从 Teleporting 变为 Real；源收到成功 TeleportResult 后删除 Ghost，并经同一 OwnerGate 会话发送排空确认。
+  失败源恢复快照及 Real，向 Gate 发送失败 MigrationEnd 后重新入原 Space；源上下文保留到恢复回调结束，阻止同步重入。
+  成功或失败恢复为 Real 且本次处理结束后均可再次传送。
+  Gate 从 Start 起缓存新客户端输入，旧输入继续经 Ghost 转发；复用 TeleportResult 排空源输入，成功迁移时保证同一客户端 RPC 调用保序。
+  该保证依赖会话连续有效、顺序发送和串行分发，是 DEGF 扩展；不修改 KBE Avatar 角色，不覆盖异步任务完成顺序。
+  Server → Avatar 输入不冻结，输入与输出分队列；失败路径只会合 Start / End 并向源释放新输入，已转发的旧 RPC 仍可能丢失或乱序。
+  源对象删除后保留 5 秒转发路由处理旧 MailBox；不增加迁移重试定时器、自动重发、应用级 RPC ACK 或容灾协议。
+  迁移内部协议 v3 使用 MigrationStart、TeleportToGame、TeleportResult、MigrationEnd、MigrationOver、SourceInputDrained，集群节点需同版；外层消息不变。
+  各状态及 Gate 会合标志见 `Docs/AvatarEntityImmigrationDesign.md` 的 KBEngine 固定版本源码表。
 - `EntityPropertyAttribute`、`EntityComponentAttribute` 和 `EntityPropertyFlag` 统一由 `DE.Share/Entities` 定义，命名空间为 `DE.Share.Entities`；实体是属性树根，`Guid` 是根属性，标注 `[EntityComponent]` 的组件持有属性构成子节点。
   组件通过 `AddComponent(component)` 装配；SG 根据 `[EntityComponent]` 持有属性生成组件实例到属性名哈希的引用路由，继承类继续调用基类路由。
   继承链中的属性平铺在当前节点，组件类名不参与协议标识，组件不保存持有属性名称。
@@ -52,7 +64,7 @@ GM 等全部 Game 网络就绪、全部 Gate 确认分配表后，发送 `AllNod
   本地属性回调仍按实际赋值执行；网络不记录中间值，不保证跨属性变化顺序，序号仅用于诊断和迁移延续。
   接收端完整验证后直接写后备字段，不触发 `OnBeforeXChange` / `OnAfterXChange`，随后通过 `OnPropertiesApplied` 通知业务。
   客户端依赖有序传输按接收顺序应用 Patch，不维护同步基线，不去重或检查序号缺口；服务器没有接收 Patch 的入口。
-  空间周期同步处理 `AutoSyncProperty` 开启且迁移状态允许同步的成员 Avatar，发给 Owner 及 AOI 观察者；不扫描全局实体或 Stub。
+  空间周期同步处理 `AutoSyncProperty` 开启且为 Real 或 Teleporting 的成员 Avatar，发给 Owner 及 AOI 观察者；Ghost 不同步，不扫描全局实体或 Stub。
   每次同步一次性发送全部脏属性当前值，发送后清空脏标记，暂不处理发送失败或重试；不分 batch，属性写入和编解码按单线程顺序调用。
   普通 RPC 与属性同步不保证相互顺序，不增加通用强制刷新或跨通道排序机制；入场流程在生成入场快照前显式同步脏属性。
   迁移快照前同步脏属性并冻结源实体属性写入，目标从快照序号继续；回滚后恢复写入。单值上限 1 MiB、包上限 4 MiB、脏属性按单个 4 MiB 包预算约束，最多 65535 个路径。
@@ -75,13 +87,17 @@ GM 等全部 Game 网络就绪、全部 Gate 确认分配表后，发送 `AllNod
 - 空间实体在服务端命名为 `ServerSpaceEntity`，客户端对应 `ClientSpaceEntity`；`ClientEntityFactory` 映射双端类型名。
 - 服务器入场成功后调用客户端 `OnEnterSpace` RPC，传递空间、Owner 和可见实体的 `EntitySerializer` 数据，不定义场景专用快照或编解码器。
 - Game 发出创建响应后才执行会话绑定回调并主动入场；Gate 按连接顺序发送 LoginRsp 和后续 Avatar RPC，确保客户端先创建 Avatar。
-- 当前不处理重连和在途旧 RPC；Gate 不增加登录阶段的 RPC 缓存，服务器不通过重新绑定重发当前场景状态。
+- 当前不处理客户端重连和旧会话的在途 RPC；Gate 不增加登录阶段的 RPC 缓存，服务器不通过重新绑定重发当前场景状态。
 - 不等待客户端就绪 RPC；客户端仅在加载器设置前保留待加载场景和 AOI 变化，不缓存 Avatar 创建前的 RPC。
 - 服务器 Avatar 使用 `OnBeforeEnterSpace` / `OnAfterEnterSpace`、`OnBeforeLeaveSpace` / `OnAfterLeaveSpace` 回调。
-  普通入场在设置空间属性、加入 AOI 后，迁移入场在 Gate 提交路由、目标完成激活后，均在调用 `OnAfterEnterSpace` 前强制同步脏属性到 Owner 和 AOI 观察者。
+  普通及迁移入场均在设置空间属性、加入成员表和 AOI 后，调用 `OnAfterEnterSpace` 前强制同步脏属性到 Owner 和 AOI 观察者。
   `OnAfterEnterSpace` 检查没有待同步的脏属性，非空时抛出异常；检查通过后生成快照并发送一次入场通知，不额外同步或清空脏属性。
   暂不处理入场通知发送失败，不维护待通知队列或重试。
-- 迁移目标激活时只预留成员关系，Gate 提交路由后才注册 AOIAgent 并执行 `OnAfterEnterSpace`；AOI 不维护 Avatar 入场完成状态。
+- 空间以 bool CanEnter 预校验普通失败，void Enter 正式入场；业务回调及不变量异常外抛，不转成普通失败或假成功。
+  本地传送离场后目标 CanEnter 拒绝时，尝试原 Space 的 CanEnter 和 Enter 恢复；相关入场失败错误码表示预校验拒绝。
+- 迁移目标在同一 TeleportToGame 处理函数内完成恢复、预校验、注册，依次发送 MigrationEnd、执行 void Enter、发送成功 TeleportResult；
+  End 发布后的 Enter 异常外抛，不转换成失败回滚；End 本地发送返回 false 时仍执行 Enter，但不发成功结果，保留目标 Teleporting 和源 Ghost。
+  目标收到 MigrationOver 前为 Teleporting，可执行业务及属性同步但不能再次传送；AOI 不维护迁移完成状态。
 - `Teleport` 返回 `TeleportErrorCode`，由调用方记录错误或提示玩家；跨 Game 的 Success 仅表示迁移发起成功，后续结果由异步协议处理。
 - AOI 模型位于 `DE.Server/AOI`；Avatar 使用 `Entities/Avatar/ServerAvatarAOIAgentComponent`，Npc 暂不装配 AOI 组件；空间组件位于 `Entities/Space`。公共状态、移动和离场逻辑封装在 `AOIAgent` 中；模型通过 `AgentEventEnter`、`AgentEventLeave` 报告可见性变化。
 
